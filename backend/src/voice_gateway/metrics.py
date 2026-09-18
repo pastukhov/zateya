@@ -11,16 +11,22 @@ The MVP exposes the minimal metric set from ТЗ §34 on ``GET /metrics``:
     voice_notes_total{status}
     voice_active_turns
 
+plus the per-request middleware series (ТЗ §34):
+
+    voice_request_count_total{client_id,route,status}
+    voice_request_latency_seconds{endpoint,status}
+    voice_request_count_by_route_total{route}
+    voice_active_requests
+
 Label discipline (ТЗ §34): never put transcript, title, turn_id, error
-messages or arbitrary text in labels — the only label is the bounded
-``status`` enum (``success`` / stable ``ErrorCode`` values).
+messages or arbitrary text in labels — labels are bounded enums:
+``status`` (HTTP status codes), ``route``/``endpoint`` (route templates),
+and ``client_id`` (device id, bounded by the device fleet).
 
 Every metric set is created per app instance (``init_metrics``) so tests can
 use isolated registries and concurrent app instances never share counters.
 """
 from __future__ import annotations
-
-from typing import Iterable, Mapping
 
 from prometheus_client import (
     CollectorRegistry,
@@ -85,6 +91,35 @@ class VoiceMetrics:
         self.active_turns = Gauge(
             "voice_active_turns",
             "Voice turns currently being processed.",
+            registry=registry,
+        )
+
+        # ------------------------------------------------------------------
+        # Per-request metrics (ТЗ §34): one namespace per app instance,
+        # fed by the pure-ASGI metrics middleware (app.py).
+        # ------------------------------------------------------------------
+        self.request_count = Counter(
+            "voice_request_count_total",
+            "Total number of requests by client, route, and status.",
+            ("client_id", "route", "status"),
+            registry=registry,
+        )
+        self.request_count_by_route = Counter(
+            "voice_request_count_by_route_total",
+            "Total requests per route.",
+            ("route",),
+            registry=registry,
+        )
+        self.request_latency = Histogram(
+            "voice_request_latency_seconds",
+            "Request latency in seconds by endpoint and status.",
+            ("endpoint", "status"),
+            registry=registry,
+            buckets=_BUCKETS,
+        )
+        self.active_requests = Gauge(
+            "voice_active_requests",
+            "Number of requests currently being processed.",
             registry=registry,
         )
 

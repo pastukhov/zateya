@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import asyncio
 import os
-import struct
 import time
 import uuid
 from datetime import datetime, timezone
@@ -27,11 +26,15 @@ import anyio
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse, Response
 from prometheus_client import generate_latest
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from backend.common.error_codes import ErrorCode
 from backend.src.voice_gateway.health import check_live, check_ready
 from backend.src.voice_gateway.archive import (
-    ArchiveStore,
+    ArchiveError,
+    AudioFormat,
+    FilesystemArchiveStore,
+    MetadataArchiveStore,
     atomic_write_bytes,
     atomic_write_json,
 )
@@ -42,7 +45,7 @@ from backend.src.voice_gateway.hermes.stage import (
     HermesStageError,
     last_raw_response,
 )
-from backend.src.voice_gateway.metrics import init_metrics
+from backend.src.voice_gateway.metrics import VoiceMetrics, init_metrics
 from backend.src.voice_gateway.stt.base import STTProvider
 from backend.src.voice_gateway.stt.client import OpenAICompatibleSTT
 
@@ -59,6 +62,92 @@ def _ms(total_seconds: float) -> int:
     return int(round(total_seconds * 1000))
 
 
+def _route_label(scope: Scope) -> str:
+    """Bounded ``route`` label (ТЗ §34): the *route template* of the
+    matched endpoint (e.g. ``/api/v1/voice/turn``), never the raw path
+    with a turn id. Unmatched requests are labelled ``unknown``."""
+    route = scope.get("route")
+    path = getattr(route, "path", None)
+    if isinstance(path, str) and path:
+        return path
+    return "unknown"
+
+
+def record_request(metrics: VoiceMetrics, scope: Scope, status_code: int) -> None:
+    """Record the finished request in the per-request metric series (ТЗ §34).
+
+    Label discipline: ``route``/``endpoint`` are route templates (bounded by
+    the endpoint set), ``status`` is the HTTP status code, and ``client_id``
+    is the device id from ``X-Device-Id`` (bounded by the device fleet) with
+    the fleet's default fallback when the header is absent.
+    """
+    route = _route_label(scope)
+    status = str(status_code)
+    headers = dict(scope.get("headers", []))
+    raw = headers.get(b"x-device-id")
+    client_id = raw.decode("latin-1") if raw else ""
+    client_id = client_id.strip() or DEFAULT_DEVICE_ID
+    metrics.request_count.labels(
+        client_id=client_id, route=route, status=status).inc()
+    metrics.request_count_by_route.labels(route=route).inc()
+
+
+class MetricsMiddleware:
+    """Pure-ASGI per-request metrics middleware (ТЗ §34).
+
+    Implemented at the ASGI level — NOT ``BaseHTTPMiddleware`` — because
+    the ``/api/v1/voice/turn`` endpoint streams a chunked PCM body through
+    ``request.stream()`` and answers after finalization; the WSGI-style
+    wrapper buffers responses and breaks streaming-safe behaviour. The
+    middleware:
+
+    * increments ``voice_active_requests`` the moment the request starts
+      and decrements it on completion (``finally`` — also covers
+      disconnections and exceptions, so the gauge never leaks);
+    * on completion increments ``voice_request_count_total``
+      ``{client_id,route,status}`` and
+      ``voice_request_count_by_route_total{route}``, and observes
+      ``voice_request_latency_seconds{endpoint,status}``.
+
+    The matched-route template arrives in ``scope["route"].path`` once the
+    router has resolved the request; for 404/405 requests (no match) the
+    label falls back to ``unknown``.
+    """
+
+    def __init__(self, app: ASGIApp, metrics: VoiceMetrics) -> None:
+        self.app = app
+        self.metrics = metrics
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        self.metrics.active_requests.inc()
+        started = time.perf_counter()
+        status_code = 500  # default: set below once the response starts
+        try:
+            async def send_wrapper(message: Message) -> None:
+                nonlocal status_code
+                if message["type"] == "http.response.start":
+                    status_code = message["status"]
+                await send(message)
+
+            await self.app(scope, receive, send_wrapper)
+        finally:
+            # Decrement FIRST so a concurrent ``/metrics`` scrape issued
+            # while the response is still being sent sees the request as
+            # finished (the response body is already complete by the time
+            # the next client reads it; ordering with the counters below
+            # only affects a same-instant scrape, which is best-effort
+            # for a gauge by definition).
+            self.metrics.active_requests.dec()
+            record_request(self.metrics, scope, status_code)
+            self.metrics.request_latency.labels(
+                endpoint=_route_label(scope), status=str(status_code),
+            ).observe(max(0.0, time.perf_counter() - started))
+
+
 def _default_stt_provider() -> STTProvider | None:
     """Build the production STTProvider from environment config (ТЗ §20).
 
@@ -73,30 +162,6 @@ def _default_stt_provider() -> STTProvider | None:
     except STTConfigError:
         return None
     return OpenAICompatibleSTT(config)
-
-
-def pcm_to_wav(pcm_path: Path, wav_path: Path, sample_rate: int, channels: int) -> None:
-    """Wrap a raw PCM S16LE file in a minimal WAV header.
-
-    Streams in 1 MiB chunks — the full body is never resident in RAM
-    (ТЗ §17.2). The 44-byte header is written with placeholder sizes, the
-    PCM data is copied chunk-wise, then the sizes are patched in place.
-    """
-    pcm_bytes = pcm_path.stat().st_size
-    if pcm_bytes % 2 != 0:
-        raise ValueError("raw PCM S16LE must be an even number of bytes")
-    data_size = pcm_bytes
-    riff_size = 36 + data_size
-    with open(pcm_path, "rb") as src, open(wav_path, "wb") as dst:
-        dst.write(b"RIFF" + struct.pack("<I", riff_size) + b"WAVEfmt ")
-        dst.write(struct.pack("<IHHIIHH", 16, 1, channels, sample_rate,
-                              sample_rate * channels * 2, channels * 2, 16))
-        dst.write(b"data" + struct.pack("<I", data_size))
-        while True:
-            chunk = src.read(_STREAM_CHUNK)
-            if not chunk:
-                break
-            dst.write(chunk)
 
 
 def create_app(
@@ -126,9 +191,11 @@ def create_app(
     # isolated registries and concurrent apps never share counters.
     metrics = init_metrics()
 
-    # All archive access goes through the one ArchiveStore (M2-05): it owns
-    # the turn-directory layout (ТЗ §18) and the atomic metadata.json write.
-    store = ArchiveStore(root)
+    # All archive access goes through the archive package (M2-05):
+    # MetadataArchiveStore owns the turn-directory layout (ТЗ §18) and the
+    # atomic metadata.json write; per-turn raw PCM streaming goes through
+    # FilesystemArchiveStore instances (one per turn, card t_eb697c7e).
+    store = MetadataArchiveStore(root)
 
     # STT provider: explicit injection wins; otherwise fall back to the
     # env-configured production provider (ТЗ §20). Tests always inject a
@@ -201,20 +268,29 @@ def create_app(
         except ValueError:
             sample_rate, channels = DEFAULT_SAMPLE_RATE, DEFAULT_CHANNELS
 
-        # ТЗ §18: archive/YYYY/MM/DD/<turn-id>/ — owned by ArchiveStore.
-        # UTC date, so the partition is deterministic for a given instant.
-        # Captured ONCE and threaded through every save_metadata() call
-        # below: ArchiveStore.turn_dir() defaults to the LOCAL date when no
-        # ``day`` is given, so if a turn straddles local midnight while
-        # running under a non-UTC TZ (e.g. MSK, UTC+3) the two dates
-        # diverge and metadata.json would be written into a different
-        # day-directory than input.pcm/input.wav — never happens as long as
-        # every write reuses this same UTC day.
+        # ТЗ §18: archive/YYYY/MM/DD/<turn-id>/ — owned by the archive
+        # package. UTC date, so the partition is deterministic for a given
+        # instant. Captured ONCE and threaded through every store write
+        # below: turn_dir() defaults to the LOCAL date when no ``day`` is
+        # given, so if a turn straddles local midnight while running under
+        # a non-UTC TZ (e.g. MSK, UTC+3) the two dates diverge and
+        # metadata.json would be written into a different day-directory
+        # than input.pcm/input.wav — never happens as long as every write
+        # reuses this same UTC day.
         turn_day = datetime.now(timezone.utc).date()
         turn_dir = store.turn_dir(turn_id, day=turn_day)
-        turn_dir.mkdir(parents=True, exist_ok=True)
-        pcm_path = turn_dir / "input.pcm"
-        wav_path = turn_dir / "input.wav"
+
+        # Per-turn audio store (card t_eb697c7e): raw PCM is streamed to
+        # input.pcm as it arrives (ТЗ §17.2) and wrapped into input.wav at
+        # EOF (ТЗ §17.3). Constructed per turn — one instance == one turn.
+        turn_store = FilesystemArchiveStore(
+            turn_id,
+            root,
+            format=AudioFormat(sample_rate=sample_rate,
+                               bits_per_sample=16,
+                               channels=channels),
+            day=turn_day,
+        )
 
         def save_status(status: str, error: str | None = None,
                         input_bytes: int | None = None,
@@ -237,17 +313,21 @@ def create_app(
             store.save_metadata(turn_id, payload, day=turn_day)
 
         try:
-            with open(pcm_path, "wb") as pcm_file:
-                async for chunk in request.stream():
-                    pcm_file.write(chunk)
+            turn_store.open()
+            async for chunk in request.stream():
+                turn_store.write(chunk)
         except (asyncio.CancelledError, anyio.ClosedResourceError, anyio.EndOfStream,
-                OSError):
+                OSError, ArchiveError):
             # Client disconnected (or the stream broke) before EOF — ТЗ §32.
             # The client is gone: record the failure, never try to answer.
+            # close() (without finalize) flushes the raw PCM to disk as
+            # forensics and keeps the file in place (ТЗ §32).
             save_status(ErrorCode.AUDIO_RECEIVE_FAILED.value, "client disconnected before EOF")
+            turn_store.close()
             raise
         except Exception as exc:  # noqa: BLE001 — any other stream failure
             save_status(ErrorCode.INTERNAL_ERROR.value, f"stream error: {exc}")
+            turn_store.close()
             raise
 
         # Terminal-failure helper (ТЗ §13/§32): persist the failure metadata
@@ -259,6 +339,7 @@ def create_app(
                       audio_duration_ms_: int | None = None,
                       extra: dict | None = None) -> JSONResponse:
             """Persist the terminal failure and answer 502 JSON (ТЗ §13/§32)."""
+            turn_store.close()
             save_status(status, error, input_bytes_, audio_duration_ms_, extra=extra)
             metrics.turns_total.labels(status=status).inc()
             return JSONResponse(
@@ -267,7 +348,7 @@ def create_app(
                 media_type="application/json",
             )
 
-        input_bytes = pcm_path.stat().st_size
+        input_bytes = turn_store.bytes_written
 
         # ------------------------------------------------------------------
         # ТЗ §32: deterministic validation of the raw PCM S16LE contract
@@ -288,8 +369,9 @@ def create_app(
                 input_bytes, None)
 
         try:
-            pcm_to_wav(pcm_path, wav_path, sample_rate, channels)
+            turn_store.finalize()
         except Exception:
+            turn_store.close()
             save_status(ErrorCode.INTERNAL_ERROR.value, "wav finalization failed")
             raise HTTPException(status_code=500, detail=str(ErrorCode.INTERNAL_ERROR))
 
@@ -310,6 +392,7 @@ def create_app(
             # STT is not wired in for this app instance (no injected fake
             # and no STT_BASE_URL configured). Finalize the turn as a plain
             # ingest success — no STT/Hermes call, no fallback machinery.
+            turn_store.close()
             save_status("success", None, input_bytes, audio_duration_ms)
             metrics.turns_total.labels(status="success").inc()
             return Response(status_code=200, media_type="audio/wav",
@@ -319,7 +402,7 @@ def create_app(
         stt_start = time.perf_counter()
         metrics.active_turns.inc()
         try:
-            transcript = stt_provider.transcribe(wav_path)
+            transcript = stt_provider.transcribe(turn_store.input_wav_path)
         except Exception as exc:  # STTClientError + any unexpected STT break
             metrics.stt_duration.observe(max(0.0, time.perf_counter() - stt_start))
             metrics.active_turns.dec()
@@ -337,6 +420,7 @@ def create_app(
             # wiring Hermes in is a separate card's concern. The turn still
             # succeeds; the transcript is archived in both transcript.txt
             # and metadata.json.
+            turn_store.close()
             save_status("success", None, input_bytes, audio_duration_ms,
                         extra={"transcript": transcript.text})
             metrics.turns_total.labels(status="success").inc()
@@ -377,6 +461,7 @@ def create_app(
                           {"raw": raw, "reply": response.reply,
                            "note_create": response.note.create})
         atomic_write_bytes(turn_dir / "reply.txt", response.reply.encode("utf-8"))
+        turn_store.close()
         save_status("success", None, input_bytes, audio_duration_ms,
                     extra={"transcript": transcript.text, "reply": response.reply})
         metrics.turns_total.labels(status="success").inc()
@@ -385,6 +470,12 @@ def create_app(
         # this milestone answers plain 200 with no audio body (task spec).
         return Response(status_code=200, media_type="audio/wav",
                         headers={"X-Turn-Id": turn_id})
+
+    # Per-request metrics middleware (ТЗ §34): pure ASGI, registered
+    # last so it runs first (outermost) and sees the final response
+    # status for every request, including streaming endpoints.
+    app.state.metrics = metrics
+    app.add_middleware(MetricsMiddleware, metrics=metrics)
 
     return app
 
