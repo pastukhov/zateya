@@ -10,6 +10,7 @@ The MVP exposes the minimal metric set from ТЗ §34 on ``GET /metrics``:
     voice_tts_duration_seconds
     voice_notes_total{status}
     voice_active_turns
+    ACTIVE_REQUESTS
 
 Label discipline (ТЗ §34): never put transcript, title, turn_id, error
 messages or arbitrary text in labels — the only label is the bounded
@@ -85,6 +86,36 @@ class VoiceMetrics:
         self.active_turns = Gauge(
             "voice_active_turns",
             "Voice turns currently being processed.",
+            registry=registry,
+        )
+        # --- Per-request HTTP metrics (ТЗ §34) -------------------------
+        # Tracked by the per-request metrics middleware in app.py (a
+        # separate card). Label discipline: ``client_id`` comes from the
+        # X-Device-Id header, ``route``/``endpoint`` from the matched route
+        # template, ``status`` from the HTTP status code — never free-form
+        # user text.
+        self.requests_total = Counter(
+            "REQUEST_COUNT",
+            "Total number of HTTP requests by client, route, and status.",
+            ("client_id", "route", "status"),
+            registry=registry,
+        )
+        self.request_latency = Histogram(
+            "REQUEST_LATENCY",
+            "Per-request latency in seconds by endpoint and status.",
+            ("endpoint", "status"),
+            registry=registry,
+            buckets=_BUCKETS,
+        )
+        self.active_requests = Gauge(
+            "ACTIVE_REQUESTS",
+            "Number of HTTP requests currently being processed.",
+            registry=registry,
+        )
+        self.requests_by_route = Counter(
+            "REQUEST_COUNT_BY_ROUTE",
+            "Total number of HTTP requests by route.",
+            ("route",),
             registry=registry,
         )
 
