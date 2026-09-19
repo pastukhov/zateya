@@ -14,7 +14,7 @@
  *   PROCESSING   -> cyan, blinking
  *   PLAYBACK     -> green, blinking
  *   WIFI         -> blue, blinking
- *   ERROR        -> orange, fast blink
+ *   ERROR        -> red, fast blink (spec section 9: Error = мигающий красный)
  */
 static const led_mode_cfg_t LED_MODE_BY_STATE[6] = {
   [LED_STATE_WIFI] = {
@@ -43,7 +43,7 @@ static const led_mode_cfg_t LED_MODE_BY_STATE[6] = {
       .blink_duty_ms = LED_BLINK_DUTY_MS,
   },
   [LED_STATE_ERROR] = {
-      .color = LED_RGB_ORANGE,
+      .color = LED_RGB_RED,
       .blink_period_ms = LED_BLINK_PERIOD_MS / 2,
       .blink_duty_ms = LED_BLINK_DUTY_MS / 2,
   },
