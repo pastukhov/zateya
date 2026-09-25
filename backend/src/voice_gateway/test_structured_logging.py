@@ -169,10 +169,10 @@ def test_full_successful_turn_stage_events_carry_minimal_fields(tmp_path: Path, 
 
 
 def test_error_turn_stage_event_carries_bounded_status_and_error(tmp_path: Path, caplog):
-    """An STT failure must still produce a well-formed stt stage record."""
+    """A classified STT failure must produce a well-formed stage record."""
     class _FailingSTT(FakeSTT):
         def transcribe(self, wav):
-            raise RuntimeError("stt exploded")
+            raise STTClientError("stt exploded")
 
     app = create_app(
         archive_root=tmp_path / "archive",
