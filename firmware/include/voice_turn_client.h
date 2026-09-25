@@ -80,7 +80,7 @@ voice_turn_result_t voice_turn_client_tick(voice_turn_client_t *client,
 voice_turn_result_t voice_turn_client_cancel(voice_turn_client_t *client,
                                              uint64_t now_ms);
 
-/* Retry delays for the v2 status poll, in milliseconds. */
+/* Retry delays for the voice-turn status poll, in milliseconds. */
 uint32_t voice_turn_retry_delay_ms(unsigned failed_attempts);
 bool voice_turn_format_uuid(const uint8_t random_bytes[16], char *out,
                             size_t capacity);

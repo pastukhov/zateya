@@ -1,1 +1,1 @@
-"""Durable voice turn jobs for protocol v2."""
+"""Durable voice turn jobs."""

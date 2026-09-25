@@ -12,7 +12,6 @@
 #include "freertos/semphr.h"
 static SemaphoreHandle_t settings_mutex;
 static bool reset_pending;
-// Legacy NVS namespace "hermes" retains Wi-Fi, VPN, tokens and brightness across rebranding.
 #endif
 
 #ifndef VOICE_WIFI_SSID
@@ -70,16 +69,6 @@ bool voice_settings_parse_sleep_timeout(const char *value, uint32_t *seconds) {
   return true;
 }
 
-void voice_settings_migrate_gateway(voice_settings_t *s) {
-  if (!s) return;
-  const char *suffixes[] = {"/api/v1/voice/turn", "/api/v2/voice/turns"};
-  for (size_t i = 0; i < 2; ++i) {
-    size_t len = strlen(s->gateway_url), suffix = strlen(suffixes[i]);
-    if (len > suffix && strcmp(s->gateway_url + len - suffix, suffixes[i]) == 0)
-      s->gateway_url[len - suffix] = '\0';
-  }
-}
-
 bool voice_settings_valid(const voice_settings_t *s) {
   if (!s || !voice_wireguard_valid(&s->wireguard) || !voice_wifi_profiles_valid(s->wifi) || !s->device_id[0]) return false;
   const char *url = s->gateway_url;
@@ -110,7 +99,6 @@ esp_err_t voice_settings_load(voice_settings_t *s) {
   if (!settings_mutex) settings_mutex = xSemaphoreCreateMutex();
   if (!settings_mutex) return ESP_ERR_NO_MEM;
   defaults(s);
-  voice_settings_migrate_gateway(s);
   esp_err_t flash_err = nvs_flash_init();
   if (flash_err == ESP_ERR_NVS_NO_FREE_PAGES ||
       flash_err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
@@ -160,7 +148,6 @@ esp_err_t voice_settings_load(voice_settings_t *s) {
       sleep_seconds >= VOICE_SLEEP_MIN_SECONDS && sleep_seconds <= VOICE_SLEEP_MAX_SECONDS)
     s->sleep_timeout_seconds = sleep_seconds;
   nvs_close(h);
-  voice_settings_migrate_gateway(s);
   return ESP_OK;
 }
 
@@ -193,11 +180,6 @@ static esp_err_t save_unlocked(const voice_settings_t *s) {
   for (size_t i = 0; i < sizeof(fields) / sizeof(fields[0]); ++i) {
     err = nvs_set_str(h, fields[i].key, fields[i].value);
     if (err != ESP_OK) break;
-  }
-  // Remove the obsolete selector while preserving the rest of the namespace.
-  if (err == ESP_OK) {
-    esp_err_t obsolete = nvs_erase_key(h, "protocol_version");
-    if (obsolete != ESP_OK && obsolete != ESP_ERR_NVS_NOT_FOUND) err = obsolete;
   }
   if (err == ESP_OK) err = nvs_set_u32(h, "sleep_seconds", s->sleep_timeout_seconds);
   if (err == ESP_OK) err = nvs_set_u8(h, "wg_enabled", s->wireguard.enabled);

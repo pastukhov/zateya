@@ -35,22 +35,22 @@ from prometheus_client import Counter, generate_latest
 from backend.src.voice_gateway.metrics import init_metrics
 
 _CLIENT_ID = "test-client"
-_ROUTE = "/api/v2/voice/turns"
+_ROUTE = "/api/voice/turns"
 
 # prometheus_client appends ``_total`` to counter names (verified against the
 # installed prometheus_client): the sample line is
 # ``request_count_total{client_id=...,route=...,status=...} N.0``.
 _SUCCESS_2 = re.compile(
     r'^request_count_total\{[^}]*client_id="test-client"[^}]*'
-    r'route="/api/v2/voice/turns"[^}]*status="success"[^}]*\} 2\.0$',
+    r'route="/api/voice/turns"[^}]*status="success"[^}]*\} 2\.0$',
     re.MULTILINE)
 _SUCCESS_1 = re.compile(
     r'^request_count_total\{[^}]*client_id="test-client"[^}]*'
-    r'route="/api/v2/voice/turns"[^}]*status="success"[^}]*\} 1\.0$',
+    r'route="/api/voice/turns"[^}]*status="success"[^}]*\} 1\.0$',
     re.MULTILINE)
 _STT_FAILED_1 = re.compile(
     r'^request_count_total\{[^}]*client_id="test-client"[^}]*'
-    r'route="/api/v2/voice/turns"[^}]*status="stt_failed"[^}]*\} 1\.0$',
+    r'route="/api/voice/turns"[^}]*status="stt_failed"[^}]*\} 1\.0$',
     re.MULTILINE)
 
 

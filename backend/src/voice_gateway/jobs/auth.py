@@ -1,4 +1,4 @@
-"""Per-device bearer token mapping for protocol v2."""
+"""Per-device bearer token mapping for voice turns."""
 
 from __future__ import annotations
 

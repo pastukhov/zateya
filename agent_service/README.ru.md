@@ -30,4 +30,4 @@ Smoke-тест SDK отправляет реальный запрос Codex и �
 .venv/bin/python -m codex_voice.smoke
 ```
 
-`GET /health/live` проверяет, что процесс работает; `GET /health/ready` — готовность SDK и модели. Readiness не проверяет STT/TTS или аудио устройства. Оставляйте gateway на Hermes, пока явно не переключите provider и не проведёте end-to-end тест на устройстве.
+`GET /health/live` проверяет, что процесс работает; `GET /health/ready` — готовность SDK и модели. Readiness не проверяет STT/TTS или аудио устройства. Текущая установка использует `VOICE_AGENT_PROVIDER=codex`; после изменения сервиса проверьте голосовой ответ на устройстве.

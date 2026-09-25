@@ -7,7 +7,7 @@ Complete English guide set. Commands, API names, environment variables, and devi
 - [Project overview and quick start](../../README.en.md)
 - [Configure and flash the M5Stack StickS3](flash-sticks3.md)
 - [Architecture and voice request flow](architecture.md)
-- [HTTP protocol v1 and v2](protocol.md)
+- [Device HTTP protocol](protocol.md)
 
 ## Development and operations
 

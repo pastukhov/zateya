@@ -16,7 +16,7 @@ install -m 600 deploy/codex-voice-agent.env.example \
 
 Replace the example token before starting anything. Configure
 `VOICE_AGENT_PROVIDER=codex`, `CODEX_AGENT_URL=http://127.0.0.1:8765`, and the
-matching `CODEX_AGENT_TOKEN` in the gateway environment. For protocol v2, set
+matching `CODEX_AGENT_TOKEN` in the gateway environment. Set
 `VOICE_DEVICE_TOKENS` to a JSON object that maps each configured device ID to
 its own bearer token. Do not reuse the adapter token as a device token.
 
@@ -33,4 +33,4 @@ curl --fail http://127.0.0.1:8765/health/ready
 The unit's working tree path assumes this repository is at
 `~/repos/zateya`; edit the unit if it lives elsewhere. Readiness reports auth,
 model, or runtime startup failures without exposing credentials. The gateway
-continues to default to Hermes until `VOICE_AGENT_PROVIDER=codex` is explicit.
+uses Codex when `VOICE_AGENT_PROVIDER=codex` is set.

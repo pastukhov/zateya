@@ -37,7 +37,7 @@ def test_device_token_auth_is_independent_of_global_api_key(tmp_path, monkeypatc
 
     with TestClient(app) as client:
         response = client.post(
-            "/api/v2/voice/turns", content=b"\x00\x00", headers=_headers()
+            "/api/voice/turns", content=b"\x00\x00", headers=_headers()
         )
 
     assert response.status_code == 202
@@ -59,12 +59,12 @@ def test_device_routes_reject_invalid_credentials_without_leaking_identity(tmp_p
     turn_id = str(uuid.uuid4())
     request_id = str(uuid.uuid4())
     routes = [
-        ("post", "/api/v2/voice/turns"),
-        ("get", f"/api/v2/voice/requests/{request_id}"),
-        ("get", f"/api/v2/voice/turns/{turn_id}"),
-        ("get", f"/api/v2/voice/turns/{turn_id}/audio"),
-        ("post", f"/api/v2/voice/turns/{turn_id}/cancel"),
-        ("post", "/api/v2/voice/sessions/reset"),
+        ("post", "/api/voice/turns"),
+        ("get", f"/api/voice/requests/{request_id}"),
+        ("get", f"/api/voice/turns/{turn_id}"),
+        ("get", f"/api/voice/turns/{turn_id}/audio"),
+        ("post", f"/api/voice/turns/{turn_id}/cancel"),
+        ("post", "/api/voice/sessions/reset"),
     ]
     bad_credentials = [
         _headers(**{"X-Device-Id": ""}),
@@ -86,8 +86,8 @@ def test_device_routes_reject_invalid_credentials_without_leaking_identity(tmp_p
                 assert DEVICE_TOKEN not in response.text
 
 
-def test_synchronous_v1_voice_route_is_not_registered(tmp_path):
-    """The gateway exposes only the durable asynchronous device API."""
+def test_old_voice_routes_are_not_registered(tmp_path):
+    """Only the current voice-job API is exposed."""
     app = create_app(
         archive_root=tmp_path / "archive",
         security=SecurityConfig(api_key="", auth_enabled=False),
@@ -95,6 +95,8 @@ def test_synchronous_v1_voice_route_is_not_registered(tmp_path):
 
     with TestClient(app) as client:
         response = client.post("/api/v1/voice/turn", content=b"\x00\x00")
+        former_job_route = client.post("/api/v2/voice/turns", content=b"\x00\x00")
 
     assert all(getattr(route, "path", None) != "/api/v1/voice/turn" for route in app.routes)
     assert response.status_code == 404
+    assert former_job_route.status_code == 404

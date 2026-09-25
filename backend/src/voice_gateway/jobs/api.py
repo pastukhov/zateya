@@ -43,7 +43,7 @@ def install_voice_job_routes(
             payload["error"] = job["error_code"]
         return payload
 
-    @app.post("/api/v2/voice/turns", status_code=202)
+    @app.post("/api/voice/turns", status_code=202)
     async def upload_turn(request: Request):
         device_id = await authenticate(request)
         raw_request_id = request.headers.get("X-Request-Id", "")
@@ -112,7 +112,7 @@ def install_voice_job_routes(
                 store.mark_upload_failed(job["turn_id"], "audio_receive_failed")
             raise
 
-    @app.get("/api/v2/voice/requests/{request_id}")
+    @app.get("/api/voice/requests/{request_id}")
     async def lookup_request(request: Request, request_id: str):
         device_id = await authenticate(request)
         try:
@@ -124,7 +124,7 @@ def install_voice_job_routes(
             raise HTTPException(status_code=404, detail={"error": "not_found"})
         return status_payload(job)
 
-    @app.get("/api/v2/voice/turns/{turn_id}")
+    @app.get("/api/voice/turns/{turn_id}")
     async def get_turn(request: Request, turn_id: str):
         device_id = await authenticate(request)
         try:
@@ -136,7 +136,7 @@ def install_voice_job_routes(
             raise HTTPException(status_code=404, detail={"error": "not_found"})
         return status_payload(job)
 
-    @app.get("/api/v2/voice/turns/{turn_id}/audio")
+    @app.get("/api/voice/turns/{turn_id}/audio")
     async def get_audio(request: Request, turn_id: str):
         device_id = await authenticate(request)
         job = store.get_owned(device_id, turn_id)
@@ -149,7 +149,7 @@ def install_voice_job_routes(
             raise HTTPException(status_code=404, detail={"error": "not_found"})
         return FileResponse(path, media_type="audio/wav", filename="reply.wav")
 
-    @app.post("/api/v2/voice/turns/{turn_id}/cancel")
+    @app.post("/api/voice/turns/{turn_id}/cancel")
     async def cancel_turn(request: Request, turn_id: str):
         device_id = await authenticate(request)
         try:
@@ -164,7 +164,7 @@ def install_voice_job_routes(
         job = store.get_owned(device_id, turn_id)
         return status_payload(job)
 
-    @app.post("/api/v2/voice/sessions/reset")
+    @app.post("/api/voice/sessions/reset")
     async def reset_session(request: Request):
         device_id = await authenticate(request)
         if reset_device is None:

@@ -53,7 +53,7 @@ bool voice_turn_build_upload_url(const char *gateway_base, char *out,
   }
   const size_t trim = path ? 1 : 0;
   const size_t prefix_len = base_len - trim;
-  static const char suffix[] = "/api/v2/voice/turns";
+  static const char suffix[] = "/api/voice/turns";
   if (prefix_len + sizeof(suffix) > capacity) return false;
   memcpy(out, gateway_base, prefix_len);
   memcpy(out + prefix_len, suffix, sizeof(suffix));

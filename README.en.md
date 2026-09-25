@@ -1,16 +1,16 @@
 # Zateya · Затея
 
-A push-to-talk voice terminal built around the M5Stack StickS3. Hold the button, speak, and release it; the device sends the recording to Voice Gateway and plays the reply.
+Zateya is a pocket voice assistant built around the M5Stack StickS3. It turns spoken ideas into linked Obsidian notes, develops them into plans and draft build tasks, and reads its reply aloud.
 
 Documentation: [English](docs/en/index.md) · [Русский](docs/ru/index.md).
 
-The project contains device firmware, a Python gateway, and an optional host-side Codex service. The current deployment uses Codex; the legacy Hermes-compatible provider remains available. Neither the firmware nor the Docker container receives Codex credentials.
+The project contains device firmware, a Python gateway, and a host-side Codex Agent. Neither the firmware nor the Docker container receives Codex credentials.
 
 ![System components and security boundaries](docs/assets/system-overview.svg)
 
 ## Quick start
 
-You need Docker Compose and reachable STT, agent (Hermes or the local Codex Agent), and TTS endpoints.
+You need Docker Compose, the local Codex Agent, and reachable speech recognition and synthesis services.
 
 ```sh
 cp .env.example .env
@@ -26,25 +26,22 @@ Compose uses `network_mode: host`, allowing the gateway to reach host-local serv
 
 Without saved Wi-Fi settings, the device creates the open network `Zateya-Setup-XX`, where `XX` is the final byte of the Wi-Fi MAC in hexadecimal. Your phone may offer to open the setup portal. If not, browse to `http://192.168.4.1/`.
 
-In the setup form, choose a network and enter the gateway endpoint:
+In the setup form, choose a network, enter the gateway base URL (for example `http://192.168.1.10:8080`), and add the device token.
 
-- **v1:** the full URL, for example `http://192.168.1.10:8080/api/v1/voice/turn`.
-- **v2:** the base URL only, for example `http://192.168.1.10:8080`, plus a separate device token.
-
-The saved network gets one minute to connect. If it cannot, the setup AP appears while the device continues retrying. The AP shuts down after a successful connection. For v2, the gateway must have a device ID-to-token mapping; see [device setup](docs/en/flash-sticks3.md) and the [protocol guide](docs/en/protocol.md).
+The saved network gets one minute to connect. If it cannot, the setup AP appears while the device continues retrying. The AP shuts down after a successful connection. The gateway must have a device ID-to-token mapping; see [device setup](docs/en/flash-sticks3.md) and the [protocol guide](docs/en/protocol.md).
 
 ## Voice request
 
 The device follows a half-duplex cycle: `READY → LISTENING → THINKING → SPEAKING → READY`. An error remains on screen until you press the button. There is no separate LED indication.
 
-With v1, one synchronous HTTP request handles the turn. With v2, the gateway first stores the recording as a job; the device then checks job status and downloads the WAV. V2 requires a separate bearer token for each device.
+The gateway stores each recording as a job. The device checks its status and downloads the WAV reply. Each device uses a distinct bearer token.
 
 ## Repository layout
 
 | Path | Purpose |
 | --- | --- |
 | `firmware/` | ESP-IDF/PlatformIO firmware for M5Stack StickS3 |
-| `backend/` | FastAPI gateway, Hermes/Codex orchestration, STT/TTS, archive, and v2 jobs |
+| `backend/` | FastAPI gateway, Codex Agent, STT/TTS, archive, and voice jobs |
 | `agent_service/` | Local host-side Codex Python SDK adapter |
 | `deploy/` | systemd unit and Codex adapter installation guide |
 | `docs/` | Architecture, protocol, development, device setup, and diagrams |

@@ -44,17 +44,17 @@ def test_duplicate_upload_is_idempotent_and_owner_is_enforced(tmp_path):
                 "Authorization": "Bearer device-secret",
             }
             audio = b"\x00\x00" * 100
-            first = await client.post("/api/v2/voice/turns", content=audio, headers=headers)
-            duplicate = await client.post("/api/v2/voice/turns", content=audio, headers=headers)
+            first = await client.post("/api/voice/turns", content=audio, headers=headers)
+            duplicate = await client.post("/api/voice/turns", content=audio, headers=headers)
             assert first.status_code == duplicate.status_code == 202
             assert first.json()["turn_id"] == duplicate.json()["turn_id"]
             other_body = await client.post(
-                "/api/v2/voice/turns", content=audio,
+                "/api/voice/turns", content=audio,
                 headers={**headers, "X-Device-Id": "mic-b"},
             )
             assert other_body.status_code == 401
             foreign = await client.get(
-                f"/api/v2/voice/turns/{first.json()['turn_id']}",
+                f"/api/voice/turns/{first.json()['turn_id']}",
                 headers={
                     **headers,
                     "X-Device-Id": "mic-b",
@@ -64,7 +64,7 @@ def test_duplicate_upload_is_idempotent_and_owner_is_enforced(tmp_path):
             assert foreign.status_code == 404
             await worker.queue.join()
             result = await client.get(
-                f"/api/v2/voice/turns/{first.json()['turn_id']}/audio", headers=headers
+                f"/api/voice/turns/{first.json()['turn_id']}/audio", headers=headers
             )
             assert result.status_code == 200
             assert result.headers["content-type"] == "audio/wav"
@@ -90,7 +90,7 @@ def test_v2_authentication_happens_before_request_body_is_consumed(tmp_path):
             transport=httpx.ASGITransport(app=app), base_url="http://test"
         ) as client:
             response = await client.post(
-                "/api/v2/voice/turns",
+                "/api/voice/turns",
                 content=body(),
                 headers={
 
@@ -116,7 +116,7 @@ def test_v2_rejects_audio_over_limit(tmp_path):
             transport=httpx.ASGITransport(app=app), base_url="http://test"
         ) as client:
             response = await client.post(
-                "/api/v2/voice/turns",
+                "/api/voice/turns",
                 content=b"\x00" * 10,
                 headers={
 

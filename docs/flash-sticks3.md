@@ -27,7 +27,7 @@
 
 После добавления пары ID устройства и токена в `VOICE_DEVICE_TOKENS` в `.env`
 пересоздайте контейнер gateway. Изменение файла само по себе не меняет среду
-уже работающего контейнера. При использовании общего файла настроек Hermes
+уже работающего контейнера. При использовании общего файла прежней установки
 и локального `.env` проекта передавайте оба файла, локальный — последним:
 
 ```sh
@@ -46,9 +46,9 @@ docker compose --env-file /home/artem/.hermes/.env --env-file .env up --build -d
 
 ```sh
 cd firmware
-export HERMES_WIFI_SSID='your-network'
-export HERMES_WIFI_PASSWORD='your-password'
-export HERMES_GATEWAY_URL='http://192.168.1.10:8080'
+export ZATEYA_WIFI_SSID='your-network'
+export ZATEYA_WIFI_PASSWORD='your-password'
+export ZATEYA_GATEWAY_URL='http://192.168.1.10:8080'
 pio run -e sticks3
 ```
 
@@ -122,7 +122,7 @@ KEY1, KEY2 и IRQ M5PM1 при подключении USB/внешнего пи�
 `PWR_SRC` — битовая маска: bit0 = USB/VIN, bit1 = внешний VINOUT, bit2 = VBAT.
 Значение `0x05` означает USB + аккумулятор, `0x04` — только аккумулятор.
 
-Сохранённые адреса с окончанием `/api/v1/voice/turn` или `/api/v2/voice/turns` автоматически преобразуются в базовый URL. Wi-Fi, токен и VPN сохраняются. Если токен ранее не задавался, его необходимо указать перед записью.
+Укажите базовый адрес шлюза без пути API и токен устройства. Wi-Fi и VPN настраиваются на соседних вкладках.
 
 ### Совместимость WireGuard с ESP-IDF
 

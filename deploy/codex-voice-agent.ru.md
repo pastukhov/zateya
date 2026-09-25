@@ -10,7 +10,7 @@ install -m 600 deploy/codex-voice-agent.env.example \
   ~/.config/hermes-echo/codex-voice-agent.env
 ```
 
-Замените пример token до запуска. В окружении gateway задайте `VOICE_AGENT_PROVIDER=codex`, `CODEX_AGENT_URL=http://127.0.0.1:8765` и соответствующий `CODEX_AGENT_TOKEN`. Для протокола v2 задайте `VOICE_DEVICE_TOKENS` как JSON-объект, сопоставляющий ID каждого устройства с его отдельным bearer token. Не используйте token adapter в качестве device token.
+Замените пример token до запуска. В окружении gateway задайте `VOICE_AGENT_PROVIDER=codex`, `CODEX_AGENT_URL=http://127.0.0.1:8765` и соответствующий `CODEX_AGENT_TOKEN`. Задайте `VOICE_DEVICE_TOKENS` как JSON-объект, сопоставляющий ID каждого устройства с его отдельным bearer token. Не используйте token adapter в качестве device token.
 
 Войдите в Codex CLI от того же пользователя, затем включите и запустите unit:
 
@@ -21,4 +21,4 @@ curl --fail http://127.0.0.1:8765/health/live
 curl --fail http://127.0.0.1:8765/health/ready
 ```
 
-Рабочий каталог в unit предполагает, что репозиторий расположен в `~/repos/zateya`; исправьте путь, если он отличается. Readiness сообщает об ошибках авторизации, модели или запуска runtime, не раскрывая credentials. Пока `VOICE_AGENT_PROVIDER=codex` не задан явно, gateway продолжает использовать Hermes.
+Рабочий каталог в unit предполагает, что репозиторий расположен в `~/repos/zateya`; исправьте путь, если он отличается. Readiness сообщает об ошибках авторизации, модели или запуска runtime, не раскрывая credentials. Для текущей установки задайте `VOICE_AGENT_PROVIDER=codex`.

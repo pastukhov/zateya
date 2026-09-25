@@ -114,7 +114,7 @@ static voice_turn_io_result_t lookup_request(void *ctx, const char *request_id,
                                              voice_turn_response_t *response) {
   voice_turn_http_t *http = ctx;
   char path[96], body[TURN_JSON_CAPACITY];
-  int n = snprintf(path, sizeof(path), "/api/v2/voice/requests/%s", request_id);
+  int n = snprintf(path, sizeof(path), "/api/voice/requests/%s", request_id);
   if (n <= 0 || (size_t)n >= sizeof(path)) return VOICE_TURN_IO_FATAL;
   int status = 0;
   esp_http_client_handle_t client = open_request(http, "GET", path, &status);
@@ -128,7 +128,7 @@ static voice_turn_io_result_t poll_turn(void *ctx, const char *turn_id,
                                         voice_turn_response_t *response) {
   voice_turn_http_t *http = ctx;
   char path[96], body[TURN_JSON_CAPACITY];
-  int n = snprintf(path, sizeof(path), "/api/v2/voice/turns/%s", turn_id);
+  int n = snprintf(path, sizeof(path), "/api/voice/turns/%s", turn_id);
   if (n <= 0 || (size_t)n >= sizeof(path)) return VOICE_TURN_IO_FATAL;
   int status = 0;
   esp_http_client_handle_t client = open_request(http, "GET", path, &status);
@@ -156,7 +156,7 @@ static voice_turn_io_result_t download_audio(void *ctx, const char *turn_id,
                                               voice_turn_response_t *response) {
   voice_turn_http_t *http = ctx;
   char path[104];
-  int n = snprintf(path, sizeof(path), "/api/v2/voice/turns/%s/audio", turn_id);
+  int n = snprintf(path, sizeof(path), "/api/voice/turns/%s/audio", turn_id);
   if (n <= 0 || (size_t)n >= sizeof(path)) return VOICE_TURN_IO_FATAL;
   int status = 0;
   esp_http_client_handle_t client = open_request(http, "GET", path, &status);
@@ -221,7 +221,7 @@ static voice_turn_io_result_t download_audio(void *ctx, const char *turn_id,
 static voice_turn_io_result_t cancel_turn(void *ctx, const char *turn_id) {
   voice_turn_http_t *http = ctx;
   char path[104], body[TURN_JSON_CAPACITY];
-  int n = snprintf(path, sizeof(path), "/api/v2/voice/turns/%s/cancel", turn_id);
+  int n = snprintf(path, sizeof(path), "/api/voice/turns/%s/cancel", turn_id);
   if (n <= 0 || (size_t)n >= sizeof(path)) return VOICE_TURN_IO_FATAL;
   int status = 0;
   esp_http_client_handle_t client = open_request(http, "POST", path, &status);

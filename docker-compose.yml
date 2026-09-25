@@ -2,7 +2,7 @@
 #
 # From the repo root:
 #     docker compose --env-file /home/artem/.hermes/.env --env-file .env up --build -d backend
-#     # Only the explicitly mapped Hermes/OpenAI keys below enter the container.
+#     # Only the explicitly mapped service keys below enter the container.
 #
 # Smoke check (docs/development.md):
 #     curl -f http://127.0.0.1:8080/health/live
@@ -22,7 +22,7 @@
 
 services:
   backend:
-    # The Hermes API listens on host loopback; bridge networking cannot reach it.
+    # The Codex Agent listens on host loopback; bridge networking cannot reach it.
     network_mode: host
     # Share the vault owner group; archive ownership remains unchanged.
     group_add:
@@ -58,10 +58,6 @@ services:
       STT_BASE_URL: ${STT_BASE_URL:-https://api.openai.com/v1}
       STT_API_KEY: ${STT_API_KEY:-${VOICE_TOOLS_OPENAI_KEY:-}}
       STT_MODEL: ${STT_MODEL:-whisper-1}
-      # --- Hermes (ТЗ §21) ---
-      HERMES_BASE_URL: ${HERMES_BASE_URL:-http://127.0.0.1:8642/v1}
-      HERMES_API_KEY: ${HERMES_API_KEY:-${API_SERVER_KEY:-}}
-      HERMES_MODEL: ${HERMES_MODEL:-upstage/solar-pro4:free}
       # --- TTS (ТЗ §33) ---
       TTS_BASE_URL: ${TTS_BASE_URL:-https://api.openai.com/v1/audio/speech}
       TTS_API_KEY: ${TTS_API_KEY:-${VOICE_TOOLS_OPENAI_KEY:-}}

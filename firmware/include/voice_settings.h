@@ -36,7 +36,6 @@ esp_err_t voice_settings_reset(void);
 uint8_t voice_settings_load_brightness(void);
 esp_err_t voice_settings_save_brightness(uint8_t level);
 bool voice_settings_parse_sleep_timeout(const char *value, uint32_t *seconds);
-void voice_settings_migrate_gateway(voice_settings_t *settings);
 bool voice_settings_valid(const voice_settings_t *settings);
 void voice_settings_set_device_id_from_mac(voice_settings_t *settings,
                                            const uint8_t mac[6]);

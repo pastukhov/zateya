@@ -15,10 +15,10 @@ void test_poll_retry_uses_bounded_backoff(void) {
   TEST_ASSERT_EQUAL_UINT32(5000, voice_turn_retry_delay_ms(20));
 }
 
-void test_v2_upload_url_uses_gateway_base_without_truncation(void) {
+void test_upload_url_uses_gateway_base_without_truncation(void) {
   char url[192];
   TEST_ASSERT_TRUE(voice_turn_build_upload_url("http://10.0.0.4:8080", url, sizeof(url)));
-  TEST_ASSERT_EQUAL_STRING("http://10.0.0.4:8080/api/v2/voice/turns", url);
+  TEST_ASSERT_EQUAL_STRING("http://10.0.0.4:8080/api/voice/turns", url);
   TEST_ASSERT_FALSE(voice_turn_build_upload_url("http://10.0.0.4:8080/api/v1/voice/turn", url, sizeof(url)));
   TEST_ASSERT_FALSE(voice_turn_build_upload_url("http://user@10.0.0.4:8080", url, sizeof(url)));
   TEST_ASSERT_FALSE(voice_turn_build_upload_url("http://10.0.0.4:8080 bad", url, sizeof(url)));
@@ -268,7 +268,7 @@ void test_invalid_client_configuration_fails_without_crashing(void) {
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_poll_retry_uses_bounded_backoff);
-  RUN_TEST(test_v2_upload_url_uses_gateway_base_without_truncation);
+  RUN_TEST(test_upload_url_uses_gateway_base_without_truncation);
   RUN_TEST(test_request_uuid_is_stable_rfc4122_v4_text);
   RUN_TEST(test_v2_acceptance_body_must_contain_a_valid_turn_uuid);
   RUN_TEST(test_status_json_accepts_only_known_server_states);

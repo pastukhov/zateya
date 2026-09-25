@@ -7,7 +7,7 @@
 - Python 3.12.
 - Docker Compose для контейнерного запуска gateway (опционально).
 - PlatformIO Core и ESP-IDF environment из `firmware/platformio.ini` для сборки устройства.
-- Доступные STT и TTS endpoint’ы, совместимые с OpenAI API. Hermes требуется при `VOICE_AGENT_PROVIDER=hermes`; при `codex` нужен host adapter.
+- Доступные STT и TTS endpoint’ы, совместимые с OpenAI API, и запущенный Codex Agent на хосте.
 
 ## Настройка окружения
 
@@ -16,7 +16,7 @@ cp .env.example .env
 # Укажите локальные URL, модели и ключи в .env; не коммитьте его.
 ```
 
-Минимальная конфигурация для voice turn: `STT_BASE_URL`, `TTS_BASE_URL`, `TTS_MODEL`, и один agent provider. Для Hermes задайте `HERMES_BASE_URL` (и при необходимости ключ/модель); для Codex — `VOICE_AGENT_PROVIDER=codex`, `CODEX_AGENT_URL` и `CODEX_AGENT_TOKEN`. Имена и defaults смотрите в `.env.example` и `docker-compose.yml`.
+Минимальная конфигурация для voice turn: `STT_BASE_URL`, `TTS_BASE_URL`, `TTS_MODEL`, `VOICE_AGENT_PROVIDER=codex`, `CODEX_AGENT_URL` и `CODEX_AGENT_TOKEN`. Имена и defaults смотрите в `.env.example` и `docker-compose.yml`.
 
 ## Запуск шлюза
 
@@ -29,7 +29,7 @@ curl --fail http://127.0.0.1:8080/health/ready
 curl --fail http://127.0.0.1:8080/metrics
 ```
 
-Compose запускает gateway в host network mode. Так шлюз видит локальные сервисы хоста, например Hermes на `127.0.0.1`, но слушающий `0.0.0.0` порт также может быть доступен другим узлам сети — проверьте firewall и доверие к LAN. Остановка: `docker compose down`.
+Compose запускает gateway в host network mode. Так шлюз видит Codex Agent на `127.0.0.1`, но слушающий `0.0.0.0` порт также может быть доступен другим узлам сети — проверьте firewall и доверие к LAN. Остановка: `docker compose down`.
 
 ### Локально
 
@@ -65,9 +65,9 @@ pio test -e native
 
 ```sh
 cd firmware
-export HERMES_WIFI_SSID='your-network'
-export HERMES_WIFI_PASSWORD='your-password'
-export HERMES_GATEWAY_URL='http://192.168.1.10:8080/api/v1/voice/turn'
+export ZATEYA_WIFI_SSID='your-network'
+export ZATEYA_WIFI_PASSWORD='your-password'
+export ZATEYA_GATEWAY_URL='http://192.168.1.10:8080'
 pio run -e sticks3
 ```
 
@@ -79,14 +79,14 @@ pio run -e sticks3
 | --- | --- |
 | `/health/live` доступен, `/health/ready` возвращает 503 | Поля `checks` в ответе: обязательные STT/agent config и права записи `ARCHIVE_ROOT` |
 | Устройство не появляется в домашней сети | После минуты ищите `Zateya-Setup-XX`; устройство продолжает попытки STA-подключения |
-| Wi-Fi работает, voice turn завершается ошибкой | Gateway URL, protocol version, устройство/token mapping, STT/TTS настройки и логи gateway |
-| v2 upload принят, но ответа нет | Проверяйте `GET /api/v2/voice/turns/{turn_id}` и archive metadata; terminal error возвращается кодом `error` |
+| Wi-Fi работает, voice turn завершается ошибкой | Gateway URL, устройство/token mapping, STT/TTS настройки и логи gateway |
+| Запись принята, но ответа нет | Проверяйте `GET /api/voice/turns/{turn_id}` и archive metadata; terminal error возвращается кодом `error` |
 | Codex service не ready | Проверяйте вход в Codex CLI под тем же системным пользователем и `GET /health/ready` adapter’а; не копируйте credentials в контейнер |
 
 ## Данные и безопасность
 
 - Archive содержит аудио, расшифровку и ответ; ограничьте права и срок хранения.
-- v2 job database хранится рядом с archive, если `VOICE_JOB_DATABASE` не переопределён.
+- База заданий хранится рядом с archive, если `VOICE_JOB_DATABASE` не переопределён.
 - `/health/ready` не проверяет текущую доступность внешних STT/TTS сетей.
 - Не используйте настоящие записи и ключи в тестах. Setup AP открытый и работает только для локального provisioning.
 - Перед публикацией gateway проверьте bind address, firewall и отсутствие секретов в логах.

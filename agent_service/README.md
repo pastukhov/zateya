@@ -30,4 +30,4 @@ The one-request SDK smoke makes a real, billable/quota-consuming Codex request a
 .venv/bin/python -m codex_voice.smoke
 ```
 
-Check `GET /health/live` for process liveness and `GET /health/ready` for SDK/model readiness. Readiness checks account/runtime availability, not STT/TTS or device audio. Keep the gateway provider set to Hermes until an explicit end-to-end switch and device test are performed.
+Check `GET /health/live` for process liveness and `GET /health/ready` for SDK/model readiness. Readiness checks account/runtime availability, not STT/TTS or device audio. The current deployment uses `VOICE_AGENT_PROVIDER=codex`; after changing the service, verify a spoken reply on the device.

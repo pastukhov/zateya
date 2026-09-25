@@ -141,20 +141,6 @@ static void test_mac_replaces_saved_device_id(void) {
   TEST_ASSERT_EQUAL_STRING("7ce8b1e4b780", settings.device_id);
 }
 
-static void test_legacy_gateway_migrates_to_base_url(void) {
-  voice_settings_t settings = {0};
-  strcpy(settings.gateway_url, "http://gateway:8080/api/v1/voice/turn");
-  strcpy(settings.device_token, "preserved");
-  voice_settings_migrate_gateway(&settings);
-  TEST_ASSERT_EQUAL_STRING("http://gateway:8080", settings.gateway_url);
-  TEST_ASSERT_EQUAL_STRING("preserved", settings.device_token);
-  voice_settings_migrate_gateway(&settings);
-  TEST_ASSERT_EQUAL_STRING("http://gateway:8080", settings.gateway_url);
-  strcpy(settings.gateway_url, "https://gateway/api/v2/voice/turns");
-  voice_settings_migrate_gateway(&settings);
-  TEST_ASSERT_EQUAL_STRING("https://gateway", settings.gateway_url);
-}
-
 static void test_boot_can_resume_a_saved_voice_turn(void) {
   state_machine_t sm;
   state_machine_init(&sm);
@@ -349,7 +335,6 @@ int main(void) {
   RUN_TEST(test_setup_access_ipv4_mapped_ipv6_filter);
   RUN_TEST(test_error_stays_until_fresh_button_tap);
   RUN_TEST(test_mac_replaces_saved_device_id);
-  RUN_TEST(test_legacy_gateway_migrates_to_base_url);
   RUN_TEST(test_boot_can_resume_a_saved_voice_turn);
   RUN_TEST(test_settings_require_device_token_and_base_url);
   RUN_TEST(test_mac_keeps_leading_zeros);

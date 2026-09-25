@@ -1,4 +1,4 @@
-"""Bounded asyncio worker for durable v2 voice turn jobs."""
+"""Bounded asyncio worker for durable voice turn jobs."""
 
 from __future__ import annotations
 

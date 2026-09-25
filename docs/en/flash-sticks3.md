@@ -16,10 +16,10 @@ This guide covers Wi-Fi provisioning and the PlatformIO build for the StickS3 (E
 1. On first boot, connect your phone or computer to `Zateya-Setup-XX`. `XX` is the final Wi-Fi MAC byte in lowercase hexadecimal.
 2. Accept the prompt to open the network setup page. If it does not appear, browse to `http://192.168.4.1/`.
 3. Select your home SSID from the scan list or enter it manually. Enter its password and the gateway endpoint.
-4. Keep protocol v1 unless you have configured v2 tokens. For v1, enter the full URL ending in `/api/v1/voice/turn`. For v2, enter only the base URL, select v2, and enter the device token.
+4. Enter the gateway base URL, such as `http://192.168.1.10:8080`, and the device token.
 5. Select **Save & Restart**. After reboot, the device connects using the saved settings.
 
-Leave the password or token blank to keep its saved value. For v2, the gateway must map the device ID to its token using `VOICE_DEVICE_TOKENS`. A MAC address is an identifier, not a secret. The setup page has no password, but firmware accepts its requests only from the setup subnet.
+Leave the password or token blank to keep its saved value. The gateway must map the device ID to its token using `VOICE_DEVICE_TOKENS`. A MAC address is an identifier, not a secret. The setup page has no password and is also available on the local network after Wi-Fi connects.
 
 If the saved network has not assigned an IP after 60 seconds, the device starts the setup AP and continues retrying the network about every five seconds. The AP shuts down after an IP is obtained. The AP is open; if the captive prompt does not appear, connect manually and open the address above.
 
@@ -29,9 +29,9 @@ From the repository root:
 
 ```sh
 cd firmware
-export HERMES_WIFI_SSID='your-network'
-export HERMES_WIFI_PASSWORD='your-password'
-export HERMES_GATEWAY_URL='http://192.168.1.10:8080/api/v1/voice/turn'
+export ZATEYA_WIFI_SSID='your-network'
+export ZATEYA_WIFI_PASSWORD='your-password'
+export ZATEYA_GATEWAY_URL='http://192.168.1.10:8080'
 pio run -e sticks3
 ```
 
