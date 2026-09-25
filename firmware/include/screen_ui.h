@@ -26,6 +26,21 @@ typedef struct {
   screen_icon_t icon;
 } screen_ui_view_t;
 
+typedef enum {
+  SCREEN_RECORDING_NORMAL,
+  SCREEN_RECORDING_TEN_SECONDS,
+  SCREEN_RECORDING_FIVE_SECONDS,
+} screen_recording_warning_t;
+
+typedef struct {
+  char text[6];
+  screen_recording_warning_t warning;
+} screen_recording_timer_t;
+
+screen_recording_timer_t screen_ui_recording_timer(uint32_t start_ms,
+                                                   uint32_t now_ms,
+                                                   uint32_t limit_seconds);
+
 bool screen_ui_draw_setup(uint16_t *pixels, int width, int height, const char *ssid);
 
 screen_ui_view_t screen_ui_view(state_t state);

@@ -4,6 +4,24 @@
 #include <stdio.h>
 #include "vendor/qrcodegen.h"
 
+screen_recording_timer_t screen_ui_recording_timer(uint32_t start_ms,
+                                                   uint32_t now_ms,
+                                                   uint32_t limit_seconds) {
+  screen_recording_timer_t timer = {0};
+  const uint32_t elapsed_ms = now_ms - start_ms;
+  const uint64_t limit_ms = (uint64_t)limit_seconds * 1000u;
+  const uint64_t remaining_ms = elapsed_ms >= limit_ms ? 0 : limit_ms - elapsed_ms;
+  const uint32_t seconds = (uint32_t)((remaining_ms + 999u) / 1000u);
+  const uint32_t display_seconds = seconds > 5999u ? 5999u : seconds;
+  snprintf(timer.text, sizeof(timer.text), "%02lu:%02lu",
+           (unsigned long)(display_seconds / 60u),
+           (unsigned long)(display_seconds % 60u));
+  timer.warning = remaining_ms <= 5000u ? SCREEN_RECORDING_FIVE_SECONDS :
+                  remaining_ms <= 10000u ? SCREEN_RECORDING_TEN_SECONDS :
+                  SCREEN_RECORDING_NORMAL;
+  return timer;
+}
+
 screen_ui_view_t screen_ui_view_with_phase(state_t state,
                                            screen_processing_phase_t phase) {
   switch (state) {

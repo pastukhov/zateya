@@ -302,7 +302,8 @@ class KnowledgeStore:
             if operation in ("capture", "amend"):
                 spoken = f'Сохранила мысль «{note.title}».' if operation == "capture" else f'Дополнила мысль «{note.title}».'
                 if proposal.pages:
-                    spoken += f" Обновил связанных страниц: {len(proposal.pages)}."
+                    spoken += (" Обновила связанную страницу." if len(proposal.pages) == 1
+                               else " Обновила связанные страницы.")
             elif operation == "plan":
                 spoken = f'Сохранила план «{note.title}» в Obsidian.'
             else:

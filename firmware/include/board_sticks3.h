@@ -57,6 +57,7 @@ bool board_sticks3_network_ready(void);
 void board_sticks3_log_memory(void);
 void board_sticks3_display_set_device_id(const char *device_id);
 void board_sticks3_display_update(state_t state, uint32_t now_ms,
-                                 screen_processing_phase_t phase);
+                                 screen_processing_phase_t phase,
+                                 screen_recording_timer_t recording_timer);
 
 #endif

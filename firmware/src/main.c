@@ -974,7 +974,11 @@ static void voice_main_loop(void) {
     else if (app.turn_client.status == VOICE_TURN_STATUS_SYNTHESIZING)
       phase = SCREEN_PROCESSING_SYNTHESIZING;
 #endif
-    board_sticks3_display_update(app_state(), hw_clock_ms(), phase);
+    screen_recording_timer_t timer = {0};
+    if (app_state() == STATE_RECORDING)
+      timer = screen_ui_recording_timer(app.btn.press_ms, hw_clock_ms(),
+                                        MAX_RECORD_SECONDS_DEFAULT);
+    board_sticks3_display_update(app_state(), hw_clock_ms(), phase, timer);
     board_sticks3_power_tick(
       (app_state() != STATE_IDLE && app_state() != STATE_ERROR) || app.turn_task_active,
       hw_clock_ms(), voice_settings.sleep_timeout_seconds * 1000U);

@@ -535,7 +535,8 @@ void board_sticks3_display_set_device_id(const char *device_id) {
 }
 
 void board_sticks3_display_update(state_t state, uint32_t now_ms,
-                                 screen_processing_phase_t processing_phase) {
+                                 screen_processing_phase_t processing_phase,
+                                 screen_recording_timer_t recording_timer) {
   int phase = (int)(now_ms / 180U);
   const char *wg_status = voice_wireguard_status();
   wifi_mode_t mode = WIFI_MODE_NULL;
@@ -563,7 +564,23 @@ void board_sticks3_display_update(state_t state, uint32_t now_ms,
     screen_draw_icon(view, phase);
     screen_font_draw_centered(s_screen, SCREEN_W, SCREEN_H, 67, 155,
                               SCREEN_FONT_TITLE, view.title, C_WHITE);
-    screen_hint(view.hint);
+    if (state == STATE_RECORDING) {
+      uint16_t timer_color = C_WHITE;
+      const char *warning = "ДО КОНЦА";
+      if (recording_timer.warning == SCREEN_RECORDING_TEN_SECONDS) {
+        timer_color = 0xFD20;
+        warning = "СКОРО КОНЕЦ";
+      } else if (recording_timer.warning == SCREEN_RECORDING_FIVE_SECONDS) {
+        timer_color = (phase / 3) % 2 ? 0xF800 : C_WHITE;
+        warning = "ЗАВЕРШАЙТЕ";
+      }
+      screen_font_draw_centered(s_screen, SCREEN_W, SCREEN_H, 67, 180,
+                                SCREEN_FONT_TITLE, recording_timer.text, timer_color);
+      screen_font_draw_centered(s_screen, SCREEN_W, SCREEN_H, 67, 202,
+                                SCREEN_FONT_HINT, warning, timer_color);
+    } else {
+      screen_hint(view.hint);
+    }
   }
   screen_rect(45, 216, 45, 1, C_LINE);
   screen_font_draw_centered(s_screen, SCREEN_W, SCREEN_H, 67, 222,

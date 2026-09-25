@@ -14,7 +14,9 @@
  */
 
 #define BUTTON_DEBOUNCE_MS_DEFAULT 30u
+#ifndef MAX_RECORD_SECONDS_DEFAULT
 #define MAX_RECORD_SECONDS_DEFAULT 600u
+#endif
 
 typedef enum {
   BUTTON_EVENT_NONE = 0,

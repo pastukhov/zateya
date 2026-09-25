@@ -34,6 +34,29 @@ void test_each_voice_state_has_clear_screen_copy_and_accent(void) {
   TEST_ASSERT_NOT_EQUAL(playing.accent, error.accent);
 }
 
+void test_recording_timer_warns_at_ten_and_five_seconds(void) {
+  screen_recording_timer_t timer = screen_ui_recording_timer(1000, 1000, 600);
+  TEST_ASSERT_EQUAL_STRING("10:00", timer.text);
+  TEST_ASSERT_EQUAL(SCREEN_RECORDING_NORMAL, timer.warning);
+  timer = screen_ui_recording_timer(1000, 591000, 600);
+  TEST_ASSERT_EQUAL_STRING("00:10", timer.text);
+  TEST_ASSERT_EQUAL(SCREEN_RECORDING_TEN_SECONDS, timer.warning);
+  timer = screen_ui_recording_timer(1000, 596000, 600);
+  TEST_ASSERT_EQUAL_STRING("00:05", timer.text);
+  TEST_ASSERT_EQUAL(SCREEN_RECORDING_FIVE_SECONDS, timer.warning);
+  timer = screen_ui_recording_timer(1000, 601000, 600);
+  TEST_ASSERT_EQUAL_STRING("00:00", timer.text);
+}
+
+void test_recording_timer_supports_short_test_limit_and_clock_wrap(void) {
+  screen_recording_timer_t timer = screen_ui_recording_timer(UINT32_MAX - 1000, 8999, 20);
+  TEST_ASSERT_EQUAL_STRING("00:10", timer.text);
+  TEST_ASSERT_EQUAL(SCREEN_RECORDING_TEN_SECONDS, timer.warning);
+  timer = screen_ui_recording_timer(500, 15000, 20);
+  TEST_ASSERT_EQUAL_STRING("00:06", timer.text);
+  TEST_ASSERT_EQUAL(SCREEN_RECORDING_TEN_SECONDS, timer.warning);
+}
+
 void test_montserrat_draws_cyrillic_letters_distinctly(void) {
   uint16_t o[135 * 40] = {0};
   uint16_t n[135 * 40] = {0};
@@ -152,6 +175,8 @@ int main(void) {
   RUN_TEST(test_setup_screen_renders_network_and_address_without_clipping);
   RUN_TEST(test_idle_waits_for_wifi_and_vpn_before_showing_ready);
   RUN_TEST(test_each_voice_state_has_clear_screen_copy_and_accent);
+  RUN_TEST(test_recording_timer_warns_at_ten_and_five_seconds);
+  RUN_TEST(test_recording_timer_supports_short_test_limit_and_clock_wrap);
   RUN_TEST(test_montserrat_draws_cyrillic_letters_distinctly);
   RUN_TEST(test_montserrat_draws_every_digit_of_device_id);
   RUN_TEST(test_montserrat_copy_fits_screen_without_clipping);

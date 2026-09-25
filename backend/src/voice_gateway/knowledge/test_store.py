@@ -33,6 +33,7 @@ def test_capture_publish_and_idempotent_replay(store):
     source, context, job = capture(store)
     receipt = store.publish(source, 'mic', note(source), context, 'untrusted claim')
     assert receipt['reply'].startswith('Сохранила мысль')
+    assert receipt['reply'].endswith('Обновила связанную страницу.')
     assert store.capture(job, 'Хочу вести идеи') == source
     assert store.publish(source, 'mic', note(source), context, '') == receipt
     assert len(list((store.root / 'ideas').glob('*.md'))) == 1
