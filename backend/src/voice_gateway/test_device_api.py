@@ -84,3 +84,17 @@ def test_device_routes_reject_invalid_credentials_without_leaking_identity(tmp_p
                 assert response.headers["x-correlation-id"]
                 assert DEVICE_ID not in response.text
                 assert DEVICE_TOKEN not in response.text
+
+
+def test_synchronous_v1_voice_route_is_not_registered(tmp_path):
+    """The gateway exposes only the durable asynchronous device API."""
+    app = create_app(
+        archive_root=tmp_path / "archive",
+        security=SecurityConfig(api_key="", auth_enabled=False),
+    )
+
+    with TestClient(app) as client:
+        response = client.post("/api/v1/voice/turn", content=b"\x00\x00")
+
+    assert all(getattr(route, "path", None) != "/api/v1/voice/turn" for route in app.routes)
+    assert response.status_code == 404
