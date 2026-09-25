@@ -12,6 +12,7 @@
 
 1. [Настройте и запустите Voice Gateway](docs/development.md#запуск-шлюза).
 2. Настройте [host-side Codex Agent](deploy/codex-voice-agent.md) и выберите `VOICE_AGENT_PROVIDER=codex` для сценария LLM Wiki.
+   Для переноса всей системы на отдельный компьютер используйте [инструкцию по Linux-серверу](deploy/server-migration.ru.md).
 3. Подключите StickS3 к Wi-Fi через [setup portal и прошейте устройство](docs/flash-sticks3.md).
 4. Посмотрите [архитектуру и путь голосового запроса](docs/architecture.md), [HTTP-протокол](docs/protocol.md) или полный [указатель документации](docs/index.md).
 
