@@ -78,7 +78,7 @@ pio run -e sticks3
 | Симптом | Что проверить |
 | --- | --- |
 | `/health/live` доступен, `/health/ready` возвращает 503 | Поля `checks` в ответе: обязательные STT/agent config и права записи `ARCHIVE_ROOT` |
-| Устройство не появляется в домашней сети | После минуты ищите `Hermes-StickS3-Setup-XX`; устройство продолжает попытки STA-подключения |
+| Устройство не появляется в домашней сети | После минуты ищите `Zateya-Setup-XX`; устройство продолжает попытки STA-подключения |
 | Wi-Fi работает, voice turn завершается ошибкой | Gateway URL, protocol version, устройство/token mapping, STT/TTS настройки и логи gateway |
 | v2 upload принят, но ответа нет | Проверяйте `GET /api/v2/voice/turns/{turn_id}` и archive metadata; terminal error возвращается кодом `error` |
 | Codex service не ready | Проверяйте вход в Codex CLI под тем же системным пользователем и `GET /health/ready` adapter’а; не копируйте credentials в контейнер |

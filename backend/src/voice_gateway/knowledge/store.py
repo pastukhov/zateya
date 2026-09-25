@@ -45,7 +45,7 @@ def metadata(data: bytes) -> dict:
     return result
 
 
-SCHEMA = """# Правила базы Hermes
+SCHEMA = """# Правила базы Затея
 
 Исходники в sources неизменны. Ideas хранят мысли пользователя, wiki — связанные
 знания. Каждая страница ссылается на источники. Гипотезы не являются фактами.
@@ -300,13 +300,13 @@ class KnowledgeStore:
                 changes.append({"path": name, "before": before.decode() if before else None,
                                 "after": old.rstrip() + "\n\n" + "\n".join(lines) + "\n"})
             if operation in ("capture", "amend"):
-                spoken = f'Сохранил мысль «{note.title}».' if operation == "capture" else f'Дополнил мысль «{note.title}».'
+                spoken = f'Сохранила мысль «{note.title}».' if operation == "capture" else f'Дополнила мысль «{note.title}».'
                 if proposal.pages:
                     spoken += f" Обновил связанных страниц: {len(proposal.pages)}."
             elif operation == "plan":
-                spoken = f'Сохранил план «{note.title}» в Obsidian.'
+                spoken = f'Сохранила план «{note.title}» в Obsidian.'
             else:
-                spoken = f'Сохранил задание «{note.title}». Для запуска нужен целевой репозиторий.'
+                spoken = f'Сохранила задание «{note.title}». Для запуска нужен целевой репозиторий.'
             receipt = {"reply": spoken, "source_id": source_id, "idea_id": idea,
                        "operation": operation, "pages": [c["path"] for c in changes]}
             files = {"Hermes/" + change["path"]: digest(change["after"].encode()) for change in changes}

@@ -228,7 +228,7 @@ test('confirmed reset posts once and blocks repeated clicks during restart', asy
   const resets=page.requested.filter(r=>r.path==='/config/reset');
   assert.equal(resets.length,1);
   assert.equal(resets[0].options.method,'POST');
-  assert.equal(resets[0].options.headers['X-Hermes-Reset'],'confirm');
+  assert.equal(resets[0].options.headers['X-Zateya-Reset'],'confirm');
   assert.equal(page.elements['reset-settings'].disabled,true);
   assert.match(page.elements['reset-status'].textContent,/Подключитесь/);
 });
@@ -273,7 +273,7 @@ test('unchanged hidden settings can be saved without resending them',async()=>{
   assert.ok(post);
   for(const key of ['gateway_url','wg_address','wg_netmask','wg_endpoint','wg_port','wg_public_key','wg_keepalive','wg_ntp_server'])
     assert.equal(post.options.body.has(key),false,key);
-  assert.equal(post.options.headers['X-Hermes-Setup'],'1');
+  assert.equal(post.options.headers['X-Zateya-Setup'],'1');
 });
 
 test('changing server requires entering a token instead of reusing the stored one',async()=>{

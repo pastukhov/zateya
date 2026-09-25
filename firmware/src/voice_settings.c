@@ -12,6 +12,7 @@
 #include "freertos/semphr.h"
 static SemaphoreHandle_t settings_mutex;
 static bool reset_pending;
+// Legacy NVS namespace "hermes" retains Wi-Fi, VPN, tokens and brightness across rebranding.
 #endif
 
 #ifndef VOICE_WIFI_SSID

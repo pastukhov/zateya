@@ -92,7 +92,7 @@ sequenceDiagram
 
 Состояния: `BOOT → IDLE → RECORDING → PROCESSING → PLAYING → IDLE`; ошибка восстанавливается нажатием кнопки без перезагрузки. В v2 request ID и turn ID хранятся в NVS, а HTTP polling выполняется отдельно от основного UI loop.
 
-Wi-Fi setup AP имеет SSID `Hermes-StickS3-Setup-XX`, где `XX` — последний байт Wi-Fi MAC. Если сохранённая сеть не выдала IP за минуту, устройство включает setup AP и продолжает повторные подключения. После получения IP AP останавливается. См. [иллюстрацию Wi-Fi fallback](assets/wifi-setup-flow.svg) и [инструкцию прошивки](flash-sticks3.md).
+Wi-Fi setup AP имеет SSID `Zateya-Setup-XX`, где `XX` — последний байт Wi-Fi MAC. Если сохранённая сеть не выдала IP за минуту, устройство включает setup AP и продолжает повторные подключения. После получения IP AP останавливается. См. [иллюстрацию Wi-Fi fallback](assets/wifi-setup-flow.svg) и [инструкцию прошивки](flash-sticks3.md).
 
 ## Сервис Codex Agent
 

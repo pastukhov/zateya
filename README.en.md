@@ -1,10 +1,10 @@
-# Hermes Voice Terminal · StickS3
+# Zateya · Затея
 
 A push-to-talk voice terminal built around the M5Stack StickS3. Hold the button, speak, and release it; the device sends the recording to Voice Gateway and plays the reply.
 
 Documentation: [English](docs/en/index.md) · [Русский](docs/ru/index.md).
 
-The project contains device firmware, a Python gateway, and an optional host-side Codex service. Hermes is the default agent. Codex can be enabled explicitly. Neither the firmware nor the Docker container receives Codex credentials.
+The project contains device firmware, a Python gateway, and an optional host-side Codex service. The current deployment uses Codex; the legacy Hermes-compatible provider remains available. Neither the firmware nor the Docker container receives Codex credentials.
 
 ![System components and security boundaries](docs/assets/system-overview.svg)
 
@@ -24,7 +24,7 @@ Compose uses `network_mode: host`, allowing the gateway to reach host-local serv
 
 ## Connect the StickS3
 
-Without saved Wi-Fi settings, the device creates the open network `Hermes-StickS3-Setup-XX`, where `XX` is the final byte of the Wi-Fi MAC in hexadecimal. Your phone may offer to open the setup portal. If not, browse to `http://192.168.4.1/`.
+Without saved Wi-Fi settings, the device creates the open network `Zateya-Setup-XX`, where `XX` is the final byte of the Wi-Fi MAC in hexadecimal. Your phone may offer to open the setup portal. If not, browse to `http://192.168.4.1/`.
 
 In the setup form, choose a network and enter the gateway endpoint:
 
@@ -54,6 +54,6 @@ With v1, one synchronous HTTP request handles the turn. With v2, the gateway fir
 ## Security and data
 
 - The backend stores voice recordings and results in the archive. Review its location, access controls, and retention policy before using personal recordings.
-- The Codex provider and protocol v2 are opt-in. Firmware defaults to v1; the gateway defaults to Hermes.
+- The current deployment uses Codex and the asynchronous voice API.
 - The setup AP is open and intended only for local provisioning.
 - Never commit `.env`, Wi-Fi passwords, device tokens, or Codex credentials.

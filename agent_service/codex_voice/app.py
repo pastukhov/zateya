@@ -68,7 +68,7 @@ def create_app(
             if app.state.startup_error is None:
                 await service.close()
 
-    app = FastAPI(title="Codex Voice Agent", version="1.0.0", lifespan=lifespan)
+    app = FastAPI(title="Zateya Codex Voice Agent", version="1.0.0", lifespan=lifespan)
     app.state.agent_service = service
     app.state.startup_error = None
 

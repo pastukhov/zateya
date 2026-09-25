@@ -235,7 +235,7 @@ class AgentService:
                 thread_id = await self.runtime.resume_thread(session[1])
                 self.store.save_thread(device_id, session[0], thread_id)
             prompt = (
-                "Ты голосовой помощник. Ответь кратко и по-русски. Верни только JSON-объект "
+                "Ты Затея, голосовая помощница. Говори о себе в женском роде. Ответь кратко и по-русски. Верни только JSON-объект "
                 'формата {"reply":"...","note":{"create":false,"title":"",'
                 '"content":"","tags":[]}}. Не выполняй запросы, требующие разрешения.\n'
                 "Фраза пользователя: "

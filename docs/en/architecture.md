@@ -91,7 +91,7 @@ The target is M5Stack StickS3 (ESP32-S3) with ESP-IDF and PlatformIO. Board-spec
 
 States: `BOOT → IDLE → RECORDING → PROCESSING → PLAYING → IDLE`. An error is cleared by a button press, without a reboot. In v2, request and turn IDs are stored in NVS; HTTP polling does not block the main UI loop.
 
-The Wi-Fi setup AP is named `Hermes-StickS3-Setup-XX`, where `XX` is the final Wi-Fi MAC byte. If the saved network has not assigned an IP after one minute, setup AP starts while station reconnection continues. The AP stops after an IP is obtained. See the [Wi-Fi recovery diagram](../assets/wifi-setup-flow.en.svg) and [device setup guide](flash-sticks3.md).
+The Wi-Fi setup AP is named `Zateya-Setup-XX`, where `XX` is the final Wi-Fi MAC byte. If the saved network has not assigned an IP after one minute, setup AP starts while station reconnection continues. The AP stops after an IP is obtained. See the [Wi-Fi recovery diagram](../assets/wifi-setup-flow.en.svg) and [device setup guide](flash-sticks3.md).
 
 ## Codex Agent Service
 

@@ -1,4 +1,4 @@
-# Hermes Voice Terminal Documentation — English
+# Zateya Documentation — English
 
 Complete English guide set. Commands, API names, environment variables, and device state names remain in their canonical form.
 

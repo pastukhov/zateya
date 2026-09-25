@@ -31,6 +31,6 @@ curl --fail http://127.0.0.1:8765/health/ready
 ```
 
 The unit's working tree path assumes this repository is at
-`~/hermes-echo`; edit the unit if it lives elsewhere. Readiness reports auth,
+`~/repos/zateya`; edit the unit if it lives elsewhere. Readiness reports auth,
 model, or runtime startup failures without exposing credentials. The gateway
 continues to default to Hermes until `VOICE_AGENT_PROVIDER=codex` is explicit.

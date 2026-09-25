@@ -109,6 +109,16 @@ class TestSuccessfulRequest:
         client.synthesize("hi", tmp_path / "out.wav")
         assert seen["url"] == "https://tts.internal/custom/path"
 
+    def test_speaking_instructions_are_sent_when_configured(self, tmp_path: Path):
+        import json
+        seen = {}
+        def handler(request: httpx.Request) -> httpx.Response:
+            seen.update(json.loads(request.content))
+            return _wav_response()
+        client = _make_client(httpx.MockTransport(handler), config=_config(instructions="Говори женским голосом по-русски."))
+        client.synthesize("Я готова.", tmp_path / "out.wav")
+        assert seen["instructions"] == "Говори женским голосом по-русски."
+
     def test_no_api_key_means_no_auth_header(self, tmp_path: Path):
         seen: dict = {}
 

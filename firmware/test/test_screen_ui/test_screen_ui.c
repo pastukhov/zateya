@@ -18,7 +18,7 @@ void test_each_voice_state_has_clear_screen_copy_and_accent(void) {
 
   TEST_ASSERT_EQUAL_STRING("ЗАПУСК", boot.title);
   TEST_ASSERT_EQUAL_STRING("ПОДКЛЮЧАЮСЬ", boot.hint);
-  TEST_ASSERT_EQUAL_STRING("ГОТОВ", idle.title);
+  TEST_ASSERT_EQUAL_STRING("ГОТОВА", idle.title);
   TEST_ASSERT_EQUAL_STRING("НАЖМИТЕ ДЛЯ\nСТАРТА", idle.hint);
   TEST_ASSERT_EQUAL_STRING("СЛУШАЮ", recording.title);
   TEST_ASSERT_EQUAL_STRING("ДУМАЮ", processing.title);
@@ -116,7 +116,7 @@ void test_idle_waits_for_wifi_and_vpn_before_showing_ready(void) {
   screen_ui_view_t ready = screen_ui_view_with_network(STATE_IDLE, SCREEN_PROCESSING_THINKING, true, true);
   TEST_ASSERT_EQUAL_STRING("СЕТЬ", wifi.title);
   TEST_ASSERT_EQUAL_STRING("VPN", vpn.title);
-  TEST_ASSERT_EQUAL_STRING("ГОТОВ", ready.title);
+  TEST_ASSERT_EQUAL_STRING("ГОТОВА", ready.title);
   TEST_ASSERT_EQUAL_STRING("СЕТЬ", screen_ui_view_with_network(STATE_IDLE, SCREEN_PROCESSING_THINKING, false, true).title);
   TEST_ASSERT_EQUAL_STRING("СЛУШАЮ", screen_ui_view_with_network(STATE_RECORDING, SCREEN_PROCESSING_THINKING, false, false).title);
   TEST_ASSERT_LESS_OR_EQUAL_INT(115, screen_font_measure(SCREEN_FONT_HINT, wifi.hint));
@@ -125,13 +125,13 @@ void test_idle_waits_for_wifi_and_vpn_before_showing_ready(void) {
 
 void test_setup_screen_renders_network_and_address_without_clipping(void) {
   static uint16_t pixels[135 * 240];
-  TEST_ASSERT_TRUE(screen_ui_draw_setup(pixels, 135, 240, "Hermes-StickS3-Setup-80"));
+  TEST_ASSERT_TRUE(screen_ui_draw_setup(pixels, 135, 240, "Zateya-Setup-80"));
   // A full four-module white quiet zone surrounds the QR at three pixels/module.
   for (int y = 75; y < 186; ++y)
     for (int x = 12; x < 123; ++x)
       if (x < 24 || x >= 111 || y < 87 || y >= 174)
         TEST_ASSERT_EQUAL_HEX16(0xffff, pixels[y * 135 + x]);
-  FILE *preview = fopen("/tmp/hermes-setup-screen.ppm", "wb");
+  FILE *preview = fopen("/tmp/zateya-setup-screen.ppm", "wb");
   if (preview) {
     fprintf(preview, "P6\n135 240\n255\n");
     for (unsigned i = 0; i < 135 * 240; i++) {
@@ -147,6 +147,8 @@ void test_setup_screen_renders_network_and_address_without_clipping(void) {
 
 int main(void) {
   UNITY_BEGIN();
+  TEST_ASSERT_GREATER_THAN_INT(0, screen_font_measure(SCREEN_FONT_SMALL, "ЗАТЕЯ"));
+  TEST_ASSERT_LESS_OR_EQUAL_INT(65, screen_font_measure(SCREEN_FONT_SMALL, "ЗАТЕЯ"));
   RUN_TEST(test_setup_screen_renders_network_and_address_without_clipping);
   RUN_TEST(test_idle_waits_for_wifi_and_vpn_before_showing_ready);
   RUN_TEST(test_each_voice_state_has_clear_screen_copy_and_accent);

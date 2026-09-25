@@ -21,4 +21,4 @@ curl --fail http://127.0.0.1:8765/health/live
 curl --fail http://127.0.0.1:8765/health/ready
 ```
 
-Рабочий каталог в unit предполагает, что репозиторий расположен в `~/hermes-echo`; исправьте путь, если он отличается. Readiness сообщает об ошибках авторизации, модели или запуска runtime, не раскрывая credentials. Пока `VOICE_AGENT_PROVIDER=codex` не задан явно, gateway продолжает использовать Hermes.
+Рабочий каталог в unit предполагает, что репозиторий расположен в `~/repos/zateya`; исправьте путь, если он отличается. Readiness сообщает об ошибках авторизации, модели или запуска runtime, не раскрывая credentials. Пока `VOICE_AGENT_PROVIDER=codex` не задан явно, gateway продолжает использовать Hermes.

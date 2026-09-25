@@ -553,7 +553,7 @@ void board_sticks3_display_update(state_t state, uint32_t now_ms,
                                                         s_wifi_connected, voice_wireguard_ready());
   for (int i = 0; i < SCREEN_W * SCREEN_H; ++i) s_screen[i] = C_BG;
   screen_font_draw_centered(s_screen, SCREEN_W, SCREEN_H, 42, 13,
-                            SCREEN_FONT_SMALL, "ГЕРМЕС", C_WHITE);
+                            SCREEN_FONT_SMALL, "ЗАТЕЯ", C_WHITE);
   screen_wifi_icon(s_wifi_connected);
   screen_wireguard_icon(wg_status, phase);
   screen_rect(10, 32, 115, 1, C_LINE);
@@ -568,7 +568,7 @@ void board_sticks3_display_update(state_t state, uint32_t now_ms,
   screen_rect(45, 216, 45, 1, C_LINE);
   screen_font_draw_centered(s_screen, SCREEN_W, SCREEN_H, 67, 222,
                             SCREEN_FONT_SMALL,
-                            s_screen_device_id[0] ? s_screen_device_id : "ГЕРМЕС", C_MUTED);
+                            s_screen_device_id[0] ? s_screen_device_id : "ЗАТЕЯ", C_MUTED);
   int64_t render_start_us = esp_timer_get_time();
   screen_flush();
   if (!s_screen_timing_reported) {

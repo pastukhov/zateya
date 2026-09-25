@@ -65,11 +65,11 @@ static const char k_html[] =
   "<head>\n"
   "<meta charset='utf-8'>\n"
   "<meta name='viewport' content='width=device-width,initial-scale=1'>\n"
-  "<title>Hermes StickS3</title>\n"
+  "<title>Затея · StickS3</title>\n"
   "<style>*{box-sizing:border-box}body{font-family:system-ui,sans-serif;background:#0b1220;color:#e5e7eb;margin:0;padding:10px}h1{font-size:18px;margin:0 0 10px}.card{background:#111827;border:1px solid #1f2937;border-radius:10px;padding:14px;margin-bottom:10px}label{display:block;font-size:12px;color:#9ca3af;margin:9px 0 3px}input{width:100%;background:#0f172a;color:#e5e7eb;border:1px solid #334155;border-radius:8px;padding:9px;font-size:14px}button{background:#1f2937;color:#e5e7eb;border:1px solid #374151;border-radius:8px;padding:10px 14px;font-size:14px;cursor:pointer}.save{background:#065f46;border-color:#047857;width:100%;margin-top:12px}.reset{background:#b91c1c;border-color:#dc2626;color:#fff}.row{display:flex;gap:8px;align-items:center}.muted{opacity:.7;font-size:12px}select{flex:1;background:#0f172a;color:#e5e7eb;border:1px solid #334155;border-radius:8px;padding:9px}#wifi-list{display:grid;gap:6px;max-height:300px;overflow:auto;margin:10px 0}.wifi-item{text-align:left;display:flex;flex-direction:column;gap:4px;min-width:0}.wifi-name{overflow-wrap:anywhere}fieldset{min-width:0;border:1px solid #334155;border-radius:8px;margin:12px 0;padding:12px}#wifi-editor{border-top:1px solid #334155;margin-top:12px;padding-top:8px}.row{flex-wrap:wrap}#wifi-error{color:#fca5a5}[hidden]{display:none!important}.tabs{display:flex;gap:4px;margin-bottom:12px}.tabs button{flex:1;padding:10px 4px;font-size:13px}.tabs [aria-selected=true]{background:#065f46;border-color:#10b981}button:focus-visible{outline:2px solid #6ee7b7;outline-offset:2px}</style>\n"
   "</head>\n"
   "<body>\n"
-  "<h1>🤖 Hermes StickS3 <span class='muted' id='ip'>\n"
+  "<h1>🤖 Затея · StickS3 <span class='muted' id='ip'>\n"
   "</span>\n"
   "</h1>\n"
   "<div class='card'>\n"
@@ -188,12 +188,12 @@ static const char k_html[] =
   "let resetPending=false;\n"
   "async function resetCfg(){\n"
   "  if(resetPending)return;\n"
-  "  if(!confirm('Сбросить ВСЕ настройки диктофона?\\n\\nБудут удалены все сети Wi-Fi и пароли, адрес сервера, токен и ключи WireGuard. Таймер сна станет 30 секунд.\\n\\nДиктофон перезагрузится. Подключитесь к Hermes-StickS3-Setup и настройте его заново.'))return;\n"
+  "  if(!confirm('Сбросить ВСЕ настройки диктофона?\\n\\nБудут удалены все сети Wi-Fi и пароли, адрес сервера, токен и ключи WireGuard. Таймер сна станет 30 секунд.\\n\\nДиктофон перезагрузится. Подключитесь к Zateya-Setup и настройте его заново.'))return;\n"
   "  resetPending=true;$('reset-settings').disabled=true;$('reset-status').textContent='Сброс настроек…';\n"
   "  try{\n"
-  "    const r=await fetch('/config/reset',{method:'POST',headers:{'X-Hermes-Reset':'confirm'}});\n"
+  "    const r=await fetch('/config/reset',{method:'POST',headers:{'X-Zateya-Reset':'confirm'}});\n"
   "    if(!r.ok)throw new Error('reset failed');\n"
-  "    $('reset-status').textContent='Настройки сброшены. Перезагрузка… Подключитесь к сети Hermes-StickS3-Setup для настройки.';\n"
+  "    $('reset-status').textContent='Настройки сброшены. Перезагрузка… Подключитесь к сети Zateya-Setup для настройки.';\n"
   "  }catch(e){\n"
   "    resetPending=false;$('reset-settings').disabled=false;\n"
   "    $('reset-status').textContent='Не удалось подтвердить сброс. Проверьте подключение к диктофону и повторите попытку.';\n"
@@ -326,7 +326,7 @@ static const char k_html[] =
   "  }\n"
   "  saving=true;$('save-settings').disabled=true;$('info').textContent='Сохранение…';\n"
   "  try{\n"
-  "    const r=await fetch('/config',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded','X-Hermes-Setup':'1'},body});\n"
+  "    const r=await fetch('/config',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded','X-Zateya-Setup':'1'},body});\n"
   "    if(!r.ok)throw new Error('save rejected');\n"
   "    for(const id of ['url','token','pass',...['address','netmask','endpoint','port','public_key','private_key','preshared_key','keepalive','ntp_server'].map(n=>'wg-'+n)])$(id).value='';\n"
   "    for(const n of wifiProfiles)n.password='';\n"
@@ -389,7 +389,7 @@ static esp_err_t h_portal_redirect(httpd_req_t *req, httpd_err_code_t error) {
   httpd_resp_set_hdr(req, "Location", "/");
   httpd_resp_set_type(req, "text/html; charset=utf-8");
   return httpd_resp_send(req,
-      "<html lang='ru'><body><a href='/'>Открыть настройки Hermes StickS3</a></body></html>",
+      "<html lang='ru'><body><a href='/'>Открыть настройки Затея · StickS3</a></body></html>",
       HTTPD_RESP_USE_STRLEN);
 }
 
@@ -427,7 +427,7 @@ static esp_err_t h_config_post(httpd_req_t *req) {
   if (!allow_setup_client(req)) return ESP_OK;
   char setup_header[4];
   // Cross-origin forms cannot supply this header; no CORS is enabled.
-  if (httpd_req_get_hdr_value_str(req, "X-Hermes-Setup", setup_header, sizeof(setup_header)) != ESP_OK ||
+  if (httpd_req_get_hdr_value_str(req, "X-Zateya-Setup", setup_header, sizeof(setup_header)) != ESP_OK ||
       strcmp(setup_header, "1") != 0) {
     httpd_resp_set_status(req, "403 Forbidden");
     return send_json(req, "{\"ok\":false,\"error\":\"setup header required\"}");
@@ -458,7 +458,7 @@ static esp_err_t h_config_reset(httpd_req_t *req) {
   char confirmation[8];
   // A custom header also prevents cross-origin form submissions from resetting.
   if (req->content_len != 0 ||
-      httpd_req_get_hdr_value_str(req, "X-Hermes-Reset", confirmation, sizeof(confirmation)) != ESP_OK ||
+      httpd_req_get_hdr_value_str(req, "X-Zateya-Reset", confirmation, sizeof(confirmation)) != ESP_OK ||
       strcmp(confirmation, "confirm") != 0) {
     httpd_resp_set_status(req, "400 Bad Request");
     return send_json(req, "{\"ok\":false,\"error\":\"confirmation required\"}");

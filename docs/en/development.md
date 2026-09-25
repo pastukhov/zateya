@@ -78,7 +78,7 @@ Build flags read the Wi-Fi and gateway values from the environment and embed def
 | Symptom | Check |
 | --- | --- |
 | `/health/live` works but `/health/ready` returns 503 | The `checks` field for required STT/agent configuration and write access to `ARCHIVE_ROOT` |
-| The device does not appear on the home network | After one minute, look for `Hermes-StickS3-Setup-XX`; station reconnection continues in the background |
+| The device does not appear on the home network | After one minute, look for `Zateya-Setup-XX`; station reconnection continues in the background |
 | Wi-Fi works but a voice turn fails | Gateway URL, protocol version, device/token mapping, STT/TTS settings, and gateway logs |
 | V2 upload was accepted but there is no reply | Poll `GET /api/v2/voice/turns/{turn_id}` and inspect archive metadata; terminal failures appear in the `error` status payload |
 | Codex service is not ready | Sign in to Codex CLI as the same system user and check the adapter's `GET /health/ready`; do not copy credentials into the container |

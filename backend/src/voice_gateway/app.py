@@ -218,7 +218,7 @@ def create_app(
     except ValueError:
         device_tokens = {}
 
-    app = FastAPI(title="Hermes Voice Gateway", version="0.2.0")
+    app = FastAPI(title="Zateya Voice Gateway", version="0.2.0")
     app.add_middleware(RequestMetricsMiddleware, metrics=metrics)
     app.state.stt_provider = stt_provider
     app.state.hermes_client = hermes_client

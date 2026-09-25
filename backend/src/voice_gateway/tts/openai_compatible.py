@@ -85,6 +85,8 @@ class OpenAICompatibleTTS(TTSProvider):
             "input": text,
             "response_format": "wav",
         }
+        if self._config.instructions:
+            payload["instructions"] = self._config.instructions
         try:
             response = self._client.post(
                 self._config.base_url,

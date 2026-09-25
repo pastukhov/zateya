@@ -12,6 +12,7 @@ Environment variables (secrets stay out of the repo — ТЗ section 33):
     TTS_API_KEY    optional; sent as ``Authorization: Bearer ***`` when set
     TTS_MODEL      required, model name
     TTS_VOICE      voice name
+    TTS_INSTRUCTIONS  optional speaking style for models that support it
     TTS_TIMEOUT    seconds; default 60 (ТЗ section 31)
 """
 from __future__ import annotations
@@ -34,6 +35,7 @@ class TTSConfig:
     base_url: str
     model: str
     voice: str = ""
+    instructions: str = ""
     api_key: str = ""
     timeout: float = DEFAULT_TTS_TIMEOUT
 
@@ -54,6 +56,7 @@ class TTSConfig:
         if not model:
             raise ValueError("TTS_MODEL is required")
         voice = source.get("TTS_VOICE", "")
+        instructions = source.get("TTS_INSTRUCTIONS", "")
         api_key = source.get("TTS_API_KEY", "")
         raw_timeout = source.get("TTS_TIMEOUT") or DEFAULT_TTS_TIMEOUT
         try:
@@ -66,6 +69,7 @@ class TTSConfig:
             base_url=base_url,
             model=model,
             voice=voice,
+            instructions=instructions,
             api_key=api_key,
             timeout=timeout,
         )

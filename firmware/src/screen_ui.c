@@ -23,7 +23,7 @@ screen_ui_view_t screen_ui_view_with_phase(state_t state,
       return (screen_ui_view_t){"ЗАПУСК", "ПОДКЛЮЧАЮСЬ", 0x74BF, SCREEN_ICON_IDLE};
     case STATE_IDLE:
     default:
-      return (screen_ui_view_t){"ГОТОВ", "НАЖМИТЕ ДЛЯ\nСТАРТА", 0x74BF, SCREEN_ICON_IDLE};
+      return (screen_ui_view_t){"ГОТОВА", "НАЖМИТЕ ДЛЯ\nСТАРТА", 0x74BF, SCREEN_ICON_IDLE};
   }
 }
 

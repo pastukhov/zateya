@@ -1,4 +1,4 @@
-# Hermes Voice Terminal: project context
+# Zateya: project context
 
 This page summarizes current implementation facts for contributors. Prefer the executable code and user guides when they disagree with historical plans or handoff notes.
 
@@ -32,7 +32,7 @@ Build a push-to-talk M5Stack StickS3 voice terminal. The device captures audio, 
 
 ## Wi-Fi setup and display
 
-The open setup AP uses `Hermes-StickS3-Setup-XX`, with `XX` equal to the final MAC byte in hexadecimal. If a saved network does not obtain an IP within 60 seconds, setup AP starts while reconnection attempts continue. It closes when the device connects. The setup page is restricted to the setup subnet.
+The open setup AP uses `Zateya-Setup-XX`, with `XX` equal to the final MAC byte in hexadecimal. If a saved network does not obtain an IP within 60 seconds, setup AP starts while reconnection attempts continue. It closes when the device connects. The setup page is restricted to the setup subnet.
 
 The display uses Montserrat-based glyphs. Voice states include READY, LISTENING, THINKING, SPEAKING, and ERROR; the error screen remains until a new button press. There is no separate LED status indicator.
 

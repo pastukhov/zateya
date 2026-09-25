@@ -24,7 +24,7 @@ DEFAULT_HERMES_MODEL = "hermes"
 
 #: System prompt file location (ТЗ section 23).
 HERMES_PROMPT_PATH = (
-    Path(__file__).resolve().parents[2] / "prompts" / "hermes_voice.md"
+    Path(__file__).resolve().parents[2] / "prompts" / "zateya_voice.md"
 )
 
 #: Default STT timeout, seconds (ТЗ section 31: recommended STT: 60 s).

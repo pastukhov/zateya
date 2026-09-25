@@ -37,6 +37,6 @@ bool voice_wifi_setup_should_stop_ap(const voice_wifi_setup_t *state) {
 
 bool voice_wifi_setup_ssid(char *out, size_t capacity, const uint8_t mac[6]) {
   if (!out || !mac || !capacity) return false;
-  int length = snprintf(out, capacity, "Hermes-StickS3-Setup-%02x", mac[5]);
+  int length = snprintf(out, capacity, "Zateya-Setup-%02x", mac[5]);
   return length > 0 && (size_t)length < capacity;
 }

@@ -13,7 +13,7 @@ This guide covers Wi-Fi provisioning and the PlatformIO build for the StickS3 (E
 
 ## Configure Wi-Fi with the captive portal
 
-1. On first boot, connect your phone or computer to `Hermes-StickS3-Setup-XX`. `XX` is the final Wi-Fi MAC byte in lowercase hexadecimal.
+1. On first boot, connect your phone or computer to `Zateya-Setup-XX`. `XX` is the final Wi-Fi MAC byte in lowercase hexadecimal.
 2. Accept the prompt to open the network setup page. If it does not appear, browse to `http://192.168.4.1/`.
 3. Select your home SSID from the scan list or enter it manually. Enter its password and the gateway endpoint.
 4. Keep protocol v1 unless you have configured v2 tokens. For v1, enter the full URL ending in `/api/v1/voice/turn`. For v2, enter only the base URL, select v2, and enter the device token.
@@ -60,4 +60,4 @@ A native test/build does not prove operation on the physical audio codec or conn
 
 ## Device display
 
-The LCD shows `ГОТОВ`, `СЛУШАЮ`, `ДУМАЮ`, `ОТВЕЧАЮ`, and `ОШИБКА` (READY, LISTENING, THINKING, SPEAKING, and ERROR). The error screen stays visible until you press the button. There is no separate LED indication.
+The LCD shows `ГОТОВА`, `СЛУШАЮ`, `ДУМАЮ`, `ОТВЕЧАЮ`, and `ОШИБКА` (READY, LISTENING, THINKING, SPEAKING, and ERROR). The error screen stays visible until you press the button. There is no separate LED indication.

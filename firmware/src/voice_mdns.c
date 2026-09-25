@@ -13,7 +13,7 @@ void voice_mdns_start(void) {
   esp_err_t err = esp_read_mac(mac, ESP_MAC_WIFI_STA);
   if (err != ESP_OK) return;
   char hostname[32];
-  snprintf(hostname, sizeof(hostname), "hermes-%02x%02x%02x%02x%02x%02x",
+  snprintf(hostname, sizeof(hostname), "zateya-%02x%02x%02x%02x%02x%02x",
            mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
   err = mdns_init();
   if (err == ESP_OK) {
@@ -23,7 +23,7 @@ void voice_mdns_start(void) {
       {"model", "StickS3"}, {"path", "/"}, {"access", "local-wifi-and-setup"},
     };
     if (err == ESP_OK)
-      err = mdns_service_add(NULL, "_hermes", "_tcp", 80, txt, 3);
+      err = mdns_service_add(NULL, "_zateya", "_tcp", 80, txt, 3);
     if (err == ESP_OK)
       err = mdns_service_add(NULL, "_http", "_tcp", 80, txt, 3);
     if (err != ESP_OK) mdns_free();
@@ -33,7 +33,7 @@ void voice_mdns_start(void) {
     return;
   }
   started = true;
-  ESP_LOGI("voice_mdns", "Discovery ready: %s.local (_hermes._tcp, _http._tcp)", hostname);
+  ESP_LOGI("voice_mdns", "Discovery ready: %s.local (_zateya._tcp, _http._tcp)", hostname);
 }
 #else
 void voice_mdns_start(void) {}

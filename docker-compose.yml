@@ -1,4 +1,4 @@
-# docker-compose.yml — Hermes Voice Terminal backend (ТЗ §37 — Backend deployment).
+# docker-compose.yml — Zateya backend (ТЗ §37 — Backend deployment).
 #
 # From the repo root:
 #     docker compose --env-file /home/artem/.hermes/.env --env-file .env up --build -d backend
@@ -30,7 +30,7 @@ services:
     build:
       context: .
       dockerfile: backend/Dockerfile
-    image: hermes-voice-gateway:latest
+    image: zateya-voice-gateway:latest
     env_file:
       - path: .env
         required: false
@@ -66,7 +66,8 @@ services:
       TTS_BASE_URL: ${TTS_BASE_URL:-https://api.openai.com/v1/audio/speech}
       TTS_API_KEY: ${TTS_API_KEY:-${VOICE_TOOLS_OPENAI_KEY:-}}
       TTS_MODEL: ${TTS_MODEL:-gpt-4o-mini-tts}
-      TTS_VOICE: ${TTS_VOICE:-alloy}
+      TTS_VOICE: ${TTS_VOICE:-nova}
+      TTS_INSTRUCTIONS: ${TTS_INSTRUCTIONS:-Говори естественным женским голосом по-русски, спокойно и дружелюбно.}
       # --- Obsidian notes (ТЗ §25–27): in-container vault root, hardcoded to
       # the volume mount target (same rationale as ARCHIVE_PATH). ---
       VOICE_KNOWLEDGE_ENABLED: ${VOICE_KNOWLEDGE_ENABLED:-true}

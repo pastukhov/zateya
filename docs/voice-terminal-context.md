@@ -1,4 +1,4 @@
-# Hermes Voice Terminal: собранный контекст
+# Zateya: собранный контекст
 
 Дата фиксации: 2026-09-22.
 
@@ -10,7 +10,7 @@
 
 ## Источники
 
-- `ТЗ_ Hermes Voice Terminal на M5Stack ATOM Echo.md` — актуальное содержимое
+- `ТЗ_ Zateya на M5Stack ATOM Echo.md` — актуальное содержимое
   уже исправлено под StickS3, имя файла историческое.
 - `docs/architecture.md`, `docs/protocol.md`, `docs/development.md` — текущий
   backend-контракт и правила разработки.

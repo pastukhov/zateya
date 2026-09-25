@@ -212,7 +212,7 @@ static void test_setup_ap_name_uses_last_mac_byte(void) {
   const uint8_t mac[6] = {0x7c, 0xe8, 0xb1, 0xe4, 0xb7, 0x80};
   char ssid[33];
   TEST_ASSERT_TRUE(voice_wifi_setup_ssid(ssid, sizeof(ssid), mac));
-  TEST_ASSERT_EQUAL_STRING("Hermes-StickS3-Setup-80", ssid);
+  TEST_ASSERT_EQUAL_STRING("Zateya-Setup-80", ssid);
 }
 
 static void test_setup_ap_name_rejects_short_buffer(void) {
