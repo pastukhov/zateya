@@ -14,6 +14,8 @@ This host-side service gives each StickS3 device a durable Codex conversation. T
 
 The systemd user unit reads a mode-0600 environment file at `~/.config/hermes-echo/codex-voice-agent.env`. Set `CODEX_AGENT_TOKEN` to a separately generated bearer secret. Optional settings are `CODEX_VOICE_CWD`, `CODEX_VOICE_MODEL`, and `CODEX_VOICE_TURN_TIMEOUT` (maximum 120 seconds). The gateway receives its own matching adapter token through its local environment; do not reuse the device token.
 
+For the current voice and Obsidian workflow, set `CODEX_VOICE_MODEL=gpt-6-luna` in that private environment file. The service retries a malformed JSON reply once in the same conversation before returning `agent_invalid_response`.
+
 The adapter keeps one active conversation thread per `device_id`. Request IDs are idempotent; a repeated request with different transcript text is rejected. Reset creates a new active thread while retaining old SQLite history. An interrupted request is not replayed automatically after restart.
 
 ## Local checks

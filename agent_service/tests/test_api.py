@@ -7,7 +7,7 @@ import pytest
 
 from codex_voice.app import create_app
 from codex_voice.service import AgentRequest, AgentService
-from test_sessions import FakeRuntime
+from test_sessions import FakeRuntime, RuntimeCall
 
 
 def test_api_requires_bearer_and_returns_async_turn_contract(tmp_path) -> None:
@@ -96,4 +96,47 @@ def test_knowledge_context_persists_and_conflicts_on_changed_retry(tmp_path):
             body['knowledge_context']['source_id'] = 'b' * 32
             assert (await client.post('/v1/agent/turns', json=body)).status_code == 409
         await service.close()
+    asyncio.run(scenario())
+
+
+def test_malformed_json_gets_one_correction_attempt(tmp_path):
+    class RepairRuntime(FakeRuntime):
+        async def run(self, thread_id, prompt):
+            self.calls.append(RuntimeCall(thread_id, prompt))
+            if len(self.calls) == 1:
+                return '{"reply":"готово",'
+            return '{"reply":"Готово","note":{"create":false,"title":"","content":"","tags":[]}}'
+
+    async def scenario():
+        runtime = RepairRuntime()
+        service = AgentService(tmp_path / "repair.sqlite", runtime)
+        await service.start()
+        await service.submit(AgentRequest("repair-1", "mic", "Привет"))
+        result = await service.wait("repair-1")
+        assert result.status == "completed"
+        assert result.reply.reply == "Готово"
+        assert len(runtime.calls) == 2
+        assert "JSON" in runtime.calls[1].prompt
+        await service.close()
+
+    asyncio.run(scenario())
+
+
+def test_malformed_json_stops_after_one_correction(tmp_path):
+    class BrokenRuntime(FakeRuntime):
+        async def run(self, thread_id, prompt):
+            self.calls.append(RuntimeCall(thread_id, prompt))
+            return '{"reply":'
+
+    async def scenario():
+        runtime = BrokenRuntime()
+        service = AgentService(tmp_path / "broken.sqlite", runtime)
+        await service.start()
+        await service.submit(AgentRequest("broken-1", "mic", "Привет"))
+        result = await service.wait("broken-1")
+        assert result.status == "failed"
+        assert result.error.code == "agent_invalid_response"
+        assert len(runtime.calls) == 2
+        await service.close()
+
     asyncio.run(scenario())

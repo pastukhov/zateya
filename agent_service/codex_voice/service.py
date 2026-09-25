@@ -244,7 +244,19 @@ class AgentService:
             if row.get("context_json"):
                 prompt = knowledge_prompt(row["transcript"], json.loads(row["context_json"]))
             response = await self.runtime.run(thread_id, prompt)
-            payload = json.loads(response)
+            try:
+                payload = json.loads(response)
+            except json.JSONDecodeError:
+                response = await self.runtime.run(
+                    thread_id,
+                    "Предыдущий ответ содержит ошибку JSON. Повтори его целиком как один "
+                    "корректный JSON-объект, сохранив смысл. Экранируй кавычки и "
+                    "переводы строк внутри строк. Без пояснений и Markdown.",
+                )
+                try:
+                    payload = json.loads(response)
+                except json.JSONDecodeError:
+                    raise RuntimeFailure("agent_invalid_response") from None
             if not isinstance(payload, dict) or not isinstance(payload.get("reply"), str):
                 raise RuntimeFailure("agent_invalid_response")
             note = payload.get("note")
