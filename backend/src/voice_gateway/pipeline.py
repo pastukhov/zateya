@@ -6,6 +6,7 @@ import asyncio
 import logging
 import os
 import json
+import time
 import wave
 from datetime import UTC, datetime
 from pathlib import Path
@@ -117,8 +118,15 @@ class VoicePipeline:
                 if self.knowledge is not None and receipt is None:
                     atomic_write_json(turn_dir / "knowledge-proposal.json", response.model_dump())
                     try:
+                        publish_started = time.monotonic()
+                        logger.info("publishing Obsidian update for turn %s", job["turn_id"])
                         receipt = await asyncio.to_thread(self.knowledge.publish, source_id, job["device_id"],
                                                           response.note, context, response.reply)
+                        logger.info(
+                            "published Obsidian update for turn %s in %.2fs",
+                            job["turn_id"],
+                            time.monotonic() - publish_started,
+                        )
                         response.reply = receipt["reply"]
                     except KnowledgeConflict:
                         receipt = {"source_id": source_id, "status": "needs_review"}
@@ -126,14 +134,23 @@ class VoicePipeline:
                     atomic_write_json(turn_dir / "knowledge-result.json", receipt)
                 if self.agent is not None and hasattr(self.agent, "record_turn"):
                     if receipt is None or receipt.get("status") != "needs_review":
+                        history_started = time.monotonic()
+                        logger.info("saving agent history for turn %s", job["turn_id"])
                         await self.agent.record_turn(
                             job["device_id"], job["request_id"], transcript.text, response.reply
+                        )
+                        logger.info(
+                            "saved agent history for turn %s in %.2fs",
+                            job["turn_id"],
+                            time.monotonic() - history_started,
                         )
                 atomic_write_bytes(turn_dir / "reply.txt", response.reply.encode("utf-8"))
                 if self.tts is None:
                     raise VoicePipelineError("tts_failed")
                 if report_progress:
                     report_progress("synthesizing")
+                synthesis_started = time.monotonic()
+                logger.info("starting speech synthesis for turn %s", job["turn_id"])
                 synthesis = asyncio.create_task(
                     asyncio.to_thread(self.tts.synthesize, response.reply, output_part)
                 )
@@ -142,6 +159,11 @@ class VoicePipeline:
                 except asyncio.CancelledError:
                     synthesis.add_done_callback(lambda _: output_part.unlink(missing_ok=True))
                     raise
+                logger.info(
+                    "finished speech synthesis for turn %s in %.2fs",
+                    job["turn_id"],
+                    time.monotonic() - synthesis_started,
+                )
                 self._validate_reply_wav(output_part)
                 os.replace(output_part, output_wav)
                 atomic_write_bytes(turn_dir / "transcript.txt", transcript.text.encode("utf-8"))
