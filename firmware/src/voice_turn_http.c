@@ -20,6 +20,7 @@ typedef struct {
   voice_turn_http_t *http;
   wav_parser_t *parser;
   bool invalid_format;
+  bool first_pcm_logged;
 } wav_stream_sink_t;
 
 // esp_http_client_get_header reads outgoing request headers. Capture the
@@ -147,6 +148,10 @@ static size_t stream_pcm(void *ctx, const uint8_t *data, size_t len) {
     return 0;
   }
   if (sink->http->cancel_requested && *sink->http->cancel_requested) return 0;
+  if (!sink->first_pcm_logged) {
+    ESP_LOGI("voice_http", "first PCM chunk: %lu bytes", (unsigned long)len);
+    sink->first_pcm_logged = true;
+  }
   if (sink->http->audio_started) *sink->http->audio_started = true;
   return xStreamBufferSend(sink->http->audio_stream, data, len,
                            pdMS_TO_TICKS(100));
@@ -164,6 +169,8 @@ static voice_turn_io_result_t download_audio(void *ctx, const char *turn_id,
   response->http_status = status;
   const char *content_type = http->response_content_type;
   strlcpy(response->content_type, content_type, sizeof(response->content_type));
+  ESP_LOGI("voice_http", "audio response: HTTP %d, type %s, length %lld",
+           status, content_type, (long long)esp_http_client_get_content_length(client));
   if (!voice_turn_audio_response_valid(status, content_type, 24000, 1, 16)) {
     ESP_LOGE("voice_http", "invalid audio response: HTTP %d, type %s",
              status, content_type);
@@ -175,14 +182,21 @@ static voice_turn_io_result_t download_audio(void *ctx, const char *turn_id,
   wav_parser_init(&parser, stream_pcm, &sink);
   uint8_t block[512];
   voice_turn_io_result_t result = VOICE_TURN_IO_OK;
+  size_t received_bytes = 0;
   for (;;) {
     if (http->cancel_requested && *http->cancel_requested) {
       result = VOICE_TURN_IO_RETRY;
       break;
     }
     int got = esp_http_client_read(client, (char *)block, sizeof(block));
-    if (got < 0) { result = VOICE_TURN_IO_RETRY; break; }
+    if (got < 0) {
+      ESP_LOGW("voice_http", "audio read failed after %lu bytes: %d",
+               (unsigned long)received_bytes, got);
+      result = VOICE_TURN_IO_RETRY;
+      break;
+    }
     if (got == 0) break;
+    received_bytes += (size_t)got;
     size_t offset = 0;
     while (offset < (size_t)got) {
       if (http->cancel_requested && *http->cancel_requested) {
@@ -194,6 +208,8 @@ static voice_turn_io_result_t download_audio(void *ctx, const char *turn_id,
                                         (size_t)got - offset, &wav_result);
       offset += consumed;
       if (wav_result == WAV_ERROR || sink.invalid_format) {
+        ESP_LOGE("voice_http", "WAV parse failed after %lu bytes",
+                 (unsigned long)received_bytes);
         result = VOICE_TURN_IO_FATAL;
         break;
       }
@@ -201,8 +217,11 @@ static voice_turn_io_result_t download_audio(void *ctx, const char *turn_id,
     }
     if (result != VOICE_TURN_IO_OK) break;
   }
-  if (result == VOICE_TURN_IO_OK && wav_parser_finish(&parser) != WAV_OK)
+  if (result == VOICE_TURN_IO_OK && wav_parser_finish(&parser) != WAV_OK) {
+    ESP_LOGE("voice_http", "WAV incomplete after %lu bytes",
+             (unsigned long)received_bytes);
     result = VOICE_TURN_IO_FATAL;
+  }
   if (result == VOICE_TURN_IO_OK) {
     response->sample_rate = parser.format.sample_rate;
     response->channels = parser.format.channels;
