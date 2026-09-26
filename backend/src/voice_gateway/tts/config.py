@@ -10,6 +10,7 @@ Environment variables (secrets stay out of the repo — ТЗ section 33):
     TTS_MODEL      required, model name
     TTS_VOICE      voice name
     TTS_INSTRUCTIONS  optional speaking style for models that support it
+    TTS_RESPONSE_FORMAT  wav or pcm (PCM16 little-endian, 24 kHz mono)
     TTS_TIMEOUT    seconds; default 60 (ТЗ section 31)
 """
 from __future__ import annotations
@@ -34,6 +35,7 @@ class TTSConfig:
     instructions: str = ""
     api_key: str = ""
     timeout: float = DEFAULT_TTS_TIMEOUT
+    response_format: str = "wav"
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> "TTSConfig":
@@ -52,6 +54,9 @@ class TTSConfig:
         model = source.get("TTS_MODEL", "").strip()
         if not model:
             raise ValueError("TTS_MODEL is required")
+        response_format = source.get("TTS_RESPONSE_FORMAT", "wav").strip().lower()
+        if response_format not in {"wav", "pcm"}:
+            raise ValueError("TTS_RESPONSE_FORMAT must be wav or pcm")
         voice = source.get("TTS_VOICE", "")
         instructions = source.get("TTS_INSTRUCTIONS", "")
         api_key = source.get("LLM_API_KEY", "").strip()
@@ -69,4 +74,5 @@ class TTSConfig:
             instructions=instructions,
             api_key=api_key,
             timeout=timeout,
+            response_format=response_format,
         )

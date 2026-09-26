@@ -3,8 +3,8 @@
 Concrete transport for the
 :class:`~backend.src.voice_gateway.tts.base.TTSProvider` contract.
 ``synthesize`` POSTs to the configured (already-full) TTS endpoint URL
-with a JSON body of ``model``/``voice``/``input`` and writes the raw WAV
-response body to ``out_path``.
+with a JSON body of ``model``/``voice``/``input`` and writes WAV to
+``out_path``, wrapping raw PCM responses when requested.
 
 Unlike the STT and Hermes transports, this contract's ``synthesize`` is
 synchronous end to end, so the adapter is built on ``httpx.Client``
@@ -22,6 +22,7 @@ import logging
 import time
 import wave
 from io import BytesIO
+from email.message import Message
 from pathlib import Path
 
 import httpx
@@ -83,7 +84,7 @@ class OpenAICompatibleTTS(TTSProvider):
             "model": self._config.model,
             "voice": self._config.voice,
             "input": text,
-            "response_format": "wav",
+            "response_format": self._config.response_format,
         }
         if self._config.instructions:
             payload["instructions"] = self._config.instructions
@@ -126,6 +127,8 @@ class OpenAICompatibleTTS(TTSProvider):
             raise TTSProviderError("tts returned an empty response body")
 
         try:
+            if self._config.response_format == "pcm":
+                body = self._pcm_to_wav(body, response.headers.get("content-type", ""))
             sample_rate = self._validate_wav(body)
         except TTSProviderError as exc:
             log_stage_event(
@@ -161,6 +164,27 @@ class OpenAICompatibleTTS(TTSProvider):
             status="success",
         )
         return TTSResult(wav_path=out_path, sample_rate=sample_rate)
+
+    @staticmethod
+    def _pcm_to_wav(body: bytes, content_type: str) -> bytes:
+        """Wrap API PCM16 little-endian at 24 kHz mono without changing samples."""
+        header = Message()
+        header["content-type"] = content_type
+        if header.get_content_type() not in {"audio/pcm", "application/octet-stream"}:
+            raise TTSProviderError("tts returned an unexpected PCM content type")
+        # Bare PCM has no header; absent parameters use the requested API format.
+        if (header.get_param("rate", "24000") != "24000"
+                or header.get_param("channels", "1") != "1"):
+            raise TTSProviderError("tts returned PCM that is not 24 kHz mono")
+        if len(body) % 2:
+            raise TTSProviderError("tts returned an incomplete PCM frame")
+        output = BytesIO()
+        with wave.open(output, "wb") as wav:
+            wav.setnchannels(1)
+            wav.setsampwidth(2)
+            wav.setframerate(24000)
+            wav.writeframes(body)
+        return output.getvalue()
 
     @staticmethod
     def _validate_wav(body: bytes) -> int:

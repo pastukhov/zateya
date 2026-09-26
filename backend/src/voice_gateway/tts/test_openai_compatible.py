@@ -425,3 +425,42 @@ class TestStageLogging:
         assert len(records) == 1
         assert records[0].turn_id is None
         assert records[0].device_id is None
+
+
+def test_pcm_response_is_wrapped_as_device_wav(tmp_path):
+    import json
+    from backend.src.voice_gateway.pipeline import VoicePipeline
+
+    pcm = b"\x01\x00\xff\xff" * 36000
+    config = TTSConfig.from_env({
+        "LLM_BASE_URL": "https://tts.test/v1", "TTS_MODEL": "google/gemini-3.8-flash-lite-tts",
+        "TTS_VOICE": "Kore", "TTS_RESPONSE_FORMAT": "pcm",
+    })
+
+    def handler(request):
+        assert json.loads(request.content)["response_format"] == "pcm"
+        return httpx.Response(200, content=pcm,
+                              headers={"content-type": "audio/pcm;rate=24000;channels=1"})
+
+    result = _make_client(httpx.MockTransport(handler), config).synthesize("Я готова.", tmp_path / "out.wav")
+    VoicePipeline._validate_reply_wav(result.wav_path)
+    with wave.open(str(result.wav_path), "rb") as audio:
+        assert (audio.getframerate(), audio.getnchannels(), audio.getsampwidth()) == (24000, 1, 2)
+        assert audio.readframes(audio.getnframes()) == pcm
+
+
+@pytest.mark.parametrize("content_type,body", [
+    ("audio/pcm;rate=48000;channels=1", b"\0\0"),
+    ("audio/pcm;rate=24000;channels=2", b"\0\0"),
+    ("application/json", b'{}'),
+    ("audio/pcm;rate=24000;channels=1", b"\0"),
+])
+def test_invalid_pcm_is_not_published(tmp_path, content_type, body):
+    config = TTSConfig.from_env({"LLM_BASE_URL": "https://tts.test/v1",
+                                "TTS_MODEL": "m", "TTS_RESPONSE_FORMAT": "pcm"})
+    client = _make_client(httpx.MockTransport(lambda _: httpx.Response(
+        200, content=body, headers={"content-type": content_type})), config)
+    output = tmp_path / "out.wav"
+    with pytest.raises(TTSProviderError):
+        client.synthesize("test", output)
+    assert not output.exists()

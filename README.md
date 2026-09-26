@@ -16,6 +16,8 @@ cp .env.example .env
 chmod 600 .env
 ```
 
+Для Gemini TTS укажите `TTS_MODEL=google/gemini-3.8-flash-lite-tts`, `TTS_VOICE=Kore`, `TTS_RESPONSE_FORMAT=pcm` и оставьте `TTS_INSTRUCTIONS` пустым. Gateway упаковывает PCM16 little-endian, 24 кГц, моно в WAV для диктофона. Для провайдеров, возвращающих WAV, используйте `TTS_RESPONSE_FORMAT=wav`. После изменения `.env` пересоздайте backend: `docker compose up -d --build backend`.
+
 Для развертывания на сервере подготовьте существующий Obsidian vault в `data/obsidian`, настройте Git SSH в `data/ssh` и следуйте [инструкции для Linux-сервера](deploy/server-migration.ru.md). Для проверки конфигурации и тестов смотрите [руководство разработки](docs/development.md).
 
 Gateway работает в стандартной bridge-сети Compose с опубликованным портом для диктофона. Ограничьте доступ к этому порту доверенной LAN/WireGuard. Значения `LLM_API_KEY` и токены устройства передаются только процессу gateway и не выдаются веб-интерфейсу диктофона.

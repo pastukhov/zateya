@@ -16,6 +16,8 @@ cp .env.example .env
 chmod 600 .env
 ```
 
+For Gemini TTS, set `TTS_MODEL=google/gemini-3.8-flash-lite-tts`, `TTS_VOICE=Kore`, `TTS_RESPONSE_FORMAT=pcm`, and leave `TTS_INSTRUCTIONS` empty. The gateway wraps PCM16 little-endian, 24 kHz mono audio in WAV for the recorder. For providers returning WAV, use `TTS_RESPONSE_FORMAT=wav`. Recreate the backend after editing `.env`: `docker compose up -d --build backend`.
+
 For a server deployment, place the existing Obsidian vault in `data/obsidian`, configure Git SSH in `data/ssh`, and follow the [Linux server guide](deploy/server-migration.ru.md). See the [development guide](docs/en/development.md) for configuration checks and tests.
 
 The gateway uses Compose's default bridge network and publishes a port for the recorder. Restrict that port to a trusted LAN or WireGuard network. `LLM_API_KEY` and device tokens are passed only to the gateway process and are never exposed by the recorder’s web UI.
