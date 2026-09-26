@@ -168,6 +168,10 @@ def install_voice_job_routes(
     @app.post("/api/voice/sessions/reset")
     async def reset_session(request: Request):
         device_id = await authenticate(request)
+        # This check and the synchronous generation advance below execute
+        # without yielding, so upload cannot slip into the reset boundary.
+        if store.device_busy(device_id):
+            raise HTTPException(status_code=409, detail={"error": "device_busy"})
         if reset_device is None:
             raise HTTPException(status_code=503, detail={"error": "agent_reset_unavailable"})
         result = reset_device(device_id)

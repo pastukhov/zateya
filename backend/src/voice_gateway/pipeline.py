@@ -88,6 +88,13 @@ class VoicePipeline:
                 if receipt is not None:
                     response = HermesResponse(reply=receipt["reply"])
                     metadata = {"provider": "knowledge", "model": None}
+                    # A crash may have happened after the writer committed but
+                    # before history did. Fetch the durable LLM result (cache hit)
+                    # and finish that history commit without another generation.
+                    if self.agent is not None and hasattr(self.agent, "record_turn"):
+                        await self.agent.complete(
+                            AgentRequest(job["request_id"], job["device_id"], transcript.text, context)
+                        )
                 elif self.agent is not None:
                     reply = await self.agent.complete(
                         AgentRequest(job["request_id"], job["device_id"], transcript.text, context)
@@ -114,6 +121,11 @@ class VoicePipeline:
                         receipt = {"source_id": source_id, "status": "needs_review"}
                         response.reply = "Исходная запись сохранена. Обновление заметок требует проверки; существующие правки не перезаписаны."
                     atomic_write_json(turn_dir / "knowledge-result.json", receipt)
+                if self.agent is not None and hasattr(self.agent, "record_turn"):
+                    if receipt is None or receipt.get("status") != "needs_review":
+                        await self.agent.record_turn(
+                            job["device_id"], job["request_id"], transcript.text, response.reply
+                        )
                 atomic_write_bytes(turn_dir / "reply.txt", response.reply.encode("utf-8"))
                 if self.tts is None:
                     raise VoicePipelineError("tts_failed")
@@ -176,7 +188,7 @@ class VoicePipeline:
             if code in {
                 "agent_auth_required", "agent_rate_limited", "agent_timeout",
                 "agent_invalid_response", "permission_required", "interrupted",
-                "agent_unavailable",
+                "agent_unavailable", "agent_config_error", "idempotency_conflict",
             }:
                 raise VoicePipelineError(code) from None
             raise VoicePipelineError("agent_unavailable") from None

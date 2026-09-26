@@ -101,3 +101,27 @@ def test_old_voice_routes_are_not_registered(tmp_path):
     assert all(getattr(route, "path", None) != "/api/v1/voice/turn" for route in app.routes)
     assert response.status_code == 404
     assert former_job_route.status_code == 404
+
+
+def test_reset_rejects_device_with_an_in_progress_upload(tmp_path, monkeypatch):
+    monkeypatch.setenv("VOICE_DEVICE_TOKENS", json.dumps({DEVICE_ID: DEVICE_TOKEN}))
+    app = create_app(archive_root=tmp_path / "archive")
+    with TestClient(app) as client:
+        _, job = app.state.voice_job_store.claim_upload(DEVICE_ID, str(uuid.uuid4()))
+        response = client.post("/api/voice/sessions/reset", headers=_headers())
+        app.state.voice_job_store.mark_upload_failed(job["turn_id"], "test_cleanup")
+    assert response.status_code == 409
+    assert response.json()["detail"]["error"] == "device_busy"
+
+
+def test_reset_advances_local_session_when_device_is_idle(tmp_path, monkeypatch):
+    monkeypatch.setenv("VOICE_DEVICE_TOKENS", json.dumps({DEVICE_ID: DEVICE_TOKEN}))
+    monkeypatch.setenv("LLM_BASE_URL", "http://model.invalid/v1")
+    monkeypatch.setenv("LLM_MODEL", "test-model")
+    app = create_app(archive_root=tmp_path / "archive")
+    sessions = app.state.agent_client.sessions
+    prior = sessions.begin(DEVICE_ID, "old-request", "hash")
+    with TestClient(app) as client:
+        response = client.post("/api/voice/sessions/reset", headers=_headers())
+    assert response.status_code == 200
+    assert sessions.begin(DEVICE_ID, "new-request", "other-hash").generation == prior.generation + 1

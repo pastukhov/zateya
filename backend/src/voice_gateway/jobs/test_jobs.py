@@ -94,3 +94,13 @@ def test_default_limit_accepts_ten_minutes_and_rejects_extra_sample(tmp_path):
         jobs.complete_upload('mic', request_id, stage_path=stage, size=size + 2, digest='hash')
     result = jobs.complete_upload('mic', request_id, stage_path=stage, size=size, digest='hash')
     assert result['audio_bytes'] == size
+
+
+def test_device_busy_includes_an_upload_between_claim_and_completion(tmp_path):
+    jobs = VoiceJobStore(tmp_path / "jobs.sqlite", tmp_path / "archive")
+    jobs.initialize()
+    _, row = jobs.claim_upload("mic-a", str(uuid.uuid4()))
+    assert jobs.device_busy("mic-a")
+    assert not jobs.device_busy("mic-b")
+    jobs.mark_upload_failed(row["turn_id"], "interrupted")
+    assert not jobs.device_busy("mic-a")

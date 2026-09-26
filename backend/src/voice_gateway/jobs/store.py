@@ -263,6 +263,14 @@ class VoiceJobStore:
             ).fetchone()
             return dict(row) if row else None
 
+    def device_busy(self, device_id: str) -> bool:
+        with self._connect() as connection:
+            return connection.execute(
+                "SELECT 1 FROM voice_jobs WHERE device_id = ? AND status IN "
+                "('uploading', 'queued', 'running', 'transcribing', 'thinking', 'synthesizing') LIMIT 1",
+                (device_id,),
+            ).fetchone() is not None
+
     def finish(self, turn_id: str, status: str, *, result: str | None = None,
                error_code: str | None = None) -> None:
         with self._connect() as connection:

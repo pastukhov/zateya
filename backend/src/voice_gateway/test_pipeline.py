@@ -1,13 +1,18 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import uuid
 import wave
 from pathlib import Path
 
+import httpx
 import pytest
 
 from backend.src.voice_gateway.agents.base import AgentReply
+from backend.src.voice_gateway.agents.config import LLMConfig
+from backend.src.voice_gateway.agents.openai_client import OpenAICompatibleAgentClient
+from backend.src.voice_gateway.agents.sessions import AgentSessionStore
 from backend.src.voice_gateway.models import TTSResult, Transcript
 from backend.src.voice_gateway.pipeline import VoicePipeline, VoicePipelineError
 
@@ -23,17 +28,26 @@ class FakeSTT:
 class FakeAgent:
     def __init__(self):
         self.requests = []
+        self.events = []
 
     async def complete(self, request):
         self.requests.append(request)
         return AgentReply("ответ", None, "thread-1", "model-1", "codex")
 
+    async def record_turn(self, device_id, request_id, transcript, final_reply):
+        self.recorded = (device_id, request_id, transcript, final_reply)
+        self.events.append("record_turn")
+        return True
+
 
 class FakeTTS:
-    def __init__(self, rate=24000):
+    def __init__(self, rate=24000, events=None):
         self.rate = rate
+        self.events = events
 
     def synthesize(self, text, output):
+        if self.events is not None:
+            self.events.append("tts")
         output.parent.mkdir(parents=True, exist_ok=True)
         with wave.open(str(output), "wb") as wav:
             wav.setnchannels(1)
@@ -48,7 +62,7 @@ def test_pipeline_runs_agent_and_publishes_only_valid_24khz_wav(tmp_path):
         audio = tmp_path / "input.pcm"
         audio.write_bytes(b"\x00\x00" * 200)
         agent = FakeAgent()
-        pipeline = VoicePipeline(FakeSTT(), agent, None, FakeTTS())
+        pipeline = VoicePipeline(FakeSTT(), agent, None, FakeTTS(events=agent.events))
         stages = []
         output = await pipeline.run(
             {
@@ -66,6 +80,9 @@ def test_pipeline_runs_agent_and_publishes_only_valid_24khz_wav(tmp_path):
             assert wav.getframerate() == 24000
         assert agent.requests[0].device_id == "mic-a"
         assert agent.requests[0].transcript == "тестовая фраза"
+        assert agent.recorded == ("mic-a", agent.requests[0].request_id,
+                                  "тестовая фраза", "ответ")
+        assert agent.events == ["record_turn", "tts"]
         assert stages == ["transcribing", "thinking", "synthesizing"]
         assert (tmp_path / "reply.txt").read_text() == "ответ"
         assert not (tmp_path / "reply.wav.part").exists()
@@ -98,13 +115,20 @@ def test_wiki_survives_tts_failure_and_retry_does_not_call_agent_twice(tmp_path)
     from backend.src.voice_gateway.tts.base import TTSProviderError
 
     class WikiAgent(FakeAgent):
+        def __init__(self):
+            super().__init__()
+            self.cached = None
+
         async def complete(self, request):
+            if self.cached is not None:
+                return self.cached
             self.requests.append(request)
             source = request.knowledge_context['source_id']
-            return AgentReply('Уже сохранил', dict(create=True, title='Тестовая идея', content='Не терять мысли',
+            self.cached = AgentReply('Уже сохранил', dict(create=True, title='Тестовая идея', content='Не терять мысли',
                 tags=['тест'], knowledge=dict(operation='capture', pages=[dict(
                     path='wiki/concepts/capture.md', title='Запись идей', content='Не терять мысли',
                     sources=[source])])), 't1', 'model', 'codex')
+            return self.cached
 
     class BrokenTTS:
         def synthesize(self, *args):
@@ -129,4 +153,61 @@ def test_wiki_survives_tts_failure_and_retry_does_not_call_agent_twice(tmp_path)
         assert len(agent.requests) == 1
         assert len(list((vault / 'Затея/ideas').glob('*.md'))) == 1
         assert (tmp_path / 'reply.txt').read_text().startswith('Сохранила мысль')
+    asyncio.run(scenario())
+
+
+def test_llm_result_and_wiki_are_reused_after_tts_failure(tmp_path):
+    from backend.src.voice_gateway.knowledge.store import KnowledgeStore
+    from backend.src.voice_gateway.tts.base import TTSProviderError
+
+    async def scenario():
+        calls = []
+        payload = {
+            "reply": "Сформулировала мысль.",
+            "note": {"create": True, "title": "Тестовая мысль", "content": "Не терять идеи",
+                     "tags": ["идея"], "knowledge": {"operation": "capture", "target_id": None, "pages": []}},
+        }
+
+        async def handler(request):
+            calls.append(request)
+            return httpx.Response(200, json={"model": "local-small", "choices": [
+                {"message": {"role": "assistant", "content": json.dumps(payload, ensure_ascii=False)},
+                 "finish_reason": "stop"}
+            ]})
+
+        http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        sessions = AgentSessionStore(tmp_path / "sessions.sqlite3")
+        client = OpenAICompatibleAgentClient(
+            LLMConfig.from_env({"LLM_BASE_URL": "http://model.test/v1", "LLM_MODEL": "small"}),
+            "system", client=http, sessions=sessions,
+        )
+        vault = tmp_path / "vault"
+        vault.mkdir()
+        knowledge = KnowledgeStore(vault, tmp_path / "knowledge-state")
+        audio = tmp_path / "turn/input.pcm"
+        audio.parent.mkdir()
+        audio.write_bytes(b"\x00\x00" * 100)
+        job = {"audio_path": str(audio), "turn_id": "turn-1", "request_id": "request-1",
+               "device_id": "mic", "created_at": "2026-09-26", "audio_bytes": 200}
+
+        class BrokenTTS:
+            def synthesize(self, *_):
+                raise TTSProviderError("tts unavailable")
+
+        pipeline = VoicePipeline(FakeSTT(), client, None, BrokenTTS(), knowledge=knowledge)
+        try:
+            with pytest.raises(VoicePipelineError):
+                await pipeline.run(job)
+            assert len(calls) == 1
+            assert len(list((vault / "Затея/ideas").glob("*.md"))) == 1
+            assert len(sessions.history("mic")) == 2
+            pipeline.tts = FakeTTS()
+            await pipeline.run(job)
+            assert len(calls) == 1
+            assert len(list((vault / "Затея/ideas").glob("*.md"))) == 1
+            assert len(sessions.history("mic")) == 2
+        finally:
+            await client.close()
+            await http.aclose()
+
     asyncio.run(scenario())

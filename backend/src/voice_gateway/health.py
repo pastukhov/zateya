@@ -22,11 +22,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Mapping, Optional
 
-#: Environment variables that must be present for the configuration to be
-#: considered loaded (ТЗ §36: the two required provider endpoint roots).
-#: ``*_API_KEY`` are optional (auth-less endpoints are supported), so an
-#: empty key never makes the config invalid.
-_REQUIRED_ENV_VARS = ("STT_BASE_URL",)
+# STT and LLM endpoint settings are required for a production voice turn.
 
 
 @dataclass(frozen=True)
@@ -104,19 +100,17 @@ def check_ready(
     """
     checks: dict = {}
 
-    provider = (env.get("VOICE_AGENT_PROVIDER") or "hermes").strip().lower()
-    required = list(_REQUIRED_ENV_VARS)
-    if provider == "hermes":
-        required.append("HERMES_BASE_URL")
-    elif provider == "codex":
-        required.extend(("CODEX_AGENT_URL", "CODEX_AGENT_TOKEN"))
+    missing = [name for name in ("STT_BASE_URL",) if not (env.get(name) or "").strip()]
+    try:
+        from .agents.config import LLMConfig, LLMConfigError
+        LLMConfig.from_env(env)
+    except LLMConfigError as exc:
+        llm_error = str(exc).split()[0]
     else:
-        checks["provider"] = "error:VOICE_AGENT_PROVIDER must be hermes or codex"
-    missing = [name for name in required if not (env.get(name) or "").strip()]
-    if provider not in {"hermes", "codex"}:
-        missing.append("VOICE_AGENT_PROVIDER")
-    checks["config"] = ("ok" if not missing
-                        else "error:missing " + ",".join(missing))
+        llm_error = None
+    checks["config"] = ("error:missing " + ",".join(missing) if missing
+                        else f"error:invalid {llm_error}" if llm_error
+                        else "ok")
 
     if archive_root is None:
         checks["archive"] = "error:archive root not configured"

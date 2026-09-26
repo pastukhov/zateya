@@ -12,22 +12,16 @@ from prometheus_client import generate_latest
 from starlette.datastructures import Headers
 
 from backend.src.voice_gateway.agents.base import AgentClient
-from backend.src.voice_gateway.agents.codex_client import CodexAgentClient
+from backend.src.voice_gateway.agents.config import LLMConfig, LLMConfigError
+from backend.src.voice_gateway.agents.openai_client import OpenAICompatibleAgentClient
+from backend.src.voice_gateway.agents.prompts import system_prompt
+from backend.src.voice_gateway.agents.sessions import AgentSessionStore
 from backend.src.voice_gateway.jobs.api import install_voice_job_routes
 from backend.src.voice_gateway.jobs.auth import parse_device_tokens
 from backend.src.voice_gateway.jobs.store import VoiceJobStore
 from backend.src.voice_gateway.jobs.worker import VoiceJobWorker
 from backend.src.voice_gateway.health import check_live, check_ready
-from backend.src.voice_gateway.config import (
-    AgentConfig,
-    AgentConfigError,
-    HermesConfig,
-    HermesConfigError,
-    SecurityConfig,
-    STTConfig,
-    STTConfigError,
-    load_hermes_prompt,
-)
+from backend.src.voice_gateway.config import SecurityConfig, STTConfig, STTConfigError
 from backend.src.voice_gateway.logging_config import configure_logging
 from backend.src.voice_gateway.middleware import (
     AuthMiddleware,
@@ -35,7 +29,6 @@ from backend.src.voice_gateway.middleware import (
     RateLimitMiddleware,
 )
 from backend.src.voice_gateway.hermes.base import HermesClient
-from backend.src.voice_gateway.hermes.client import OpenAICompatibleHermesClient
 from backend.src.voice_gateway.hermes.stage import HermesStage
 from backend.src.voice_gateway.metrics import init_metrics
 from backend.src.voice_gateway.pipeline import VoicePipeline
@@ -117,26 +110,15 @@ def _default_stt_provider() -> STTProvider | None:
     return OpenAICompatibleSTT(config)
 
 
-def _default_hermes_client() -> HermesClient | None:
+def _default_agent_client(root: Path) -> AgentClient | None:
     try:
-        config = HermesConfig.from_env()
-        prompt = load_hermes_prompt()
-    except HermesConfigError:
+        config = LLMConfig.from_env()
+    except LLMConfigError:
         return None
-    return OpenAICompatibleHermesClient(config, system_prompt=prompt)
-
-
-def _default_agent_client() -> AgentClient | None:
-    try:
-        config = AgentConfig.from_env()
-    except AgentConfigError:
-        return None
-    if config.provider == "codex":
-        try:
-            return CodexAgentClient(config.codex_url, config.codex_token)
-        except ValueError:
-            return None
-    return None
+    sessions = AgentSessionStore(root / "llm-sessions.sqlite3",
+                                 history_turns=config.history_turns,
+                                 history_max_chars=config.history_max_chars)
+    return OpenAICompatibleAgentClient(config, system_prompt(), sessions=sessions)
 
 
 def _default_tts_provider() -> TTSProvider | None:
@@ -181,29 +163,18 @@ def create_app(
     # Explicit provider injection wins; production providers come from config.
     stt_provider = stt if stt is not None else _default_stt_provider()
 
-    # Hermes stage: explicit dependencies win; production uses environment
-    # config. The endpoint wraps the client once, per app instance; concurrent
-    # turns share the stage safely because the raw payload travels through
-    # a task-local ContextVar, not an instance attribute.
-    try:
-        agent_config = AgentConfig.from_env()
-        provider = agent_config.provider
-    except AgentConfigError:
-        agent_config = None
-        provider = os.environ.get("VOICE_AGENT_PROVIDER", "hermes").strip().lower()
     if agent is not None:
         agent_client = agent
         hermes_client = None
-        provider = "codex"
-    elif agent_config is not None and agent_config.provider == "codex":
-        agent_client = _default_agent_client()
-        hermes_client = None
-    elif agent_config is not None and agent_config.provider == "hermes":
+        provider = "injected"
+    elif hermes is not None:
         agent_client = None
-        hermes_client = hermes if hermes is not None else _default_hermes_client()
+        hermes_client = hermes
+        provider = "injected"
     else:
-        agent_client = None
+        agent_client = _default_agent_client(root)
         hermes_client = None
+        provider = "openai_compatible"
     tts_provider = tts if tts is not None else _default_tts_provider()
     hermes_stage = HermesStage(hermes_client) if hermes_client is not None else None
 
@@ -212,8 +183,8 @@ def create_app(
     vault_path = os.environ.get("OBSIDIAN_VAULT_PATH")
     knowledge = KnowledgeStore(Path(vault_path), root / "knowledge-state") if vault_path and os.environ.get("VOICE_KNOWLEDGE_ENABLED", "false").lower() == "true" else None
     git_sync = GitSync(Path(vault_path)) if knowledge is not None else None
-    if knowledge is not None and agent_client is None:
-        raise ValueError("Knowledge capture currently requires the Codex agent adapter")
+    if knowledge is not None and agent_client is None and hermes_client is None:
+        raise ValueError("Knowledge capture requires an LLM client")
     pipeline = VoicePipeline(stt_provider, agent_client, hermes_stage, tts_provider, knowledge=knowledge)
     job_worker = VoiceJobWorker(job_store, pipeline.run)
     try:
@@ -293,12 +264,15 @@ def create_app(
             note_root=os.environ.get("OBSIDIAN_VAULT_PATH"),
             env=os.environ,
         )
-        if provider == "codex" and agent_client is None:
+        try:
+            LLMConfig.from_env()
+            llm_config_valid = True
+        except LLMConfigError:
+            llm_config_valid = agent is not None or hermes is not None
+        if not llm_config_valid:
             payload = report.as_dict()
             payload["status"] = "not_ready"
-            payload["checks"]["config"] = (
-                "error:CODEX_AGENT_URL or CODEX_AGENT_TOKEN is invalid"
-            )
+            payload["checks"]["config"] = "error:LLM_BASE_URL or LLM_MODEL is invalid"
             return JSONResponse(status_code=503, content=payload)
         return JSONResponse(
             status_code=200 if report.ready else 503,

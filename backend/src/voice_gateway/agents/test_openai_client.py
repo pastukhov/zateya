@@ -98,6 +98,8 @@ def test_invalid_repair_and_all_contract_shapes_fail_without_leaking_body():
             response("not json"), response(json.dumps({"reply": "ok", "note": {"knowledge": {"operation": "unknown"}}})),
             response(json.dumps(VALID), finish="length"),
             response(json.dumps(VALID), message_extra={"tool_calls": [{"id": "x"}]}),
+            response("I cannot do that", message_extra={"refusal": "policy"}),
+            response(json.dumps(VALID), finish="content_filter"),
             {"choices": [{"message": {"content": None}, "finish_reason": "stop"}]},
         ]
         for payload in cases:
@@ -118,7 +120,9 @@ def test_invalid_repair_and_all_contract_shapes_fail_without_leaking_body():
                 assert "still invalid" not in str(exc.value)
                 assert calls == (2 if isinstance(payload["choices"][0]["message"].get("content"), str)
                                  and payload["choices"][0]["finish_reason"] != "length"
-                                 and not payload["choices"][0]["message"].get("tool_calls") else 1)
+                                 and payload["choices"][0]["finish_reason"] != "content_filter"
+                                 and not payload["choices"][0]["message"].get("tool_calls")
+                                 and not payload["choices"][0]["message"].get("refusal") else 1)
             finally:
                 await http.aclose()
     asyncio.run(scenario())

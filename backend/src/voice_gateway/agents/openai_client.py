@@ -177,11 +177,14 @@ class OpenAICompatibleAgentClient:
         choice = choices[0]
         if choice.get("finish_reason") == "length":
             raise AgentClientError("agent_invalid_response", "LLM response was truncated")
+        if choice.get("finish_reason") == "content_filter":
+            raise AgentClientError("agent_invalid_response", "LLM response was refused")
         message = choice.get("message")
         if not isinstance(message, dict) or message.get("role") != "assistant":
             raise AgentClientError("agent_invalid_response", "LLM returned an invalid response")
         content = message.get("content")
-        if message.get("tool_calls") or not isinstance(content, str) or not content.strip():
+        if (message.get("tool_calls") or message.get("refusal")
+                or not isinstance(content, str) or not content.strip()):
             raise AgentClientError("agent_invalid_response", "LLM returned an invalid response")
         model = payload.get("model")
         return content, model if isinstance(model, str) and model else None

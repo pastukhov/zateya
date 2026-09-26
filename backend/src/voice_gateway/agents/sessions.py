@@ -40,6 +40,10 @@ class AgentSessionStore:
             yield connection
         finally:
             connection.close()
+            for suffix in ("", "-wal", "-shm"):
+                path = Path(str(self.database) + suffix)
+                if path.exists():
+                    os.chmod(path, 0o600)
 
     def initialize(self) -> None:
         with self._connect() as connection:
