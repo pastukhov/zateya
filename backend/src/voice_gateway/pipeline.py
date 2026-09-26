@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 import json
 import wave
@@ -20,6 +21,8 @@ from backend.src.voice_gateway.models import Transcript
 from backend.src.voice_gateway.stt.client import OpenAICompatibleSTT
 from backend.src.voice_gateway.tts.base import TTSProvider, TTSProviderError
 from backend.src.voice_gateway.tts.openai_compatible import OpenAICompatibleTTS
+
+logger = logging.getLogger(__name__)
 
 
 class VoicePipelineError(Exception):
@@ -172,7 +175,12 @@ class VoicePipeline:
         except VoicePipelineError:
             output_part.unlink(missing_ok=True)
             raise
-        except STTClientError:
+        except STTClientError as exc:
+            logger.warning(
+                "speech recognition failed for turn %s: %s",
+                job.get("turn_id", "unknown"),
+                exc,
+            )
             output_part.unlink(missing_ok=True)
             raise VoicePipelineError("stt_failed") from None
         except TTSProviderError:
