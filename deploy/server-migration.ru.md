@@ -77,12 +77,24 @@ chmod -R g+rwX data/obsidian
 find data/obsidian -type d -exec chmod g+s {} +
 ```
 
-Перенесите также текущий gateway `.env` с ноутбука по защищённому каналу,
-например `scp /home/artem/.hermes/.env USER@SERVER:~/repos/zateya/.env`.
-Он содержит действующие токены и ключи, поэтому после копирования проверьте
-`chmod 600 .env` и **обновите в нём** `ZATEYA_UID`, `ZATEYA_GID` и
-`OBSIDIAN_GROUP_ID`. Не добавляйте абсолютный `OBSIDIAN_HOST_PATH`: vault
-всегда берётся из `./data/obsidian`.
+Перенесите файл **проекта** с токенами по защищённому каналу:
+
+```sh
+scp /home/artem/hermes-echo/.env USER@SERVER:~/repos/zateya/.env
+```
+
+В checkout ноутбука `zateya/.env` — ссылка на этот файл. Общий
+`/home/artem/.hermes/.env` не копируйте: в нём секреты других сервисов.
+На сервере добавьте в проектный `.env` значение `VOICE_TOOLS_OPENAI_KEY`
+из общего файла ноутбука — его используют STT и TTS, если не заданы
+`STT_API_KEY` и `TTS_API_KEY`. При использовании иных провайдеров задайте
+соответствующие URL и ключи из `.env.example`. Не выводите ключи в журнал
+терминала и не коммитьте `.env`.
+
+После копирования проверьте `chmod 600 .env` и задайте в нём числовые
+`ZATEYA_UID`, `ZATEYA_GID` и `OBSIDIAN_GROUP_ID` пользователя сервера.
+Не добавляйте абсолютный `OBSIDIAN_HOST_PATH`: vault всегда берётся из
+`./data/obsidian`.
 
 База прежнего host-агента хранит ссылки на локальные Codex-диалоги ноутбука.
 Её переносить не надо: новый агент создаст диалоги на сервере; знания и
