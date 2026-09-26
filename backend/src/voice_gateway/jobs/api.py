@@ -24,6 +24,7 @@ def install_voice_job_routes(
     device_tokens: dict[str, str],
     *,
     reset_device: Callable[[str], object] | None = None,
+    git_status: Callable[[], dict] | None = None,
 ) -> None:
     async def authenticate(request: Request) -> str:
         device_id = request.headers.get("X-Device-Id", "")
@@ -173,3 +174,10 @@ def install_voice_job_routes(
         if hasattr(result, "__await__"):
             await result
         return {"device_id": device_id, "status": "reset"}
+
+    @app.get("/api/voice/knowledge/git")
+    async def knowledge_git_status(request: Request):
+        await authenticate(request)
+        if git_status is None:
+            raise HTTPException(status_code=503, detail={"error": "git_status_unavailable"})
+        return git_status()

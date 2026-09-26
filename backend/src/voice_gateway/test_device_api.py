@@ -65,6 +65,7 @@ def test_device_routes_reject_invalid_credentials_without_leaking_identity(tmp_p
         ("get", f"/api/voice/turns/{turn_id}/audio"),
         ("post", f"/api/voice/turns/{turn_id}/cancel"),
         ("post", "/api/voice/sessions/reset"),
+        ("get", "/api/voice/knowledge/git"),
     ]
     bad_credentials = [
         _headers(**{"X-Device-Id": ""}),

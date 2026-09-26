@@ -1,6 +1,7 @@
 """Voice Gateway application for durable asynchronous device voice turns."""
 from __future__ import annotations
 
+import asyncio
 import os
 import time
 from pathlib import Path
@@ -39,6 +40,7 @@ from backend.src.voice_gateway.hermes.stage import HermesStage
 from backend.src.voice_gateway.metrics import init_metrics
 from backend.src.voice_gateway.pipeline import VoicePipeline
 from backend.src.voice_gateway.knowledge.store import KnowledgeStore
+from backend.src.voice_gateway.knowledge.git_sync import GitSync
 from backend.src.voice_gateway.stt.base import STTProvider
 from backend.src.voice_gateway.stt.client import OpenAICompatibleSTT
 from backend.src.voice_gateway.tts.base import TTSProvider
@@ -209,6 +211,7 @@ def create_app(
     job_store = VoiceJobStore(job_database, root)
     vault_path = os.environ.get("OBSIDIAN_VAULT_PATH")
     knowledge = KnowledgeStore(Path(vault_path), root / "knowledge-state") if vault_path and os.environ.get("VOICE_KNOWLEDGE_ENABLED", "false").lower() == "true" else None
+    git_sync = GitSync(Path(vault_path)) if knowledge is not None else None
     if knowledge is not None and agent_client is None:
         raise ValueError("Knowledge capture currently requires the Codex agent adapter")
     pipeline = VoicePipeline(stt_provider, agent_client, hermes_stage, tts_provider, knowledge=knowledge)
@@ -227,6 +230,8 @@ def create_app(
     app.state.tts_provider = tts_provider
     app.state.voice_job_store = job_store
     app.state.voice_job_worker = job_worker
+    app.state.knowledge_git_sync = git_sync
+    app.state.knowledge_git_task = None
 
     async def reset_device(device_id: str):
         if agent_client is None or not hasattr(agent_client, "reset"):
@@ -234,15 +239,25 @@ def create_app(
         await agent_client.reset(device_id)
 
     install_voice_job_routes(
-        app, job_store, job_worker, device_tokens, reset_device=reset_device
+        app, job_store, job_worker, device_tokens, reset_device=reset_device,
+        git_status=(lambda: {
+            "status": git_sync.last_result.get("status", "idle"),
+            "commit": git_sync.last_result.get("commit"),
+            "updates": git_sync.last_result.get("updates", 0),
+        }) if git_sync is not None else None,
     )
 
     @app.on_event("startup")
     async def start_voice_jobs() -> None:
         await job_worker.start()
+        if git_sync is not None:
+            app.state.knowledge_git_task = asyncio.create_task(git_sync.run(), name="knowledge-git-sync")
 
     @app.on_event("shutdown")
     async def close_agent_client() -> None:
+        if app.state.knowledge_git_task is not None:
+            app.state.knowledge_git_task.cancel()
+            await asyncio.gather(app.state.knowledge_git_task, return_exceptions=True)
         await job_worker.close()
         if agent_client is not None:
             close = getattr(agent_client, "close", None)
