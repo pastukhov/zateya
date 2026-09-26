@@ -21,7 +21,7 @@ flowchart LR
     G --> A
 ```
 
-The Codex Agent runs on the host and accepts gateway requests over loopback. Codex credentials never enter the container or firmware. The device token and the agent's internal token are separate secrets. The current deployment uses `VOICE_AGENT_PROVIDER=codex`.
+The Codex Agent runs in a separate container and accepts gateway requests over loopback. Codex credentials are mounted only into the agent container, never the gateway or firmware. The device token and the agent's internal token are separate secrets. The current deployment uses `VOICE_AGENT_PROVIDER=codex`.
 
 ## Voice request
 
@@ -56,6 +56,6 @@ The StickS3 records mono 16 kHz PCM S16LE on button press and plays WAV through 
 
 ## Notes and storage
 
-Raw transcripts go to `Hermes/sources/` in the Obsidian vault, formatted ideas to `ideas/`, connected pages to `wiki/`, and plans and tasks to `builds/`. The spoken confirmation follows successful file writes. A separate publisher then commits and pushes changes to `origin`; see the [knowledge guide](../voice-knowledge.md).
+Raw transcripts go to `Затея/sources/` in the Obsidian vault, formatted ideas to `ideas/`, connected pages to `wiki/`, and plans and tasks to `builds/`. The spoken confirmation follows successful file writes. A separate publisher then commits and pushes changes to `origin`; see the [knowledge guide](../voice-knowledge.md).
 
 Recordings and results are archived under `ARCHIVE_ROOT/YYYY/MM/DD/<turn-id>/`; jobs are stored in SQLite. `/health/live` checks the process, `/health/ready` checks configuration and archive writability, and `/metrics` excludes transcript text. The gateway is intended for a trusted local network or VPN; the setup AP is open for provisioning.

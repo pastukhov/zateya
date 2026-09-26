@@ -122,11 +122,11 @@ def test_wiki_survives_tts_failure_and_retry_does_not_call_agent_twice(tmp_path)
         pipeline = VoicePipeline(FakeSTT(), agent, None, BrokenTTS(), knowledge=knowledge)
         with pytest.raises(VoicePipelineError):
             await pipeline.run(job)
-        assert len(list((vault / 'Hermes/ideas').glob('*.md'))) == 1
+        assert len(list((vault / 'Затея/ideas').glob('*.md'))) == 1
         assert (tmp_path / 'transcript.txt').exists()
         pipeline.tts = FakeTTS()
         await pipeline.run(job)
         assert len(agent.requests) == 1
-        assert len(list((vault / 'Hermes/ideas').glob('*.md'))) == 1
+        assert len(list((vault / 'Затея/ideas').glob('*.md'))) == 1
         assert (tmp_path / 'reply.txt').read_text().startswith('Сохранила мысль')
     asyncio.run(scenario())

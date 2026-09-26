@@ -4,31 +4,21 @@
 
 Документация: [Русский](docs/ru/index.md) · [English](docs/en/index.md).
 
-Проект состоит из прошивки устройства, Python-шлюза и отдельного host-сервиса для Codex. Текущая установка работает через Codex Agent и сохраняет записи в Obsidian. Ни прошивка, ни Docker-контейнер не получают доступ к Codex credentials.
+Проект состоит из прошивки устройства, Python-шлюза и Codex Agent. Единый Docker Compose запускает оба сервиса и хранит архив, базы, Codex-состояние и Obsidian vault в каталогах `data/` рядом с ним. Прошивка получает только токен устройства.
 
 ![Схема компонентов и границ безопасности](docs/assets/system-overview.svg)
 
 ## С чего начать
 
-1. [Настройте и запустите Voice Gateway](docs/development.md#запуск-шлюза).
-2. Настройте [host-side Codex Agent](deploy/codex-voice-agent.md) и выберите `VOICE_AGENT_PROVIDER=codex` для сценария LLM Wiki.
-   Для переноса всей системы на отдельный компьютер используйте [инструкцию по Linux-серверу](deploy/server-migration.ru.md).
-3. Подключите StickS3 к Wi-Fi через [setup portal и прошейте устройство](docs/flash-sticks3.md).
-4. Посмотрите [архитектуру и путь голосового запроса](docs/architecture.md), [HTTP-протокол](docs/protocol.md) или полный [указатель документации](docs/index.md).
+1. Настройте `.env` и постоянные папки по [инструкции для Linux-сервера](deploy/server-migration.ru.md).
+2. Запустите `docker compose up --build -d`; Codex Agent и gateway стартуют вместе.
+3. [Прошейте и настройте StickS3](docs/flash-sticks3.md).
+4. Посмотрите [архитектуру](docs/architecture.md), [HTTP-протокол](docs/protocol.md) и [указатель документации](docs/index.md).
 
-## Быстрый запуск шлюза
-
-Нужны Docker Compose и доступные сервисы распознавания речи, Codex Agent и синтеза речи.
-
-```sh
-cp .env.example .env
-# Откройте .env и настройте endpoint’ы и модели; секреты оставьте только в этом локальном файле.
-docker compose up --build -d backend
-curl --fail http://127.0.0.1:8080/health/live
-curl --fail http://127.0.0.1:8080/health/ready
-```
-
-Compose запускает gateway с `network_mode: host`, поэтому он может обращаться к локальным сервисам на хосте. Проверьте сетевую изоляцию перед запуском в общей или недоверенной сети; не публикуйте gateway в Internet. Остальные проверки и запуск без Docker описаны в [руководстве разработки](docs/development.md).
+Порт gateway доступен в host-сети; ограничьте его доверенной LAN/WireGuard.
+Codex Agent слушает только `127.0.0.1:8765`. Аккаунт Codex входит через
+`data/codex`, ключ Git для Obsidian хранится в `data/ssh`. Секреты и весь
+`data/` исключены из Git.
 
 ## Подключение StickS3
 
@@ -53,10 +43,10 @@ Gateway сохраняет запись как задачу, обрабатыв�
 | --- | --- |
 | `firmware/` | ESP-IDF/PlatformIO прошивка M5Stack StickS3 |
 | `backend/` | FastAPI Voice Gateway, Codex Agent, STT/TTS, архив и очередь заданий |
-| `agent_service/` | локальный host-side адаптер Codex Python SDK |
-| `deploy/` | systemd unit и установка Codex adapter |
+| `agent_service/` | контейнер Codex Agent на Python SDK |
+| `deploy/` | инструкция по контейнерному запуску и прежний systemd unit |
 | `docs/` | архитектура, протокол, разработка, прошивка и схемы |
-| `docker-compose.yml` | запуск gateway в контейнере |
+| `docker-compose.yml` | совместный запуск gateway и Codex Agent |
 | `.env.example` | шаблон переменных без рабочих секретов |
 
 ## Важно

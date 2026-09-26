@@ -6,7 +6,7 @@ import re
 
 
 def lint(vault: Path) -> list[dict]:
-    root = vault / 'Hermes'
+    root = vault / 'Затея'
     findings = []
     linked = set()
     pages = [path for path in root.rglob('*.md') if not path.is_symlink()]
@@ -16,7 +16,7 @@ def lint(vault: Path) -> list[dict]:
             continue  # Raw speech can contain arbitrary bracketed text.
         for target in re.findall(r'\[\[([^\]]+)\]\]', path.read_text()):
             target = target.split('|', 1)[0].split('#', 1)[0]
-            if not target.startswith('Hermes/'):
+            if not target.startswith('Затея/'):
                 findings.append(dict(kind='unscoped_link', page=relative, target=target))
                 continue
             destination = vault / (target if target.endswith('.md') else target + '.md')
@@ -33,7 +33,7 @@ def lint(vault: Path) -> list[dict]:
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Check Hermes Obsidian links without changing notes')
+    parser = argparse.ArgumentParser(description='Check Затея Obsidian links without changing notes')
     parser.add_argument('vault', type=Path)
     args = parser.parse_args()
     issues = lint(args.vault)

@@ -36,10 +36,10 @@ def test_capture_publish_and_idempotent_replay(store):
     assert receipt['reply'].endswith('Обновила связанную страницу.')
     assert store.capture(job, 'Хочу вести идеи') == source
     assert store.publish(source, 'mic', note(source), context, '') == receipt
-    assert len(list((store.root / 'ideas').glob('*.md'))) == 1
-    assert (store.root / 'log.md').read_text().count(source) == 2  # source + idea path
+    assert (store.root / 'ideas/Идеи.md').exists()
+    assert (store.root / 'log.md').read_text().count(source) == 1
     page = (store.root / 'wiki/concepts/ideas.md').read_text()
-    assert f'[[Hermes/sources/{source}' in page
+    assert f'[[Затея/sources/{source}' in page
     assert store.context('mic', source, 'дополни')['active_idea_id'] == source
     with pytest.raises(KnowledgeConflict):
         store.capture(job, 'different source')
@@ -52,8 +52,34 @@ def test_amend_preserves_sources_and_uses_same_idea(store):
     result = store.publish(second, 'mic', note(second, 'amend', first), context, '')
     assert result['idea_id'] == first
     assert len(list((store.root / 'ideas').glob('*.md'))) == 1
-    body = (store.root / f'ideas/{first}.md').read_text()
+    body = (store.root / 'ideas/Идеи.md').read_text()
     assert first in body and second in body
+
+
+def test_same_title_gets_numbered_filename_and_stable_idea_id(store):
+    first, context, _ = capture(store)
+    store.publish(first, 'mic', note(first), context, '')
+    second, context, _ = capture(store, 2, 'Ещё одна идея')
+    store.publish(second, 'mic', note(second), context, '')
+    assert (store.root / 'ideas/Идеи.md').exists()
+    second_path = store.root / 'ideas/Идеи (2).md'
+    assert second_path.exists()
+    assert f'idea_id: {second}' in second_path.read_text()
+    third, context, _ = capture(store, 3, 'Дополни вторую идею')
+    store.publish(third, 'mic', note(third, 'amend', second), context, '')
+    assert len(list((store.root / 'ideas').glob('*.md'))) == 2
+    assert third in second_path.read_text()
+
+
+def test_title_is_safe_filename_and_source_id_link_resolves(store):
+    source, context, _ = capture(store)
+    proposed = note(source)
+    proposed.title = '  Полив: дача / насос?  '
+    proposed.knowledge.pages[0].content = f'Связь с [[Затея/ideas/{source}]].'
+    store.publish(source, 'mic', proposed, context, '')
+    assert (store.root / 'ideas/Полив дача насос.md').exists()
+    page = (store.root / 'wiki/concepts/ideas.md').read_text()
+    assert '[[Затея/ideas/Полив дача насос]]' in page
 
 
 def test_manual_edit_after_context_is_never_overwritten(store):
@@ -66,7 +92,7 @@ def test_manual_edit_after_context_is_never_overwritten(store):
     with pytest.raises(KnowledgeConflict):
         store.publish(second, 'mic', note(second), context, '')
     assert page.read_bytes() == before
-    assert not (store.root / f'ideas/{second}.md').exists()
+    assert not (store.root / 'ideas/Идеи (2).md').exists()
 
 
 def test_crash_recovery_replays_journal_without_duplicate_log(store, monkeypatch):
@@ -92,7 +118,7 @@ def test_recovery_stops_when_manual_edit_conflicts(store, monkeypatch):
     monkeypatch.setattr(store, '_apply', crash)
     with pytest.raises(OSError):
         store.publish(source, 'mic', note(source), context, '')
-    page = store.root / f'ideas/{source}.md'
+    page = store.root / 'ideas/Идеи.md'
     page.write_text('Ручная правка после сбоя')
     restored = KnowledgeStore(store.vault, store.state)
     with pytest.raises(KnowledgeConflict):
@@ -107,13 +133,13 @@ def test_rejects_unknown_sources_broken_links_and_traversal(store):
     with pytest.raises(KnowledgeConflict):
         store.publish(source, 'mic', proposed, context, '')
     proposed = note(source)
-    proposed.content = '[[Hermes/wiki/concepts/missing]]'
+    proposed.content = '[[Затея/wiki/concepts/missing]]'
     with pytest.raises(KnowledgeConflict):
         store.publish(source, 'mic', proposed, context, '')
     with pytest.raises(ValidationError):
         HermesNote.model_validate(dict(knowledge=dict(operation='capture', pages=[dict(
             path='../escape.md', title='x', content='x', sources=[source])])) )
-    assert not (store.root / f'ideas/{source}.md').exists()
+    assert not (store.root / 'ideas/Идеи.md').exists()
 
 
 def test_rejects_symlink_and_unseen_existing_page(store, tmp_path):
@@ -134,7 +160,7 @@ def test_query_and_plan_do_not_change_active_idea(store):
     assert store.publish(second, 'mic', query, context, 'Ответ из базы')['reply'] == 'Ответ из базы'
     third, context, _ = capture(store, 3)
     store.publish(third, 'mic', note(third, 'plan', first, pages=False), context, '')
-    assert (store.root / f'builds/{third}.md').exists()
+    assert (store.root / 'builds/Идеи.md').exists()
     assert store.context('mic', third, '')['active_idea_id'] == first
 
 
@@ -144,7 +170,7 @@ def test_lint_detects_broken_links_without_reading_raw_as_instructions(store):
     store.publish(source, 'mic', note(source), context, '')
     assert lint(store.vault) == []
     with (store.root / 'index.md').open('a') as output:
-        output.write('\n[[Hermes/wiki/concepts/missing]]\n')
+        output.write('\n[[Затея/wiki/concepts/missing]]\n')
     assert lint(store.vault)[0]['kind'] == 'broken_link'
 
 
@@ -153,8 +179,8 @@ def test_publication_emits_git_outbox_after_files_with_exact_hashes(store):
     source, context, _ = capture(store)
     store.publish(source, 'mic', note(source), context, '')
     task = json.loads((store.root / f'.sync/{source}.json').read_text())
-    assert f'Hermes/sources/{source}.md' in task['files']
-    assert 'Hermes/schema.md' in task['files']
+    assert f'Затея/sources/{source}.md' in task['files']
+    assert 'Затея/schema.md' in task['files']
     for path, expected in task['files'].items():
         assert hashlib.sha256((store.vault / path).read_bytes()).hexdigest() == expected
     assert (store.root / '.sync/writer.lock').exists()

@@ -1,29 +1,43 @@
-# docker-compose.yml — Zateya backend (ТЗ §37 — Backend deployment).
-#
-# From the repo root:
-#     docker compose --env-file /home/artem/.hermes/.env --env-file .env up --build -d backend
-#     # Only the explicitly mapped service keys below enter the container.
-#
-# Smoke check (docs/development.md):
-#     curl -f http://127.0.0.1:8080/health/live
-#     curl -f http://127.0.0.1:8080/health/ready
-#
-# Layout:
-#   - image: built from the existing backend/Dockerfile (build context = repo
-#     root, so the `backend.src.voice_gateway.app:app` import path resolves).
-#   - env: the 16-variable backend set from ТЗ §36 plus the ТЗ §40/§34
-#     auth/rate-limit variables are forwarded into the container. Values
-#     come from .env (auto-loaded by compose + injected via env_file);
-#     ${VAR:-default} below is only a fallback so `docker compose up` does
-#     not fail before .env exists.
-#   - volumes: named volumes on the two in-container mount targets from ТЗ §37
-#     (/data/archive, /data/obsidian).
-#   - user: non-root — the Dockerfile already drops to the `app` user (ТЗ §37).
+# One Compose project runs the gateway and Codex agent. All writable state is
+# bind-mounted from ./data/ next to this file; no credentials enter images.
 
 services:
-  backend:
-    # The Codex Agent listens on host loopback; bridge networking cannot reach it.
+  agent:
+    build:
+      context: .
+      dockerfile: agent_service/Dockerfile
+    image: zateya-codex-agent:latest
     network_mode: host
+    user: "${ZATEYA_UID:-1000}:${ZATEYA_GID:-1000}"
+    environment:
+      CODEX_AGENT_TOKEN: ${CODEX_AGENT_TOKEN:-}
+      CODEX_VOICE_MODEL: ${CODEX_VOICE_MODEL:-gpt-6-luna}
+      CODEX_VOICE_CWD: /app
+      CODEX_AGENT_DATABASE: /data/agent/agent.sqlite3
+      OBSIDIAN_SYNC_VAULT: /data/obsidian
+      GIT_SSH_COMMAND: ssh -i /data/ssh/id_ed25519 -o UserKnownHostsFile=/data/ssh/known_hosts -o IdentitiesOnly=yes -o BatchMode=yes -o ConnectTimeout=10
+    volumes:
+      - ./data/codex:/data/codex
+      - ./data/agent:/data/agent
+      - ./data/ssh:/data/ssh:ro
+      - ./data/obsidian:/data/obsidian
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - import json,urllib.request; assert json.load(urllib.request.urlopen('http://127.0.0.1:8765/health/ready'))['status']=='ok'
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+  backend:
+    # Both services use host networking so the agent remains loopback-only.
+    network_mode: host
+    depends_on:
+      agent:
+        condition: service_healthy
     # Share the vault owner group; archive ownership remains unchanged.
     group_add:
       - "${OBSIDIAN_GROUP_ID:-1000}"
@@ -49,8 +63,7 @@ services:
       ARCHIVE_ROOT: /data/archive
       VOICE_JOB_DATABASE: /data/archive/voice-jobs.sqlite
       VOICE_AGENT_PROVIDER: ${VOICE_AGENT_PROVIDER:-codex}
-      # The host-side Codex adapter is loopback-bound; host networking lets
-      # this existing gateway reach it without exposing Codex credentials.
+      # The agent container binds only to host loopback.
       CODEX_AGENT_URL: ${CODEX_AGENT_URL:-http://127.0.0.1:8765}
       CODEX_AGENT_TOKEN: ${CODEX_AGENT_TOKEN:-}
       VOICE_DEVICE_TOKENS: ${VOICE_DEVICE_TOKENS:-}
@@ -71,9 +84,9 @@ services:
       OBSIDIAN_INBOX: ${OBSIDIAN_INBOX:-Voice Inbox}
       NOTE_INCLUDE_TRANSCRIPT: ${NOTE_INCLUDE_TRANSCRIPT:-false}
     volumes:
-      # ТЗ §37: host archive -> /data/archive, Obsidian vault -> /data/obsidian.
-      - archive_data:/data/archive
-      - ${OBSIDIAN_HOST_PATH:-/home/artem/repos/obsidian}:/data/obsidian
+      # Persistent directories beside this Compose file.
+      - ./data/archive:/data/archive
+      - ./data/obsidian:/data/obsidian
     healthcheck:
       # Лiveness probe on /health/live (ТЗ §35, docs/protocol.md). The
       # python:slim base has no curl, so probe with python's urllib. The port
@@ -88,7 +101,3 @@ services:
       retries: 3
       start_period: 30s
     restart: unless-stopped
-
-volumes:
-  archive_data:
-  obsidian_data:

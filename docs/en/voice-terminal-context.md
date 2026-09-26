@@ -4,4 +4,4 @@ Zateya is a voice interface to a personal Obsidian knowledge base. The M5Stack S
 
 Current references: [architecture](architecture.md), [HTTP protocol](protocol.md), [knowledge workflow](../voice-knowledge.md), and [device setup](flash-sticks3.md). Early plans, specifications, and handoff files document project history and may no longer describe the deployed system.
 
-Codex credentials remain in the local host service. The recorder uses a separate device token. The Obsidian folder for voice recordings is currently named `Hermes/`.
+Codex credentials stay in `data/codex`, mounted only into the agent container. The recorder uses a separate device token. The Obsidian folder for voice recordings is currently named `Затея/`.

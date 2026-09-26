@@ -1,6 +1,6 @@
 # Голосовые идеи в Obsidian: LLM Wiki и Ramble your idea, then build
 
-Vault: `/home/artem/repos/obsidian`. Новые записи находятся в `Hermes/`.
+Vault: `/home/artem/repos/obsidian`. Новые записи находятся в `Затея/`.
 Голосовые исходники сохраняются в `sources/`, оформленные мысли в `ideas/`,
 связанные темы в `wiki/`, планы и задания в `builds/`. `index.md` открывает
 навигацию. `log.md` фиксирует изменения. Существующие папки vault не импортируются.
@@ -55,20 +55,26 @@ knowledge-proposal.json и knowledge-result.json. В knowledge-state/knowledge.s
 
 ## Подключение vault
 
-Docker Compose использует `OBSIDIAN_HOST_PATH` (по умолчанию указанный выше путь)
-и `OBSIDIAN_GROUP_ID` (по умолчанию 1000). Backend остаётся непривилегированным
-пользователем; дополнительная группа обеспечивает совместное редактирование.
-Перед первым запуском от владельца vault:
+Единый Docker Compose хранит vault в `./data/obsidian` рядом с
+`docker-compose.yml`; каталог базы знаний называется `Затея/`. Контейнеры
+получают одну и ту же папку. Для совместного редактирования укажите
+`OBSIDIAN_GROUP_ID` владельца vault в `.env`. Backend остаётся
+непривилегированным пользователем. Учётные данные Codex и ключ для Git
+хранятся в соседних каталогах `data/codex` и `data/ssh` и не попадают в образ.
+Полная инструкция: [перенос на сервер](../deploy/server-migration.ru.md).
+
+Идеи и планы получают имена файлов по заголовку, совпадения — суффикс
+`(2)`, `(3)` и далее. Стабильный идентификатор идеи остаётся во frontmatter;
+сырой исходник в `sources/` сохраняет технический ID. После перехода со старой
+версии запустите миграцию при остановленных службах:
 
 ```sh
-mkdir -p /home/artem/repos/obsidian/Hermes
-chmod 2770 /home/artem/repos/obsidian/Hermes
+python -m backend.src.voice_gateway.knowledge.migrate_titles data/obsidian --apply
 ```
 
-В новых каталогах наследуется группа владельца, файлы создаются с режимом 0660.
-Не менять владельца всего vault. Для отключения обработки знаний использовать
-`VOICE_KNOWLEDGE_ENABLED=false`. Требуется `VOICE_AGENT_PROVIDER=codex` и работающий
-host-side agent service. Credentials остаются в прежних локальных env-файлах.
+Миграция также переименует `Hermes/` в `Затея/` и исправит ссылки и пути
+в Obsidian workspace. Для отключения обработки знаний используйте
+`VOICE_KNOWLEDGE_ENABLED=false`.
 
 ## Источники архитектуры
 
@@ -103,11 +109,11 @@ push-to-talk: удерживать кнопку во время речи. Фак
 ## Автоматический commit и push
 
 После публикации заметки и связанных страниц backend оставляет задание в
-`Hermes/.sync/`. Сервис `codex-voice-agent` на хосте проверяет очередь каждые
+`Затея/.sync/`. Контейнер Codex Agent проверяет очередь каждые
 15 секунд, создаёт коммит только перечисленных Markdown-файлов и выполняет
 обычный `git push origin HEAD:<текущая ветка>`. Исходник и schema.md включаются.
 Короткие последовательные публикации могут объединяться в один коммит.
-SSH-ключи остаются на хосте. В unit задаётся `OBSIDIAN_SYNC_VAULT`.
+SSH-ключ расположен в `data/ssh`; Compose задаёт `OBSIDIAN_SYNC_VAULT`.
 
 Очередь исключена через `.git/info/exclude` vault. Настройки `.obsidian/` и
 остальные подготовленные изменения не входят в автоматические коммиты.
@@ -116,6 +122,6 @@ SSH-ключи остаются на хосте. В unit задаётся `OBSID
 до разбора конфликта. Force push и автоматический rebase не используются.
 Голосовое подтверждение означает сохранение в vault, а не завершение push.
 
-Статус доступен через защищённый `GET /v1/knowledge/git` host-side agent service:
+Статус доступен через защищённый `GET /v1/knowledge/git` Codex Agent:
 `idle`, `busy`, `synced`, `retry`, `conflict`, `disabled`. Результат `synced`
 включает SHA коммита. Ошибка Git не блокирует последующие голосовые записи.

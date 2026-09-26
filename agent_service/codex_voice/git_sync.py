@@ -16,12 +16,13 @@ logger = logging.getLogger(__name__)
 class GitSync:
     def __init__(self, vault: Path):
         self.vault = Path(vault).resolve()
-        self.queue = self.vault / 'Hermes/.sync'
+        self.queue = self.vault / 'Затея/.sync'
         self.last_result = {'status': 'idle'}
 
     def _git(self, *args, check=True):
         env = {**os.environ, 'GIT_TERMINAL_PROMPT': '0',
-               'GIT_SSH_COMMAND': 'ssh -o BatchMode=yes -o ConnectTimeout=10'}
+               'GIT_SSH_COMMAND': os.environ.get('GIT_SSH_COMMAND') or
+               'ssh -o BatchMode=yes -o ConnectTimeout=10'}
         return subprocess.run(['git', '-C', str(self.vault), *args], env=env,
                               text=True, capture_output=True, timeout=30, check=check)
 
@@ -61,7 +62,7 @@ class GitSync:
             raise ValueError('empty publication')
         for relative, expected in files.items():
             parts = Path(relative).parts
-            if (len(parts) < 2 or parts[0] != 'Hermes' or '..' in parts or
+            if (len(parts) < 2 or parts[0] != 'Затея' or '..' in parts or
                     '.sync' in parts or not relative.endswith('.md')):
                 raise ValueError('unmanaged path')
             path = self.vault

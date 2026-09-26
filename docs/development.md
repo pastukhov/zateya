@@ -5,9 +5,9 @@
 ## Требования
 
 - Python 3.12.
-- Docker Compose для контейнерного запуска gateway (опционально).
+- Docker Compose для совместного запуска gateway и Codex Agent.
 - PlatformIO Core и ESP-IDF environment из `firmware/platformio.ini` для сборки устройства.
-- Доступные STT и TTS endpoint’ы, совместимые с OpenAI API, и запущенный Codex Agent на хосте.
+- Доступные STT и TTS endpoint’ы, совместимые с OpenAI API, и авторизованный Codex Agent в Compose.
 
 ## Настройка окружения
 
@@ -23,13 +23,13 @@ cp .env.example .env
 ### Docker Compose
 
 ```sh
-docker compose up --build -d backend
+docker compose up --build -d
 curl --fail http://127.0.0.1:8080/health/live
 curl --fail http://127.0.0.1:8080/health/ready
 curl --fail http://127.0.0.1:8080/metrics
 ```
 
-Compose запускает gateway в host network mode. Так шлюз видит Codex Agent на `127.0.0.1`, но слушающий `0.0.0.0` порт также может быть доступен другим узлам сети — проверьте firewall и доверие к LAN. Остановка: `docker compose down`.
+Compose запускает оба сервиса в host network mode. Так шлюз видит Codex Agent на `127.0.0.1`, но слушающий `0.0.0.0` порт также может быть доступен другим узлам сети — проверьте firewall и доверие к LAN. Остановка: `docker compose down`.
 
 ### Локально
 

@@ -1,6 +1,6 @@
 """Deterministic writer: immutable sources, optimistic updates and crash journal.
 
-Only Hermes/ is managed. SQLite journals retain before/after images; an interrupted
+Only Затея/ is managed. SQLite journals retain before/after images; an interrupted
 multi-file update is replayed only when every file still matches its old/new hash.
 Obsidian does not participate in our lock: a conflicting manual edit stops replay.
 """
@@ -13,6 +13,7 @@ import os
 import re
 import sqlite3
 import time
+import unicodedata
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -45,6 +46,13 @@ def metadata(data: bytes) -> dict:
     return result
 
 
+def title_filename(title: str) -> str:
+    name = unicodedata.normalize("NFC", title)
+    name = re.sub(r'[\x00-\x1f/\\:*?"<>|\[\]#]', ' ', name)
+    name = re.sub(r'\s+', ' ', name).strip(' .')[:100].rstrip(' .')
+    return name or 'Заметка'
+
+
 SCHEMA = """# Правила базы Затея
 
 Исходники в sources неизменны. Ideas хранят мысли пользователя, wiki — связанные
@@ -61,7 +69,7 @@ class KnowledgeStore:
         self.vault = Path(vault).resolve()
         if not self.vault.is_dir():
             raise ValueError("Obsidian vault must exist")
-        self.root = self.vault / "Hermes"
+        self.root = self.vault / "Затея"
         self.state = Path(state)
         self.state.mkdir(parents=True, exist_ok=True)
         self.db_path = self.state / "knowledge.sqlite3"
@@ -111,7 +119,7 @@ class KnowledgeStore:
 
     def _write(self, relative: str, data: bytes):
         path = self._path(relative)
-        # A host-created setgid Hermes/ shares its group with the container.
+        # A host-created setgid Затея/ shares its group with the container.
         # mkstemp defaults to 0600, so explicitly retain group editing rights.
         missing = []
         parent = path.parent
@@ -127,6 +135,15 @@ class KnowledgeStore:
     def _read(self, relative: str) -> bytes | None:
         path = self._path(relative)
         return path.read_bytes() if path.exists() else None
+
+    def _new_note_path(self, folder: str, title: str) -> str:
+        stem = title_filename(title)
+        for number in range(1, 10000):
+            suffix = '' if number == 1 else f' ({number})'
+            relative = f'{folder}/{stem}{suffix}.md'
+            if self._read(relative) is None:
+                return relative
+        raise KnowledgeConflict('too many notes with the same title')
 
     def _recover(self, db):
         for row in db.execute("SELECT * FROM commits WHERE status='pending'").fetchall():
@@ -198,8 +215,12 @@ class KnowledgeStore:
                         continue
                     text = data.decode()
                     score = len(tokens & set(re.findall(r"\w{3,}", text.lower())))
-                    if relative == f"ideas/{active_id}.md":
-                        score += 10000
+                    if relative.startswith('ideas/') and active_id:
+                        try:
+                            if metadata(data).get('idea_id') == active_id:
+                                score += 10000
+                        except KnowledgeConflict:
+                            pass
                     candidates.append((score, relative, text, digest(data)))
             pages, budget = [], 60000
             for score, path, text, sha in sorted(candidates, reverse=True):
@@ -236,15 +257,22 @@ class KnowledgeStore:
             target = proposal.target_id
             if operation == "amend" and not target:
                 raise KnowledgeConflict("amend needs target")
-            if target and f"ideas/{target}.md" not in known:
+            target_path = next((relative for relative, page in known.items()
+                                if relative.startswith('ideas/') and
+                                metadata(page['content'].encode()).get('idea_id') == target), None) if target else None
+            if target and target_path is None:
                 raise KnowledgeConflict("unknown target")
             idea = target or source_id
-            path = f"ideas/{idea}.md" if operation in ("capture", "amend") else f"builds/{source_id}.md"
+            path = (target_path or self._new_note_path('ideas', note.title)) if operation in ("capture", "amend") \
+                   else self._new_note_path('builds', note.title)
             changes = []
             source_meta = metadata(self._read(f"sources/{source_id}.md"))
             date = source_meta["created"]
 
             def add(relative, title, body, sources, kind, extra=None):
+                for placeholder in (source_id, target):
+                    if placeholder:
+                        body = body.replace(f'Затея/ideas/{placeholder}', f'Затея/{path[:-3]}')
                 before = self._read(relative)
                 if before is not None:
                     expected = known.get(relative)
@@ -266,7 +294,7 @@ class KnowledgeStore:
                 meta = {**old, "id": relative[:-3], "title": title, "type": kind,
                         "created": old.get("created", date), "updated": date, "sources": sources,
                         "tags": note.tags, **(extra or {})}
-                refs = "\n\n## Источники\n\n" + "\n".join(f"- [[Hermes/sources/{s}|Голосовая запись]]" for s in sources)
+                refs = "\n\n## Источники\n\n" + "\n".join(f"- [[Затея/sources/{s}|Голосовая запись]]" for s in sources)
                 content = markdown(meta, title, body + refs)
                 changes.append({"path": relative, "before": before.decode() if before else None,
                                 "after": content.decode()})
@@ -283,15 +311,15 @@ class KnowledgeStore:
             for change in changes:
                 for link in re.findall(r"\[\[([^\]]+)\]\]", change["after"]):
                     target_path = link.split("|", 1)[0].split("#", 1)[0]
-                    if not target_path.startswith("Hermes/"):
-                        raise KnowledgeConflict("links must use Hermes paths")
-                    relative = target_path[7:]
+                    if not target_path.startswith("Затея/"):
+                        raise KnowledgeConflict("links must use Затея paths")
+                    relative = target_path[len("Затея/"):]
                     if not relative.endswith(".md"):
                         relative += ".md"
                     if relative not in planned and self._read(relative) is None:
                         raise KnowledgeConflict("broken wiki link")
             for name, addition in (
-                ("index.md", "\n".join(f'- [[Hermes/{c["path"][:-3]}]]' for c in changes)),
+                ("index.md", "\n".join(f'- [[Затея/{c["path"][:-3]}]]' for c in changes)),
                 ("log.md", f'- {date}: {operation}, source {source_id}; ' + ", ".join(c["path"] for c in changes)),
             ):
                 before = self._read(name)
@@ -310,9 +338,9 @@ class KnowledgeStore:
                 spoken = f'Сохранила задание «{note.title}». Для запуска нужен целевой репозиторий.'
             receipt = {"reply": spoken, "source_id": source_id, "idea_id": idea,
                        "operation": operation, "pages": [c["path"] for c in changes]}
-            files = {"Hermes/" + change["path"]: digest(change["after"].encode()) for change in changes}
+            files = {"Затея/" + change["path"]: digest(change["after"].encode()) for change in changes}
             for relative in (f"sources/{source_id}.md", "schema.md"):
-                files["Hermes/" + relative] = digest(self._read(relative))
+                files["Затея/" + relative] = digest(self._read(relative))
             # Last journal write: host cannot observe an outbox item before all
             # published files exist. Recovery replays this write as well.
             changes.append({"path": f".sync/{source_id}.json", "before": None,

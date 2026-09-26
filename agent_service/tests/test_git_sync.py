@@ -20,6 +20,7 @@ def repo(tmp_path):
     git(root, 'init', '-b', 'main')
     git(root, 'config', 'user.name', 'Test')
     git(root, 'config', 'user.email', 'test@example.invalid')
+    git(root, 'config', 'core.quotepath', 'false')
     (root/'initial.md').write_text('initial')
     git(root, 'add', '.')
     git(root, 'commit', '-m', 'initial')
@@ -29,12 +30,12 @@ def repo(tmp_path):
 
 
 def enqueue(root, ident='1', content='idea', order=1):
-    page = root / 'Hermes/ideas/idea.md';page.parent.mkdir(parents=True, exist_ok=True)
+    page = root / 'Затея/ideas/idea.md';page.parent.mkdir(parents=True, exist_ok=True)
     page.write_text(content)
-    queue = root/'Hermes/.sync';queue.mkdir(exist_ok=True)
+    queue = root/'Затея/.sync';queue.mkdir(exist_ok=True)
     task = queue/f'{ident}.json'
     task.write_text(json.dumps(dict(id=ident, created_ns=order, files={
-        'Hermes/ideas/idea.md': hashlib.sha256(content.encode()).hexdigest()})))
+        'Затея/ideas/idea.md': hashlib.sha256(content.encode()).hexdigest()})))
     return task
 
 
@@ -46,7 +47,7 @@ def test_sync_commits_and_pushes_only_published_pages_preserving_index(repo):
     result = GitSync(root).run_once()
     assert result['status'] == 'synced'
     assert git(root, 'diff', '--cached', '--name-only') == 'personal.md'
-    assert git(root, 'show', '--pretty=', '--name-only', 'HEAD') == 'Hermes/ideas/idea.md'
+    assert git(root, 'show', '--pretty=', '--name-only', 'HEAD') == 'Затея/ideas/idea.md'
     assert git(remote, 'rev-parse', 'refs/heads/main') == git(root, 'rev-parse', 'HEAD')
     assert not task.exists()
 
@@ -70,7 +71,7 @@ def test_sync_coalesces_updates_but_blocks_unpublished_manual_changes(repo):
     enqueue(root, 'second', 'new', 2)
     assert GitSync(root).run_once()['status'] == 'synced'
     task = enqueue(root, 'third', 'published', 3)
-    (root/'Hermes/ideas/idea.md').write_text('unpublished manual edit')
+    (root/'Затея/ideas/idea.md').write_text('unpublished manual edit')
     before = git(root, 'rev-parse', 'HEAD')
     assert GitSync(root).run_once()['status'] == 'conflict'
     assert git(root, 'rev-parse', 'HEAD') == before
@@ -86,7 +87,7 @@ def test_rejects_paths_outside_hermes_and_symlinks(repo):
     assert GitSync(root).run_once()['status'] == 'conflict'
     task.unlink()
     task = enqueue(root)
-    page = root/'Hermes/ideas/idea.md';page.unlink()
+    page = root/'Затея/ideas/idea.md';page.unlink()
     (root/'outside.md').write_text('idea')
     page.symlink_to(root/'outside.md')
     assert GitSync(root).run_once()['status'] == 'conflict'

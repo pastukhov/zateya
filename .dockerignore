@@ -12,6 +12,7 @@
 
 # Local environment / secrets — NEVER in the image. Patterns only.
 .env
+/data
 .env.*
 *.env
 secrets/
