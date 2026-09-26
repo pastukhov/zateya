@@ -7,6 +7,7 @@ import pytest
 from .base import AgentClientError, AgentRequest
 from .config import LLMConfig
 from .openai_client import OpenAICompatibleAgentClient
+from .sessions import AgentSessionStore
 
 
 VALID = {
@@ -173,6 +174,33 @@ def test_response_body_is_bounded():
             with pytest.raises(AgentClientError) as exc:
                 await client.complete(AgentRequest("r", "device", "input"))
             assert exc.value.code == "agent_invalid_response"
+        finally:
+            await http.aclose()
+    asyncio.run(scenario())
+
+
+def test_session_cache_prevents_second_http_call_and_history_is_injected(tmp_path):
+    async def scenario():
+        calls = []
+        async def handler(request):
+            calls.append(json.loads(request.content))
+            return httpx.Response(200, json=response(json.dumps(VALID, ensure_ascii=False)))
+        http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        sessions = AgentSessionStore(tmp_path / "sessions.sqlite3")
+        client = OpenAICompatibleAgentClient(make_config(), "rules", client=http, sessions=sessions)
+        try:
+            request = AgentRequest("r", "device", "Идея", {"pages": []})
+            first = await client.complete(request)
+            sessions.record_turn("device", "r", "Идея", first.reply)
+            again = await client.complete(request)
+            assert again == first
+            assert len(calls) == 1
+            second = await client.complete(AgentRequest("r2", "device", "Подробнее"))
+            assert second.reply == first.reply
+            assert calls[1]["messages"][1:3] == [
+                {"role": "user", "content": "Идея"},
+                {"role": "assistant", "content": "Сохранила мысль"},
+            ]
         finally:
             await http.aclose()
     asyncio.run(scenario())

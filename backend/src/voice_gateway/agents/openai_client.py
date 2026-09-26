@@ -11,6 +11,7 @@ from voice_gateway.hermes.validation import HermesValidationError, parse_hermes_
 
 from .base import AgentClientError, AgentReply, AgentRequest
 from .config import LLMConfig
+from .sessions import AgentSessionStore, IdempotencyConflict, input_digest
 
 
 class OpenAICompatibleAgentClient:
@@ -22,12 +23,16 @@ class OpenAICompatibleAgentClient:
         system_prompt: str,
         *,
         client: httpx.AsyncClient | None = None,
+        sessions: AgentSessionStore | None = None,
     ) -> None:
         self.config = config
         self.system_prompt = system_prompt
         self._client = client or httpx.AsyncClient()
         self._owns_client = client is None
         self._active: dict[str, asyncio.Task] = {}
+        self.sessions = sessions
+        if sessions is not None:
+            sessions.initialize()
 
     async def close(self) -> None:
         if self._owns_client:
@@ -38,16 +43,41 @@ class OpenAICompatibleAgentClient:
         if task and task is not asyncio.current_task():
             task.cancel()
 
+    async def reset(self, device_id: str) -> None:
+        if self.sessions is not None:
+            self.sessions.reset(device_id)
+
+    async def record_turn(self, device_id: str, request_id: str, transcript: str,
+                          final_reply: str) -> bool:
+        if self.sessions is None:
+            return True
+        return self.sessions.record_turn(device_id, request_id, transcript, final_reply)
+
     async def complete(self, request: AgentRequest) -> AgentReply:
         task = asyncio.current_task()
         if task is not None:
             self._active[request.request_id] = task
         try:
             async with asyncio.timeout(self.config.timeout_seconds):
+                session = None
+                if self.sessions is not None:
+                    try:
+                        session = self.sessions.begin(
+                            request.device_id, request.request_id,
+                            input_digest(request.transcript, request.knowledge_context),
+                        )
+                    except IdempotencyConflict:
+                        raise AgentClientError(
+                            "idempotency_conflict", "Request ID was reused with different input"
+                        ) from None
+                    if session.cached is not None:
+                        return AgentReply(**session.cached)
                 messages = [
                     {"role": "system", "content": self.system_prompt},
-                    {"role": "user", "content": self._user_message(request)},
                 ]
+                if self.sessions is not None:
+                    messages.extend(self.sessions.history(request.device_id))
+                messages.append({"role": "user", "content": self._user_message(request)})
                 payload = await self._post(messages)
                 content, model = self._extract_content(payload)
                 try:
@@ -65,13 +95,20 @@ class OpenAICompatibleAgentClient:
                         parsed = parse_hermes_response(content)
                     except HermesValidationError:
                         raise AgentClientError("agent_invalid_response", "LLM returned invalid JSON") from None
-                return AgentReply(
+                result = AgentReply(
                     reply=parsed.reply.strip(),
                     note=parsed.note.model_dump(mode="json"),
                     thread_id=f"device:{request.device_id}",
                     model=model or self.config.model,
                     provider="openai_compatible",
                 )
+                if self.sessions is not None and session is not None:
+                    self.sessions.save_result(
+                        request.device_id, request.request_id, session.generation,
+                        {"reply": result.reply, "note": result.note, "thread_id": result.thread_id,
+                         "model": result.model, "provider": result.provider},
+                    )
+                return result
         except TimeoutError:
             raise AgentClientError("agent_timeout", "LLM request timed out", True) from None
         except httpx.TimeoutException:
