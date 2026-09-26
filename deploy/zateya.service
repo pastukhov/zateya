@@ -1,5 +1,5 @@
 [Unit]
-Description=Zateya voice gateway and Codex agent (Docker Compose)
+Description=Zateya voice gateway (Docker Compose)
 Requires=docker.service
 After=docker.service network-online.target
 Wants=network-online.target
@@ -10,6 +10,7 @@ Type=oneshot
 RemainAfterExit=yes
 WorkingDirectory=/opt/zateya
 ExecStartPre=/usr/bin/test -f /opt/zateya/.env
+ExecStartPre=/usr/bin/bash /opt/zateya/deploy/prepare-data.sh
 ExecStartPre=/usr/bin/test -d /opt/zateya/data/obsidian/.git
 ExecStartPre=/usr/bin/docker compose -p zateya config --quiet
 ExecStart=/usr/bin/docker compose -p zateya up -d --no-build --wait --wait-timeout 180

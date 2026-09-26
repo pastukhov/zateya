@@ -1,96 +1,54 @@
-# One Compose project runs the gateway and Codex agent. All writable state is
-# bind-mounted from ./data/ next to this file; no credentials enter images.
-
+# Single gateway container. Mutable data is bind-mounted from ./data.
 services:
-  agent:
-    build:
-      context: .
-      dockerfile: agent_service/Dockerfile
-    image: zateya-codex-agent:latest
-    network_mode: host
-    user: "${ZATEYA_UID:-1000}:${ZATEYA_GID:-1000}"
-    environment:
-      CODEX_AGENT_TOKEN: ${CODEX_AGENT_TOKEN:-}
-      CODEX_VOICE_MODEL: ${CODEX_VOICE_MODEL:-gpt-6-luna}
-      CODEX_VOICE_CWD: /app
-      CODEX_AGENT_DATABASE: /data/agent/agent.sqlite3
-      OBSIDIAN_SYNC_VAULT: /data/obsidian
-      GIT_SSH_COMMAND: ssh -i /data/ssh/id_ed25519 -o UserKnownHostsFile=/data/ssh/known_hosts -o IdentitiesOnly=yes -o BatchMode=yes -o ConnectTimeout=10
-    volumes:
-      - ./data/codex:/data/codex
-      - ./data/agent:/data/agent
-      - ./data/ssh:/data/ssh:ro
-      - ./data/obsidian:/data/obsidian
-    healthcheck:
-      test:
-        - CMD
-        - python
-        - -c
-        - import json,urllib.request; assert json.load(urllib.request.urlopen('http://127.0.0.1:8765/health/ready'))['status']=='ok'
-      interval: 15s
-      timeout: 5s
-      retries: 3
-      start_period: 30s
-    restart: unless-stopped
   backend:
-    # Both services use host networking so the agent remains loopback-only.
-    network_mode: host
-    depends_on:
-      agent:
-        condition: service_healthy
-    # Share the vault owner group; archive ownership remains unchanged.
-    group_add:
-      - "${OBSIDIAN_GROUP_ID:-1000}"
     build:
       context: .
       dockerfile: backend/Dockerfile
     image: zateya-voice-gateway:latest
-    env_file:
-      - path: .env
-        required: false
+    network_mode: host
+    user: "${ZATEYA_UID:-1000}:${ZATEYA_GID:-1000}"
     environment:
-      # --- network bind (ТЗ §36). Consumed by the uvicorn launch command in
-      # the Dockerfile (uvicorn --host/--port); host networking binds directly
-      # on the host instead of publishing a container port. ---
       VOICE_BIND_HOST: ${VOICE_BIND_HOST:-0.0.0.0}
       VOICE_BIND_PORT: ${VOICE_BIND_PORT:-8080}
-      # --- archive (ТЗ §18/§36): in-container root of the turn archive.
-      # Hardcoded to the volume mount target — not a per-deployment choice.
-      # Must be ARCHIVE_ROOT: that's the variable name app.py actually reads
-      # (os.environ.get("ARCHIVE_ROOT", "archive")) -- ARCHIVE_PATH silently
-      # does nothing and every turn's archive would vanish on container
-      # restart instead of landing in the mounted volume. ---
       ARCHIVE_ROOT: /data/archive
       VOICE_JOB_DATABASE: /data/archive/voice-jobs.sqlite
-      VOICE_AGENT_PROVIDER: ${VOICE_AGENT_PROVIDER:-codex}
-      # The agent container binds only to host loopback.
-      CODEX_AGENT_URL: ${CODEX_AGENT_URL:-http://127.0.0.1:8765}
-      CODEX_AGENT_TOKEN: ${CODEX_AGENT_TOKEN:-}
+      LLM_BASE_URL: ${LLM_BASE_URL:-}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_MODEL: ${LLM_MODEL:-}
+      LLM_RESPONSE_FORMAT: ${LLM_RESPONSE_FORMAT:-text}
+      LLM_TIMEOUT_SECONDS: ${LLM_TIMEOUT_SECONDS:-120}
+      LLM_MAX_TOKENS: ${LLM_MAX_TOKENS:-8192}
+      LLM_HISTORY_TURNS: ${LLM_HISTORY_TURNS:-6}
+      LLM_HISTORY_MAX_CHARS: ${LLM_HISTORY_MAX_CHARS:-12000}
       VOICE_DEVICE_TOKENS: ${VOICE_DEVICE_TOKENS:-}
-      # --- STT (ТЗ §20) ---
-      STT_BASE_URL: ${STT_BASE_URL:-https://api.openai.com/v1}
-      STT_API_KEY: ${STT_API_KEY:-${VOICE_TOOLS_OPENAI_KEY:-}}
+      VOICE_API_KEY: ${VOICE_API_KEY:-}
+      VOICE_AUTH_ENABLED: ${VOICE_AUTH_ENABLED:-}
+      VOICE_RATE_LIMIT: ${VOICE_RATE_LIMIT:-100}
+      VOICE_RATE_PERIOD: ${VOICE_RATE_PERIOD:-60}
+      STT_BASE_URL: ${STT_BASE_URL:-}
+      STT_API_KEY: ${STT_API_KEY:-}
       STT_MODEL: ${STT_MODEL:-whisper-1}
-      # --- TTS (ТЗ §33) ---
-      TTS_BASE_URL: ${TTS_BASE_URL:-https://api.openai.com/v1/audio/speech}
-      TTS_API_KEY: ${TTS_API_KEY:-${VOICE_TOOLS_OPENAI_KEY:-}}
+      STT_TIMEOUT: ${STT_TIMEOUT:-60}
+      TTS_BASE_URL: ${TTS_BASE_URL:-}
+      TTS_API_KEY: ${TTS_API_KEY:-}
       TTS_MODEL: ${TTS_MODEL:-gpt-4o-mini-tts}
       TTS_VOICE: ${TTS_VOICE:-shimmer}
       TTS_INSTRUCTIONS: ${TTS_INSTRUCTIONS:-Говори естественным женским голосом по-русски, спокойно и дружелюбно.}
-      # --- Obsidian notes (ТЗ §25–27): in-container vault root, hardcoded to
-      # the volume mount target (same rationale as ARCHIVE_PATH). ---
+      TTS_TIMEOUT: ${TTS_TIMEOUT:-60}
       VOICE_KNOWLEDGE_ENABLED: ${VOICE_KNOWLEDGE_ENABLED:-true}
       OBSIDIAN_VAULT_PATH: /data/obsidian
       OBSIDIAN_INBOX: ${OBSIDIAN_INBOX:-Voice Inbox}
       NOTE_INCLUDE_TRANSCRIPT: ${NOTE_INCLUDE_TRANSCRIPT:-false}
+      GIT_SSH_COMMAND: ssh -i /data/ssh/id_ed25519 -o UserKnownHostsFile=/data/ssh/known_hosts -o IdentitiesOnly=yes -o BatchMode=yes -o ConnectTimeout=10
+      GIT_AUTHOR_NAME: ${GIT_AUTHOR_NAME:-Затея}
+      GIT_AUTHOR_EMAIL: ${GIT_AUTHOR_EMAIL:-zateya@localhost}
+      GIT_COMMITTER_NAME: ${GIT_COMMITTER_NAME:-Затея}
+      GIT_COMMITTER_EMAIL: ${GIT_COMMITTER_EMAIL:-zateya@localhost}
     volumes:
-      # Persistent directories beside this Compose file.
       - ./data/archive:/data/archive
       - ./data/obsidian:/data/obsidian
+      - ./data/ssh:/data/ssh:ro
     healthcheck:
-      # Лiveness probe on /health/live (ТЗ §35, docs/protocol.md). The
-      # python:slim base has no curl, so probe with python's urllib. The port
-      # follows VOICE_BIND_PORT so a custom port keeps the probe correct.
       test:
         - CMD
         - python

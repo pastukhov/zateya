@@ -26,6 +26,11 @@ RUN pip install --no-cache-dir -r requirements.txt
 # ---- runtime stage --------------------------------------------------------
 FROM python:3.12-slim
 
+# The gateway publishes the Obsidian Git outbox to origin itself.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends git openssh-client \
+    && rm -rf /var/lib/apt/lists/*
+
 # Non-root user (ТЗ §37: container must not run as root when avoidable).
 RUN groupadd --system app \
     && useradd --system --gid app --create-home app
