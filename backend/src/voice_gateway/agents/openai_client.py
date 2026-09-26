@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
+import time
 
 import httpx
 
@@ -12,6 +14,8 @@ from backend.src.voice_gateway.hermes.validation import HermesValidationError, p
 from .base import AgentClientError, AgentReply, AgentRequest
 from .config import LLMConfig
 from .sessions import AgentSessionStore, IdempotencyConflict, input_digest
+
+logger = logging.getLogger(__name__)
 
 
 class OpenAICompatibleAgentClient:
@@ -55,6 +59,7 @@ class OpenAICompatibleAgentClient:
 
     async def complete(self, request: AgentRequest) -> AgentReply:
         task = asyncio.current_task()
+        started_at = time.monotonic()
         if task is not None:
             self._active[request.request_id] = task
         try:
@@ -110,8 +115,21 @@ class OpenAICompatibleAgentClient:
                     )
                 return result
         except TimeoutError:
+            logger.warning(
+                "LLM request timed out (request_id=%s, model=%s, elapsed_seconds=%.1f, configured_timeout_seconds=%.1f)",
+                request.request_id,
+                self.config.model,
+                time.monotonic() - started_at,
+                self.config.timeout_seconds,
+            )
             raise AgentClientError("agent_timeout", "LLM request timed out", True) from None
         except httpx.TimeoutException:
+            logger.warning(
+                "LLM transport timed out (request_id=%s, model=%s, elapsed_seconds=%.1f)",
+                request.request_id,
+                self.config.model,
+                time.monotonic() - started_at,
+            )
             raise AgentClientError("agent_timeout", "LLM request timed out", True) from None
         except httpx.HTTPError:
             raise AgentClientError("agent_unavailable", "LLM endpoint is unavailable", True) from None
