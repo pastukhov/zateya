@@ -8,7 +8,6 @@ Environment variables (secrets stay out of the repo — ТЗ section 51):
     HERMES_TIMEOUT    seconds; recommended default 120 (ТЗ section 31)
 
     LLM_BASE_URL      required, shared OpenAI-compatible endpoint root
-    STT_API_KEY       optional; sent as ``Authorization: *** when set
     STT_MODEL         model name
     STT_TIMEOUT       seconds; recommended default 60 (ТЗ section 31)
 """
@@ -128,7 +127,7 @@ class STTConfig:
         if not base_url:
             raise STTConfigError("LLM_BASE_URL is required")
         model = source.get("STT_MODEL", "").strip() or DEFAULT_STT_MODEL
-        api_key = source.get("STT_API_KEY", "")
+        api_key = source.get("LLM_API_KEY", "").strip()
         raw_timeout = source.get("STT_TIMEOUT") or DEFAULT_STT_TIMEOUT
         try:
             timeout = float(raw_timeout)

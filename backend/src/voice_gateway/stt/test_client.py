@@ -88,7 +88,7 @@ class TestSuccessfulRequest:
         assert seen["url"] == "https://stt.internal/audio/transcriptions"
         # Method: POST (ТЗ section 20)
         assert seen["method"] == "POST"
-        # Bearer auth from STT_API_KEY
+        # Bearer auth from the shared LLM_API_KEY
         assert seen["headers"]["authorization"] == f"Bearer {API_KEY}"
         # Multipart body carries file bytes + model field
         assert WAV_BYTES in seen["body"]

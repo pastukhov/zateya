@@ -80,7 +80,7 @@ class TestSTTConfigFromEnv:
         config = STTConfig.from_env(
             {
                 "LLM_BASE_URL": "https://stt.internal/",
-                "STT_API_KEY": "sekret",
+                "LLM_API_KEY": "sekret",
                 "STT_MODEL": "whisper-1",
                 "STT_TIMEOUT": "90.5",
             }

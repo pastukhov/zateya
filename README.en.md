@@ -18,7 +18,7 @@ chmod 600 .env
 
 For a server deployment, place the existing Obsidian vault in `data/obsidian`, configure Git SSH in `data/ssh`, and follow the [Linux server guide](deploy/server-migration.ru.md). See the [development guide](docs/en/development.md) for configuration checks and tests.
 
-The gateway uses Compose's default bridge network and publishes a port for the recorder. Restrict that port to a trusted LAN or WireGuard network. `LLM_API_KEY`, speech-service keys, and device tokens are passed only to the gateway process and are never exposed by the recorder’s web UI.
+The gateway uses Compose's default bridge network and publishes a port for the recorder. Restrict that port to a trusted LAN or WireGuard network. `LLM_API_KEY` and device tokens are passed only to the gateway process and are never exposed by the recorder’s web UI.
 
 ## Connect the StickS3
 

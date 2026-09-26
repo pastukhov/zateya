@@ -19,7 +19,7 @@ class TestTTSConfigFromEnv:
         config = TTSConfig.from_env(
             {
                 "LLM_BASE_URL": "https://tts.local/v1",
-                "TTS_API_KEY": "sekret",
+                "LLM_API_KEY": "sekret",
                 "TTS_MODEL": "tts-1",
                 "TTS_VOICE": "alloy",
                 "TTS_TIMEOUT": "30.5",

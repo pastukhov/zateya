@@ -46,7 +46,7 @@ mv .env.new .env
 chmod 600 .env
 ```
 
-Задайте `LLM_BASE_URL`, `LLM_MODEL`, при необходимости `LLM_API_KEY`, `LLM_RESPONSE_FORMAT`, а также `ZATEYA_UID` и `ZATEYA_GID`. Ключ LLM независим от ключей STT/TTS. Не задавайте `VOICE_AGENT_PROVIDER`, `CODEX_*` или `HERMES_*`: это не настройки новой версии.
+Задайте `LLM_BASE_URL`, `LLM_MODEL`, при необходимости `LLM_API_KEY`, `LLM_RESPONSE_FORMAT`, а также модели `STT_MODEL` и `TTS_MODEL`, `ZATEYA_UID` и `ZATEYA_GID`. Один `LLM_API_KEY` используется для LLM, STT и TTS. Не задавайте `VOICE_AGENT_PROVIDER`, `CODEX_*` или `HERMES_*`: это не настройки новой версии.
 
 `LLM_BASE_URL` включает префикс API; gateway добавляет только `/chat/completions`. Примеры формы URL: `https://api.openai.com/v1`, `https://openrouter.ai/api/v1`, `http://ollama:11434/v1`. Это примеры адресов API, а не рекомендация конкретной модели. Расходы LLM оплачиваются отдельно от STT/TTS. Проверка готовности gateway не отправляет платный запрос и не проверяет ключ у провайдера.
 

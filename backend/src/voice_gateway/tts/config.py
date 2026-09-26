@@ -7,7 +7,6 @@ concurrent work on sibling stages does not collide).
 Environment variables (secrets stay out of the repo — ТЗ section 33):
 
     LLM_BASE_URL   required, shared OpenAI-compatible endpoint root
-    TTS_API_KEY    optional; sent as ``Authorization: Bearer ***`` when set
     TTS_MODEL      required, model name
     TTS_VOICE      voice name
     TTS_INSTRUCTIONS  optional speaking style for models that support it
@@ -55,7 +54,7 @@ class TTSConfig:
             raise ValueError("TTS_MODEL is required")
         voice = source.get("TTS_VOICE", "")
         instructions = source.get("TTS_INSTRUCTIONS", "")
-        api_key = source.get("TTS_API_KEY", "")
+        api_key = source.get("LLM_API_KEY", "").strip()
         raw_timeout = source.get("TTS_TIMEOUT") or DEFAULT_TTS_TIMEOUT
         try:
             timeout = float(raw_timeout)

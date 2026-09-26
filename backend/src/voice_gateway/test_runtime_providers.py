@@ -11,9 +11,7 @@ def test_create_app_builds_configured_runtime_providers(monkeypatch, tmp_path):
     monkeypatch.setenv("LLM_API_KEY", "llm-test-key")
     monkeypatch.setenv("LLM_MODEL", "small-model")
     monkeypatch.setenv("LLM_RESPONSE_FORMAT", "json_object")
-    monkeypatch.setenv("STT_API_KEY", "stt-test-key")
     monkeypatch.setenv("STT_MODEL", "transcribe-small")
-    monkeypatch.setenv("TTS_API_KEY", "tts-test-key")
     monkeypatch.setenv("TTS_MODEL", "speak-small")
     monkeypatch.setenv("TTS_VOICE", "alloy")
 

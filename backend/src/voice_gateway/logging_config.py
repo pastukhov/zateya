@@ -33,7 +33,7 @@ Public surface:
   (ТЗ §33): ``turn_id``, ``device_id``, ``stage``, ``duration_ms``,
   ``status``, ``error``.
 
-Secrets (``STT_API_KEY`` / ``HERMES_API_KEY`` / ``TTS_API_KEY``) and raw
+Secrets (``LLM_API_KEY`` / ``VOICE_API_KEY``) and raw
 audio bytes must never be passed to any logging call in this codebase.
 Transcript/reply text must never be passed to :func:`log_stage_event` —
 callers gate any transcript-bearing log call behind
