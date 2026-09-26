@@ -26,14 +26,14 @@ services:
       VOICE_AUTH_ENABLED: ${VOICE_AUTH_ENABLED:-}
       VOICE_RATE_LIMIT: ${VOICE_RATE_LIMIT:-100}
       VOICE_RATE_PERIOD: ${VOICE_RATE_PERIOD:-60}
-      STT_BASE_URL: ${STT_BASE_URL:-https://openrouter.ai/api/v1}
+      STT_BASE_URL: ${STT_BASE_URL:-}
       STT_API_KEY: ${STT_API_KEY:-${LLM_API_KEY:-}}
-      STT_MODEL: ${STT_MODEL:-openai/whisper-1}
+      STT_MODEL: ${STT_MODEL:-}
       STT_TIMEOUT: ${STT_TIMEOUT:-60}
-      TTS_BASE_URL: ${TTS_BASE_URL:-https://openrouter.ai/api/v1/audio/speech}
+      TTS_BASE_URL: ${TTS_BASE_URL:-}
       TTS_API_KEY: ${TTS_API_KEY:-${LLM_API_KEY:-}}
-      TTS_MODEL: ${TTS_MODEL:-x-ai/grok-voice-tts-1.0}
-      TTS_VOICE: ${TTS_VOICE:-eve}
+      TTS_MODEL: ${TTS_MODEL:-}
+      TTS_VOICE: ${TTS_VOICE:-}
       TTS_INSTRUCTIONS: ${TTS_INSTRUCTIONS-}
       TTS_TIMEOUT: ${TTS_TIMEOUT:-60}
       VOICE_KNOWLEDGE_ENABLED: ${VOICE_KNOWLEDGE_ENABLED:-true}
