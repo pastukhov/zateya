@@ -194,23 +194,21 @@ class TestFailurePaths:
         with pytest.raises(STTClientError, match="text"):
             client.transcribe(wav)
 
-    def test_missing_language_field_raises(self, tmp_path):
+    def test_missing_language_field_keeps_transcript(self, tmp_path):
         wav = _write_wav(tmp_path)
         transport = httpx.MockTransport(
             lambda req: _ok_response("hello", language=None)
         )
         client = _make_client(transport)
-        with pytest.raises(STTClientError, match="language"):
-            client.transcribe(wav)
+        assert client.transcribe(wav) == Transcript(text="hello", language="unknown")
 
-    def test_non_string_language_raises(self, tmp_path):
+    def test_non_string_language_keeps_transcript(self, tmp_path):
         wav = _write_wav(tmp_path)
         transport = httpx.MockTransport(
             lambda req: httpx.Response(200, json={"text": "hello", "language": 42})
         )
         client = _make_client(transport)
-        with pytest.raises(STTClientError, match="language"):
-            client.transcribe(wav)
+        assert client.transcribe(wav) == Transcript(text="hello", language="unknown")
 
     def test_timeout_raises_stt_client_error(self, tmp_path, caplog):
         wav = _write_wav(tmp_path)

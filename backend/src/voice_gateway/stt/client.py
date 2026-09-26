@@ -110,7 +110,8 @@ class OpenAICompatibleSTT(STTProvider):
             raise STTClientError("stt response is missing a non-empty 'text' field")
         language = body.get("language")
         if not isinstance(language, str) or not language.strip():
-            raise STTClientError("stt response is missing a non-empty 'language' field")
+            logger.warning("stt response omitted language; continuing with unknown")
+            language = "unknown"
         return Transcript(text=text, language=language)
 
     async def aclose(self) -> None:
