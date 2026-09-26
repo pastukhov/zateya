@@ -7,18 +7,30 @@
 
 ## 1. Подготовить сервер
 
-Войдите под пользователем, который будет владеть `data/`. Настройте его
-доступ к GitHub по SSH и клонируйте проект:
+Войдите под пользователем, который будет владеть `/opt/zateya` и `data/`.
+Настройте ему доступ к GitHub по SSH. Создайте каталог для проекта:
 
 ```sh
-mkdir -p ~/repos
 ssh -T git@github.com
-git clone git@github.com:pastukhov/zateya.git ~/repos/zateya
-cd ~/repos/zateya
+sudo mkdir -p /opt/zateya
+sudo chown "$(id -u):$(id -g)" /opt/zateya
+git clone git@github.com:pastukhov/zateya.git /opt/zateya
+cd /opt/zateya
 mkdir -p data/archive data/obsidian data/agent data/codex data/ssh
 chmod 700 data data/agent data/codex data/ssh
 cp .env.example .env
 ```
+
+Если переносите проект с ноутбука целиком через `rsync`, используйте после
+создания `/opt/zateya` эту команду **вместо** `git clone` и `cp`:
+
+```sh
+rsync -a /home/artem/repos/zateya/ USER@SERVER:/opt/zateya/
+```
+
+Она скопирует также скрытый `.env` и историю Git. На сервере затем создайте
+недостающие каталоги `data/archive`, `data/obsidian`, `data/agent`,
+`data/codex`, `data/ssh` и установите для них права, как показано выше.
 
 Все пять каталогов должны принадлежать этому пользователю. В `.env` задайте
 `ZATEYA_UID=$(id -u)`, `ZATEYA_GID=$(id -g)` и
@@ -52,7 +64,7 @@ docker compose -p hermes-echo --env-file /home/artem/.hermes/.env --env-file .en
 ```
 
 Скопируйте **весь** `/home/artem/repos/obsidian/` в
-`~/repos/zateya/data/obsidian/` на сервере, включая `.git`, `.obsidian` и
+`/opt/zateya/data/obsidian/` на сервере, включая `.git`, `.obsidian` и
 незакоммиченные записи `Затея/sources`. Одного `git clone` недостаточно.
 Архив из старого Docker volume перенесите через tar:
 
@@ -62,14 +74,14 @@ chmod 700 ~/zateya-transfer
 docker run --rm -v hermes-echo_archive_data:/data:ro \
   -v "$HOME/zateya-transfer:/backup" alpine:3.20 \
   tar -C /data -czf /backup/archive.tgz .
-rsync -a /home/artem/repos/obsidian/ USER@SERVER:~/repos/zateya/data/obsidian/
-rsync -a ~/zateya-transfer/archive.tgz USER@SERVER:~/repos/zateya/data/archive.tgz
+rsync -a /home/artem/repos/obsidian/ USER@SERVER:/opt/zateya/data/obsidian/
+rsync -a ~/zateya-transfer/archive.tgz USER@SERVER:/opt/zateya/data/archive.tgz
 ```
 
 На сервере распакуйте архив в `data/archive/`, затем удалите временный tar:
 
 ```sh
-cd ~/repos/zateya
+cd /opt/zateya
 tar -C data/archive -xzf data/archive.tgz
 rm data/archive.tgz
 chown -R "$(id -un):$(id -gn)" data
@@ -80,7 +92,7 @@ find data/obsidian -type d -exec chmod g+s {} +
 Перенесите файл **проекта** с токенами по защищённому каналу:
 
 ```sh
-scp /home/artem/repos/zateya/.env USER@SERVER:~/repos/zateya/.env
+scp /home/artem/repos/zateya/.env USER@SERVER:/opt/zateya/.env
 ```
 
 В checkout ноутбука `zateya/.env` — обычный файл с токенами Затеи и
@@ -106,11 +118,14 @@ scp /home/artem/repos/zateya/.env USER@SERVER:~/repos/zateya/.env
 `data/codex`. Для ChatGPT-подписки используется вход по коду устройства:
 
 ```sh
-cd ~/repos/zateya
-docker compose build agent
+cd /opt/zateya
+docker compose build
 docker compose run --rm --no-deps --entrypoint codex agent login --device-auth
 docker compose run --rm --no-deps --entrypoint codex agent login status
-docker compose up --build -d
+sudo install -m 644 deploy/zateya.service /etc/systemd/system/zateya.service
+sudo systemctl daemon-reload
+sudo systemctl enable --now zateya.service
+sudo systemctl status --no-pager zateya.service
 curl --fail http://127.0.0.1:8765/health/ready
 curl --fail http://127.0.0.1:8080/health/ready
 docker compose ps
@@ -123,8 +138,10 @@ docker compose ps
 `127.0.0.1:8765`; Gateway использует его внутри общей host-сети.
 
 Оба health endpoint должны вернуть `status: ok`, контейнеры — `healthy`.
-Проверьте `docker compose logs agent` и `docker compose logs backend`, если
-проверка не прошла. Обе службы автоматически перезапускаются после перезагрузки.
+Проверьте `journalctl -u zateya.service -b` и `docker compose logs agent backend`,
+если проверка не прошла. Unit поднимет Compose после загрузки сервера; Docker
+перезапускает контейнеры при их отдельном сбое. Для обновления выполните
+`git pull`, `docker compose build`, затем `sudo systemctl restart zateya.service`.
 Для Git push проверьте `git -C data/obsidian remote -v`, локальные
 `user.name`/`user.email` и доступ ключа `data/ssh/id_ed25519` к GitHub.
 
