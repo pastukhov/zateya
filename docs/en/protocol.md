@@ -48,4 +48,4 @@ Repeating the same device ID, request ID, and audio SHA-256 returns the existing
 
 `GET /health/live` checks process liveness. `GET /health/ready` checks configuration and archive writability. `GET /metrics` returns Prometheus metrics without transcript or note text in labels.
 
-The Codex Agent returns a short `reply` and, when needed, a structured knowledge proposal. The gateway validates the proposal, writes the Obsidian files, and confirms success only after those writes complete. This JSON is internal to the server, not the device request format.
+The LLM API returns a short `reply` and, when needed, a structured knowledge proposal. The gateway validates the proposal, writes the Obsidian files, and confirms success only after those writes complete. This JSON is internal to the server, not the device request format.

@@ -1,67 +1,65 @@
 # Develop and run the project
 
-Run commands from the repository root unless a section says otherwise. The project contains a Python gateway, a separate Python Codex adapter, and ESP-IDF firmware for the device.
+Run commands from the repository root. The project contains a Python 3.12 gateway and ESP-IDF firmware. The server gateway calls a configured OpenAI-compatible Chat Completions API directly; there is no separate Codex Agent service.
 
-## Requirements
+## Requirements and configuration
 
-- Python 3.12.
-- Docker Compose for the optional containerized gateway.
+- Python 3.12 and `pytest` for local checks.
+- Docker Engine with Compose for containerized runs.
 - PlatformIO Core and the ESP-IDF environment configured by `firmware/platformio.ini` to build firmware.
-- Reachable OpenAI-compatible STT and TTS endpoints. The Codex host adapter is required.
+- Reachable OpenAI-compatible STT, LLM, and TTS endpoints.
 
-## Configure the environment
+Copy `.env.example` to `.env` and configure `LLM_BASE_URL`, `LLM_MODEL`, and the STT/TTS URLs and models. `LLM_BASE_URL` includes the API prefix, such as `/v1` or `/api/v1`; the gateway only appends `/chat/completions`. The API key may be empty for an unauthenticated local service. Readiness checks do not contact a paid API or verify a provider’s key.
 
-```sh
-cp .env.example .env
-# Set local endpoint URLs, model names, and secrets in .env; never commit it.
-```
+`LLM_RESPONSE_FORMAT` accepts `text` or `json_object`. In text mode the gateway omits JSON-mode parameters. It does not choose a model, switch endpoints, or use tool/function calling. LLM usage is billed separately from STT/TTS.
 
-The minimum configuration for a voice turn is `STT_BASE_URL`, `TTS_BASE_URL`, `TTS_MODEL`, `VOICE_AGENT_PROVIDER=codex`, `CODEX_AGENT_URL`, and `CODEX_AGENT_TOKEN`. See `.env.example` and `docker-compose.yml` for variable names and defaults.
+## Start with Docker Compose
 
-## Start the gateway
-
-### With Docker Compose
+For a local run without existing data, create the data directories. For a server with an existing vault and Git SSH, follow the [runbook](../../deploy/server-migration.ru.md).
 
 ```sh
-docker compose up --build -d backend
+docker compose config --quiet
+docker compose build backend
+./deploy/prepare-data.sh
+docker compose up -d --wait
 curl --fail http://127.0.0.1:8080/health/live
 curl --fail http://127.0.0.1:8080/health/ready
 curl --fail http://127.0.0.1:8080/metrics
 ```
 
-Compose runs the gateway in host network mode. This lets it reach the Codex Agent on `127.0.0.1`; however, a port bound to `0.0.0.0` may also be reachable by other devices on the network. Check your firewall and LAN trust. Stop it with `docker compose down`.
+Compose uses host networking so the gateway can reach local STT/LLM/TTS endpoints. If the bind address is `0.0.0.0`, restrict inbound access with a firewall. Stop it with `docker compose down`.
 
-### Locally
+## Run locally
 
 ```sh
 python3.12 -m venv .venv
 . .venv/bin/activate
-python -m pip install -r backend/requirements.txt -r agent_service/requirements.txt
+python -m pip install -r backend/requirements.txt
 uvicorn backend.src.voice_gateway.app:app --host 127.0.0.1 --port 8080
 ```
 
-To run the Codex adapter separately, follow the [deployment guide](../../deploy/codex-voice-agent.md).
+Set local `LLM_*`, `STT_*`, `TTS_*`, and `ARCHIVE_ROOT`. If the Obsidian writer is enabled, also set `OBSIDIAN_VAULT_PATH` and `VOICE_KNOWLEDGE_ENABLED=true`.
 
-## Run checks
-
-Run backend tests from the repository root; the root `conftest.py` configures the import path:
+## Checks
 
 ```sh
-pytest -q backend
-cd agent_service
-python -m pytest -q tests
+pytest -q backend/src deploy/test_prepare_data.py
+bash -n deploy/prepare-data.sh
+docker compose config --quiet
+docker compose build backend
+systemd-analyze verify deploy/zateya.service
 ```
 
-These tests use fake runtimes and mocked HTTP transports. They do not prove that the current Codex session is authenticated or that external STT/TTS endpoints are reachable.
+Unit tests use fake APIs and temporary Git repositories. They do not prove the real endpoint is reachable, the selected model produces good notes, the recorder works, or the production server is configured.
 
-Firmware native tests do not need a connected device:
+Native firmware tests:
 
 ```sh
 cd firmware
 pio test -e native
 ```
 
-Build for the target board:
+Build the target board:
 
 ```sh
 cd firmware
@@ -71,22 +69,16 @@ export ZATEYA_GATEWAY_URL='http://192.168.1.10:8080'
 pio run -e sticks3
 ```
 
-Build flags read the Wi-Fi and gateway values from the environment and embed defaults in the image. Firmware also stores portal settings in NVS. Do not put real values in shell history, Git, or documentation; use a protected local environment file for repeatable builds. See the [StickS3 guide](flash-sticks3.md) for flashing.
+The firmware build reads Wi-Fi and gateway values from environment variables. Do not put real values in shell history, Git, or documentation; use a protected local environment file for repeatable builds. See the [StickS3 guide](../flash-sticks3.md) for flashing.
 
 ## Troubleshooting
 
 | Symptom | Check |
 | --- | --- |
-| `/health/live` works but `/health/ready` returns 503 | The `checks` field for required STT/agent configuration and write access to `ARCHIVE_ROOT` |
-| The device does not appear on the home network | After one minute, look for `Zateya-Setup-XX`; station reconnection continues in the background |
-| Wi-Fi works but a voice turn fails | Gateway URL, device/token mapping, STT/TTS settings, and gateway logs |
-| Recording was accepted but there is no reply | Poll `GET /api/voice/turns/{turn_id}` and inspect archive metadata; terminal failures appear in the `error` status payload |
-| Codex service is not ready | Sign in to Codex CLI as the same system user and check the adapter's `GET /health/ready`; do not copy credentials into the container |
+| `/health/live` works but `/health/ready` returns 503 | The `checks` body, required `LLM_BASE_URL`, `LLM_MODEL`, `STT_BASE_URL`, and archive write access |
+| LLM returns HTTP 401/403 | `LLM_API_KEY` with the provider; readiness does not reveal key validity |
+| LLM returns HTTP 429 or 5xx | Provider limits/availability; no automatic provider switch is attempted |
+| Obsidian commits are not pushed | `GET /api/voice/knowledge/git`, vault remote, `data/ssh`, permissions, and Git conflicts |
+| Recording was accepted but there is no reply | `GET /api/voice/turns/{turn_id}`, archive metadata, and gateway logs |
 
-## Data and security
-
-- The archive contains audio, transcripts, and replies. Restrict access and define a retention period.
-- Unless `VOICE_JOB_DATABASE` is overridden, the job database is stored alongside the archive.
-- `/health/ready` does not test current external STT/TTS network availability.
-- Do not use real recordings or keys in tests. The open setup AP is for local provisioning only.
-- Before exposing the gateway, check its bind address, firewall, and logs for secrets.
+The archive contains audio, transcripts, and replies; restrict access and define a retention period. Do not use real recordings or keys in tests. `/health/ready` checks configuration and local writes but makes no STT/LLM/TTS network requests.

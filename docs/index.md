@@ -21,8 +21,7 @@
 
 - [Локальный запуск, тесты, сборка и диагностика](development.md)
 - [Компоненты и голосовой поток](architecture.md)
-- [Установка локального Codex Agent Service](../deploy/codex-voice-agent.md)
-- [Инструкция host-side Codex adapter](../agent_service/README.md)
+- [Перенос и запуск на Linux-сервере](../deploy/server-migration.ru.md)
 
 ## Диаграммы
 

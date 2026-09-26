@@ -1,6 +1,6 @@
 # Architecture
 
-Zateya consists of the StickS3 recorder, Voice Gateway, and a local Codex Agent. The device records and plays audio. The server transcribes speech, organizes ideas in Obsidian, and synthesizes the spoken reply.
+Zateya consists of the StickS3 recorder, one Voice Gateway, external speech/LLM APIs, and an Obsidian vault. The gateway handles voice processing, knowledge writing, and Git publishing in a single container.
 
 ![Voice recording flow from device to Obsidian](../assets/system-overview.svg)
 
@@ -9,53 +9,64 @@ Zateya consists of the StickS3 recorder, Voice Gateway, and a local Codex Agent.
 ```mermaid
 flowchart LR
     D["StickS3<br/>recording and playback"]
-    G["Voice Gateway<br/>queue · STT · TTS"]
-    C["Codex Agent<br/>ideas and wiki"]
-    O[("Obsidian<br/>sources · ideas · wiki · builds")]
-    A[("Archive and SQLite<br/>recordings · jobs")]
-    D -->|"PCM · Wi-Fi"| G
-    G -->|"text and knowledge context"| C
-    C -->|"proposed changes"| G
-    G -->|"validated Markdown"| O
-    G -->|"WAV"| D
-    G --> A
+    subgraph G["Voice Gateway · one container"]
+      Q["Queue and archive"]
+      W["STT · validate LLM reply<br/>Obsidian writer · Git publisher · TTS"]
+      DB[("SQLite<br/>jobs and LLM history")]
+      Q --> W
+      Q --> DB
+    end
+    P["OpenAI-compatible APIs<br/>STT · Chat Completions · TTS"]
+    O[("Obsidian vault<br/>sources · ideas · wiki · builds")]
+    R[("Git origin")]
+    D -->|"PCM + device token"| Q
+    W <-->|"requests and replies"| P
+    W -->|"validated Markdown"| O
+    W -->|"commits"| R
+    W -->|"WAV"| D
 ```
 
-The Codex Agent runs in a separate container and accepts gateway requests over loopback. Codex credentials are mounted only into the agent container, never the gateway or firmware. The device token and the agent's internal token are separate secrets. The current deployment uses `VOICE_AGENT_PROVIDER=codex`.
+The configured Chat Completions API receives the transcript and selected knowledge context as data. It receives no tools, filesystem access, Git access, or SSH keys. The gateway validates JSON against the existing schema and applies changes through the Obsidian writer. API keys stay in the server-side `.env`; the device gets only its gateway token.
 
 ## Voice request
 
 ```mermaid
 sequenceDiagram
     participant D as StickS3
-    participant G as Voice Gateway
-    participant Q as Job queue
-    participant S as Speech recognition
-    participant C as Codex Agent
-    participant O as Obsidian
-    participant T as Speech synthesis
-    D->>G: PCM recording + request ID + device token
-    G->>Q: store recording and enqueue job
+    participant G as Gateway
+    participant A as Archive and queue
+    participant S as STT API
+    participant L as LLM API
+    participant O as Obsidian writer
+    participant T as TTS API
+    participant Git as Git publisher
+    D->>G: PCM + request ID + device token
+    G->>A: store recording and job
     G-->>D: job ID
-    Q->>S: transcribe recording
-    S-->>Q: text
-    Q->>C: text and knowledge context
-    C-->>Q: reply and proposed changes
-    Q->>O: validate and save notes and wiki pages
-    Q->>T: speak confirmed reply
-    T-->>Q: WAV
-    D->>G: poll status and download audio
-    G-->>D: WAV
+    A->>S: transcribe WAV
+    S-->>A: transcript
+    A->>L: transcript and bounded context
+    L-->>A: reply and proposed changes
+    A->>O: validate and write Markdown
+    O-->>A: successful write / receipt
+    A->>L: commit local result to history
+    A->>T: synthesize confirmed reply
+    T-->>A: WAV
+    A-->>D: status and WAV on request
+    O-->>Git: local publication queue
+    Git->>Git: commit selected files and push origin
 ```
 
-The device creates a UUID before upload. If the response is lost, it checks the same request to avoid duplicates. The gateway keeps jobs in SQLite; queued jobs survive restarts, while interrupted processing is not automatically replayed. Each device is authorized with its own `X-Device-Id` and bearer-token pair. See the [protocol guide](protocol.md) for exact HTTP paths; setup does not offer protocol selection.
+The device creates a UUID before upload. Reusing the same request does not create another job. The gateway caches each validated LLM result by device ID and request ID, so a retry after TTS failure does not call the LLM again or duplicate a note. Short conversation history is stored separately in `/data/archive/llm-sessions.sqlite3` and reset per device.
 
-## Device and setup
+## Device and server setup
 
-The StickS3 records mono 16 kHz PCM S16LE on button press and plays WAV through the ES8311. The display shows recording, processing, reply, and error states. Its setup AP is named `Zateya-Setup-XX`; after joining Wi-Fi, setup is also available on the local network at `zateya-<MAC>.local`. See [Wi-Fi setup](../wifi-profiles-sticks3.md) and [flashing](flash-sticks3.md).
+StickS3 records mono PCM S16LE at 16 kHz on button press and plays WAV through ES8311. Its setup AP is `Zateya-Setup-XX`. After joining Wi-Fi, full setup is also available through the device IP or mDNS name `zateya-<MAC>.local`.
 
-## Notes and storage
+Compose runs one backend as a numeric non-root UID/GID. `data/archive`, `data/obsidian`, and read-only `data/ssh` are mounted from the host. `deploy/prepare-data.sh` aligns ownership with Compose without deleting existing data. See the [server runbook](../../deploy/server-migration.ru.md).
 
-Raw transcripts go to `Затея/sources/` in the Obsidian vault, formatted ideas to `ideas/`, connected pages to `wiki/`, and plans and tasks to `builds/`. The spoken confirmation follows successful file writes. A separate publisher then commits and pushes changes to `origin`; see the [knowledge guide](../voice-knowledge.md).
+## Obsidian and health checks
 
-Recordings and results are archived under `ARCHIVE_ROOT/YYYY/MM/DD/<turn-id>/`; jobs are stored in SQLite. `/health/live` checks the process, `/health/ready` checks configuration and archive writability, and `/metrics` excludes transcript text. The gateway is intended for a trusted local network or VPN; the setup AP is open for provisioning.
+Sources live in `Затея/sources/`, ideas in `ideas/`, related pages in `wiki/`, and plans/tasks in `builds/`. The publisher commits only files from the outbox and preserves unrelated staged changes. Push runs in the background so it does not delay the spoken response. Its status is available at authenticated `GET /api/voice/knowledge/git`.
+
+`/health/live` checks the process. `/health/ready` validates configuration and archive writes without network calls. Restrict gateway access to a trusted network; do not expose it directly to the Internet.

@@ -1,56 +1,50 @@
 # Zateya · Затея
 
-Zateya is a pocket voice assistant built around the M5Stack StickS3. It turns spoken ideas into linked Obsidian notes, develops them into plans and draft build tasks, and reads its reply aloud.
+Zateya is a pocket voice assistant for the M5Stack StickS3. It turns free-form speech into Obsidian notes and a linked LLM Wiki, then helps develop ideas into plans and draft build tasks following “Ramble your idea, then build.”
 
 Documentation: [English](docs/en/index.md) · [Русский](docs/ru/index.md).
 
-The project contains device firmware, a Python gateway, and a host-side Codex Agent. Neither the firmware nor the Docker container receives Codex credentials.
+The project contains device firmware and a single server-side Voice Gateway. The gateway transcribes speech, calls a configured OpenAI-compatible Chat Completions endpoint, validates and writes Markdown to Obsidian, synthesizes a spoken reply, and publishes changes through Git in the background. It does not require Codex CLI or a Codex account. Persistent directories live in `data/` next to Compose.
 
 ![System components and security boundaries](docs/assets/system-overview.svg)
 
 ## Quick start
 
-You need Docker Compose, the local Codex Agent, and reachable speech recognition and synthesis services.
-
 ```sh
 cp .env.example .env
-# Configure local endpoints and models in .env; keep secrets in this local file.
-docker compose up --build -d backend
-curl --fail http://127.0.0.1:8080/health/live
-curl --fail http://127.0.0.1:8080/health/ready
+# Configure LLM_*, STT_*, TTS_*, and device tokens in the local .env.
+chmod 600 .env
 ```
 
-Compose uses `network_mode: host`, allowing the gateway to reach host-local services. Check network isolation before running on a shared or untrusted network; never expose the gateway directly to the Internet. See the [development guide](docs/en/development.md) for other checks and non-Docker startup.
+For a server deployment, place the existing Obsidian vault in `data/obsidian`, configure Git SSH in `data/ssh`, and follow the [Linux server guide](deploy/server-migration.ru.md). See the [development guide](docs/en/development.md) for configuration checks and tests.
+
+Compose uses host networking; restrict the gateway port to a trusted LAN or WireGuard network. `LLM_API_KEY`, speech-service keys, and device tokens are passed only to the gateway process and are never exposed by the recorder’s web UI.
 
 ## Connect the StickS3
 
-Without saved Wi-Fi settings, the device creates the open network `Zateya-Setup-XX`, where `XX` is the final byte of the Wi-Fi MAC in hexadecimal. Your phone may offer to open the setup portal. If not, browse to `http://192.168.4.1/`.
+Without saved Wi-Fi settings, the device creates the open `Zateya-Setup-XX` network, where `XX` is the final two hexadecimal characters of the Wi-Fi MAC. Your phone may open the setup portal automatically; otherwise browse to `http://192.168.4.1/`.
 
-In the setup form, choose a network, enter the gateway base URL (for example `http://192.168.1.10:8080`), and add the device token.
-
-The saved network gets one minute to connect. If it cannot, the setup AP appears while the device continues retrying. The AP shuts down after a successful connection. The gateway must have a device ID-to-token mapping; see [device setup](docs/en/flash-sticks3.md) and the [protocol guide](docs/en/protocol.md).
+Choose Wi-Fi and enter the gateway address and device token. Full setup remains available after the device joins a local network, using its IP address or mDNS name. The page includes a confirmed settings reset.
 
 ## Voice request
 
-The device follows a half-duplex cycle: `READY → LISTENING → THINKING → SPEAKING → READY`. An error remains on screen until you press the button. There is no separate LED indication.
+The device follows a half-duplex cycle: `READY → LISTENING → THINKING → SPEAKING → READY`. The gateway stores each recording as a job, processes it, and returns WAV audio. Each device uses a distinct bearer token.
 
-The gateway stores each recording as a job. The device checks its status and downloads the WAV reply. Each device uses a distinct bearer token.
+For a substantive dictation, Zateya replies briefly, saves the source transcript and formatted idea in Obsidian, then commits and pushes the changes to `origin`. See the [LLM Wiki guide](docs/voice-knowledge.md).
 
 ## Repository layout
 
 | Path | Purpose |
 | --- | --- |
 | `firmware/` | ESP-IDF/PlatformIO firmware for M5Stack StickS3 |
-| `backend/` | FastAPI gateway, Codex Agent, STT/TTS, archive, and voice jobs |
-| `agent_service/` | Local host-side Codex Python SDK adapter |
-| `deploy/` | systemd unit and Codex adapter installation guide |
-| `docs/` | Architecture, protocol, development, device setup, and diagrams |
-| `docker-compose.yml` | Containerized gateway startup |
-| `.env.example` | Environment-variable template without working secrets |
+| `backend/` | FastAPI gateway, LLM/STT/TTS clients, archive, Obsidian writer, and Git publisher |
+| `deploy/` | data preparation and systemd unit |
+| `docs/` | architecture, protocol, development, device setup, and diagrams |
+| `docker-compose.yml` | single backend container |
+| `.env.example` | environment template without real secrets |
 
-## Security and data
+Never commit `.env`, Wi-Fi passwords, device tokens, API keys, or SSH keys. The setup AP is open and intended for nearby provisioning only.
 
-- The backend stores voice recordings and results in the archive. Review its location, access controls, and retention policy before using personal recordings.
-- The current deployment uses Codex and the asynchronous voice API.
-- The setup AP is open and intended only for local provisioning.
-- Never commit `.env`, Wi-Fi passwords, device tokens, or Codex credentials.
+### mDNS
+
+The device advertises `zateya-<MAC>.local`, for example `zateya-7ce8b1e4b780.local`. Full setup is available through this name on the local network or at `http://192.168.4.1/` while connected to the setup AP.

@@ -1,7 +1,9 @@
 # Zateya project context
 
-Zateya is a voice interface to a personal Obsidian knowledge base. The M5Stack StickS3 records speech on button press and plays the reply. Voice Gateway stores the recording as a job, transcribes it, and calls the local Codex Agent. The agent proposes a formatted idea, amendment, wiki page, plan, or draft build task; the gateway validates and writes the files. A synthesized spoken reply returns to the device. Obsidian changes are then committed and pushed to `origin` automatically.
+Zateya is a voice interface to a personal Obsidian knowledge base, inspired by LLM Wiki and “Ramble your idea, then build.” The StickS3 records speech and plays the reply. A single Voice Gateway stores the job, calls STT and a configured OpenAI-compatible LLM, validates and writes the note, synthesizes the reply, then publishes changes to `origin` in the background.
 
-Current references: [architecture](architecture.md), [HTTP protocol](protocol.md), [knowledge workflow](../voice-knowledge.md), and [device setup](flash-sticks3.md). Early plans, specifications, and handoff files document project history and may no longer describe the deployed system.
+Current references: [architecture](architecture.md), [HTTP protocol](protocol.md), [LLM Wiki](../voice-knowledge.md), [device setup](flash-sticks3.md), and the [server runbook](../../deploy/server-migration.ru.md).
 
-Codex credentials stay in `data/codex`, mounted only into the agent container. The recorder uses a separate device token. The Obsidian folder for voice recordings is currently named `Затея/`.
+External LLM/STT/TTS keys stay in the server-side `.env`. The device uses a separate bearer token. The Obsidian writer and Git publisher run inside the same gateway; the SSH key is mounted read-only and is never sent to the model.
+
+The vault folder is `Затея/`. A `build` request saves a draft task but does not yet launch an automated coding agent.

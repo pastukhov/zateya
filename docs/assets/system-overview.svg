@@ -1,30 +1,51 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 430" role="img" aria-labelledby="title desc">
-  <title id="title">Затея: путь голосовой записи</title>
-  <desc id="desc">Диктофон передаёт запись шлюзу. Шлюз распознаёт речь, передаёт текст локальному агенту Codex, сохраняет идеи и связанные страницы в Obsidian, синтезирует голосовой ответ и возвращает его устройству.</desc>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 520" role="img" aria-labelledby="title desc">
+  <title id="title">Затея: от записи к базе идей</title>
+  <desc id="desc">StickS3 передаёт запись единственному Voice Gateway. Gateway вызывает STT, настроенный OpenAI-совместимый LLM и TTS, записывает проверенные заметки в Obsidian и отправляет коммиты в Git origin в фоне.</desc>
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#101a31"/><stop offset="1" stop-color="#182644"/></linearGradient>
     <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto"><path d="M0 0 10 5 0 10z" fill="#74d8e8"/></marker>
-    <style>text{font-family:Arial,sans-serif;fill:#eaf2ff}.small{font-size:15px;fill:#b9c8df}.label{font-size:21px;font-weight:700}.tag{font-size:15px;font-weight:700;fill:#9cc2e8}</style>
+    <style>text{font-family:Arial,sans-serif;fill:#eaf2ff}.small{font-size:15px;fill:#b9c8df}.label{font-size:21px;font-weight:700}.tag{font-size:15px;font-weight:700;fill:#9cc2e8}.sub{font-size:17px;font-weight:700;fill:#d7e7fb}</style>
   </defs>
-  <rect width="1200" height="430" rx="28" fill="url(#bg)"/>
-  <text x="600" y="45" text-anchor="middle" class="label">Затея: от записи к базе идей</text>
-  <g fill="#203653" stroke="#54bad1" stroke-width="2">
-    <rect x="35" y="105" width="230" height="145" rx="18"/>
-    <rect x="330" y="105" width="230" height="145" rx="18"/>
-    <rect x="625" y="105" width="230" height="145" rx="18"/>
-    <rect x="920" y="105" width="245" height="145" rx="18"/>
-  </g>
-  <g text-anchor="middle">
-    <text x="150" y="153" class="label">StickS3</text><text x="150" y="186" class="small">запись по кнопке</text><text x="150" y="210" class="small">и голосовой ответ</text>
-    <text x="445" y="153" class="label">Voice Gateway</text><text x="445" y="186" class="small">очередь · распознавание</text><text x="445" y="210" class="small">синтез речи · запись</text>
-    <text x="740" y="153" class="label">Codex Agent</text><text x="740" y="186" class="small">оформляет идеи</text><text x="740" y="210" class="small">и связывает знания</text>
-    <text x="1042" y="153" class="label">Obsidian</text><text x="1042" y="186" class="small">источники · идеи · wiki</text><text x="1042" y="210" class="small">планы · задания</text>
-  </g>
+  <rect width="1200" height="520" rx="28" fill="url(#bg)"/>
+  <text x="600" y="48" text-anchor="middle" class="label">Затея: от голоса к LLM Wiki в Obsidian</text>
+  <rect x="35" y="170" width="205" height="140" rx="18" fill="#203653" stroke="#54bad1" stroke-width="2"/>
+  <text x="137" y="218" text-anchor="middle" class="label">StickS3</text>
+  <text x="137" y="251" text-anchor="middle" class="small">диктует идею</text>
+  <text x="137" y="276" text-anchor="middle" class="small">получает голосовой ответ</text>
+
+  <rect x="300" y="92" width="590" height="322" rx="24" fill="#182943" stroke="#6486b5" stroke-width="2"/>
+  <text x="595" y="130" text-anchor="middle" class="label">Voice Gateway · один контейнер</text>
+  <rect x="335" y="163" width="245" height="92" rx="14" fill="#203653" stroke="#54bad1"/>
+  <text x="457" y="198" text-anchor="middle" class="sub">Очередь и архив</text>
+  <text x="457" y="228" text-anchor="middle" class="small">STT · SQLite · записи</text>
+  <rect x="610" y="163" width="245" height="92" rx="14" fill="#203653" stroke="#54bad1"/>
+  <text x="732" y="198" text-anchor="middle" class="sub">Проверенный LLM</text>
+  <text x="732" y="228" text-anchor="middle" class="small">JSON-схема · история</text>
+  <rect x="335" y="285" width="245" height="92" rx="14" fill="#203653" stroke="#54bad1"/>
+  <text x="457" y="320" text-anchor="middle" class="sub">Obsidian writer</text>
+  <text x="457" y="350" text-anchor="middle" class="small">источники · идеи · wiki</text>
+  <rect x="610" y="285" width="245" height="92" rx="14" fill="#203653" stroke="#54bad1"/>
+  <text x="732" y="320" text-anchor="middle" class="sub">Git publisher · TTS</text>
+  <text x="732" y="350" text-anchor="middle" class="small">push в фоне · WAV</text>
+
+  <rect x="955" y="96" width="210" height="128" rx="18" fill="#203653" stroke="#54bad1" stroke-width="2"/>
+  <text x="1060" y="139" text-anchor="middle" class="label">API</text>
+  <text x="1060" y="171" text-anchor="middle" class="small">STT · LLM · TTS</text>
+  <text x="1060" y="196" text-anchor="middle" class="small">OpenAI-совместимые</text>
+  <rect x="955" y="282" width="210" height="128" rx="18" fill="#203653" stroke="#54bad1" stroke-width="2"/>
+  <text x="1060" y="326" text-anchor="middle" class="label">Хранилища</text>
+  <text x="1060" y="358" text-anchor="middle" class="small">Obsidian vault</text>
+  <text x="1060" y="383" text-anchor="middle" class="small">Git origin · SSH read-only</text>
+
   <g stroke="#74d8e8" stroke-width="3" fill="none" marker-end="url(#arrow)">
-    <path d="M270 150h50"/><path d="M565 150h50"/><path d="M445 250v35h597v-25"/>
-    <path d="M625 215h-50"/><path d="M330 215h-50"/>
+    <path d="M245 240h47"/>
+    <path d="M890 190h60"/>
+    <path d="M890 335h60"/>
+    <path d="M610 254v26"/>
+    <path d="M335 255v26"/>
+    <path d="M610 330h-25"/>
   </g>
-  <text x="600" y="313" text-anchor="middle" class="small">Шлюз сохраняет запись и применяет предложенные агентом изменения к Obsidian</text>
-  <text x="600" y="345" text-anchor="middle" class="small">После сохранения изменения автоматически коммитятся и отправляются в origin</text>
-  <text x="600" y="390" text-anchor="middle" class="tag">УЧЁТНЫЕ ДАННЫЕ CODEX ОСТАЮТСЯ НА СЕРВЕРЕ</text>
+  <path d="M890 235c35 0 35 130 0 130" stroke="#74d8e8" stroke-width="2" fill="none" stroke-dasharray="6 6" marker-end="url(#arrow)"/>
+  <text x="600" y="468" text-anchor="middle" class="small">Секреты API остаются на сервере; модель не получает инструменты, файловый доступ или SSH-ключ</text>
+  <text x="600" y="496" text-anchor="middle" class="tag">СОХРАНЕНИЕ В OBSIDIAN → ФОНОВЫЙ COMMIT И PUSH</text>
 </svg>

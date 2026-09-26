@@ -12,8 +12,7 @@
 ## Разработка и эксплуатация
 
 - [Разработка, запуск, тесты и диагностика](../development.md)
-- [Установка Codex Voice Agent на хосте](../../deploy/codex-voice-agent.ru.md)
-- [Настройка и эксплуатация Codex Agent](../../agent_service/README.ru.md)
+- [Перенос и запуск на Linux-сервере](../../deploy/server-migration.ru.md)
 - [Диаграмма Wi-Fi setup и восстановления](../assets/wifi-setup-flow.svg)
 
 ## Справочные материалы

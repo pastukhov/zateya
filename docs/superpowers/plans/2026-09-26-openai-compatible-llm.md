@@ -1,6 +1,6 @@
 # Замена Codex на OpenAI-совместимый LLM: Implementation Plan
 
-> **For agentic workers:** Use superpowers:executing-plans to implement this plan task-by-task. Выполняй последовательно, без субагентов. Шаги отмечены checkbox. Пользователь запросил пока только план: этот документ не означает разрешения автору плана запускать реализацию.
+> **Статус:** план реализован по явному последующему запросу пользователя. Шаги отмечены checkbox; production сервер и устройство не затрагивались.
 
 **Goal:** Затея оформляет диктовки в Obsidian через настраиваемый OpenAI-совместимый HTTP API без Codex CLI, аккаунта Codex и отдельного agent-service.
 
@@ -95,62 +95,62 @@
 
 ## Шаг 1. Прямой HTTP-клиент и промпт
 
-- [ ] Прочитать agents/base.py, codex_client.py, config.py, hermes/client.py, hermes/validation.py, models/hermes_response.py, knowledge/models.py и knowledge_prompt.py. Использовать httpx, уже имеющийся в зависимостях; новый SDK не нужен.
-- [ ] Добавить тесты LLMConfig: обязательные URL/model; пустой API key; trailing slash; неверные scheme/query/userinfo; timeout/лимиты; два response_format.
-- [ ] Через httpx.MockTransport проверить точные messages/model/Authorization, URL с `/v1` и `/api/v1`, omission response_format при text. Ключ-маркер только выдуманный.
-- [ ] Проверить ответ capture/amend/query/plan/build, markdown fence, некорректный JSON → один repair → успех/ошибка, отказ/пустой/слишком большой/обрезанный ответ, перечисленные HTTP-коды, отмену и единый deadline двух попыток.
-- [ ] Реализовать клиент и перенести промпт с разделением system/user. Переиспользовать текущую валидацию reply/note; не выдумывать параллельную схему.
-- [ ] Запустить `pytest -q backend/src/voice_gateway/agents`; commit/push. На этом шаге runtime приложения ещё не переключать.
+- [x] Прочитать agents/base.py, codex_client.py, config.py, hermes/client.py, hermes/validation.py, models/hermes_response.py, knowledge/models.py и knowledge_prompt.py. Использовать httpx, уже имеющийся в зависимостях; новый SDK не нужен.
+- [x] Добавить тесты LLMConfig: обязательные URL/model; пустой API key; trailing slash; неверные scheme/query/userinfo; timeout/лимиты; два response_format.
+- [x] Через httpx.MockTransport проверить точные messages/model/Authorization, URL с `/v1` и `/api/v1`, omission response_format при text. Ключ-маркер только выдуманный.
+- [x] Проверить ответ capture/amend/query/plan/build, markdown fence, некорректный JSON → один repair → успех/ошибка, отказ/пустой/слишком большой/обрезанный ответ, перечисленные HTTP-коды, отмену и единый deadline двух попыток.
+- [x] Реализовать клиент и перенести промпт с разделением system/user. Переиспользовать текущую валидацию reply/note; не выдумывать параллельную схему.
+- [x] Запустить `pytest -q backend/src/voice_gateway/agents`; commit/push. На этом шаге runtime приложения ещё не переключать.
 
 ## Шаг 2. Локальные сессии
 
-- [ ] Реализовать sessions.py с таблицами generations и results, уникальным `(device_id, request_id)`, input_hash, generation, JSON-результатом и признаком history_committed. Права БД 0600, WAL, транзакции; SQL только с параметрами.
-- [ ] Тесты: независимость устройств, одинаковые request_id у разных устройств, кеш и конфликт входа, история после перезапуска, лимиты пар/символов, отсутствие дубля record_turn, reset без удаления базы знаний.
-- [ ] Тесты: старый результат после reset не добавляется в историю; cancelled/failed не становится завершённой парой; отмена на этапе HTTP не делает следующую job неработоспособной.
-- [ ] Связать клиент с sessions. Полные prompts/ответы не печатать. Не добавлять новую очередь.
-- [ ] Запустить тесты agents и jobs; commit/push.
+- [x] Реализовать sessions.py с таблицами generations и results, уникальным `(device_id, request_id)`, input_hash, generation, JSON-результатом и признаком history_committed. Права БД 0600, WAL, транзакции; SQL только с параметрами.
+- [x] Тесты: независимость устройств, одинаковые request_id у разных устройств, кеш и конфликт входа, история после перезапуска, лимиты пар/символов, отсутствие дубля record_turn, reset без удаления базы знаний.
+- [x] Тесты: старый результат после reset не добавляется в историю; cancelled/failed не становится завершённой парой; отмена на этапе HTTP не делает следующую job неработоспособной.
+- [x] Связать клиент с sessions. Полные prompts/ответы не печатать. Не добавлять новую очередь.
+- [x] Запустить тесты agents и jobs; commit/push.
 
 ## Шаг 3. Git publisher в gateway
 
-- [ ] Перенести GitSync и tests/test_git_sync.py из agent_service в knowledge, обновить imports. Сохранить writer.lock, проверку hashes, отсутствие force/pull/rebase, selective commit с сохранением чужого staged index и повтор push без пустого commit.
-- [ ] В app lifecycle запускать ровно одну background task, корректно завершать её; ошибка push не валит процесс. Сохранить last_result.
-- [ ] Добавить `GET /api/voice/knowledge/git` с той же device-auth, что у `/api/voice/*`. Отдавать только статус/commit/count, без путей и содержимого заметок. Не сохранять отдельный CODEX_AGENT_TOKEN.
-- [ ] Тесты Git на временных local bare repos: успех, offline retry, изменённая вручную страница, чужой staged файл, Cyrillic path, shared lock. HTTP-тесты: без/с неверным токеном 401, правильный токен получает статус.
-- [ ] Проверить shutdown publisher и сохранение outbox при остановке. Не использовать реальный Obsidian vault в тестах.
-- [ ] Запустить knowledge и API tests; commit/push.
+- [x] Перенести GitSync и tests/test_git_sync.py из agent_service в knowledge, обновить imports. Сохранить writer.lock, проверку hashes, отсутствие force/pull/rebase, selective commit с сохранением чужого staged index и повтор push без пустого commit.
+- [x] В app lifecycle запускать ровно одну background task, корректно завершать её; ошибка push не валит процесс. Сохранить last_result.
+- [x] Добавить `GET /api/voice/knowledge/git` с той же device-auth, что у `/api/voice/*`. Отдавать только статус/commit/count, без путей и содержимого заметок. Не сохранять отдельный CODEX_AGENT_TOKEN.
+- [x] Тесты Git на временных local bare repos: успех, offline retry, изменённая вручную страница, чужой staged файл, Cyrillic path, shared lock. HTTP-тесты: без/с неверным токеном 401, правильный токен получает статус.
+- [x] Проверить shutdown publisher и сохранение outbox при остановке. Не использовать реальный Obsidian vault в тестах.
+- [x] Запустить knowledge и API tests; commit/push.
 
 ## Шаг 4. Переключение pipeline
 
-- [ ] Подключить новый client в app.py как единственный production LLM provider. Убрать codex/hermes ветвления создания провайдера и readiness, сохранив общие валидаторы и нужные тестовые зависимости.
-- [ ] Readiness проверяет валидность конфигурации и возможность записи локальных данных; не делает платного LLM-запроса и не заявляет, что ключ подтверждён провайдером. Liveness остаётся независимым от LLM.
-- [ ] Вызвать record_turn после успешного publish/query, до TTS. На пути уже существующего knowledge receipt также завершить record_turn идемпотентно, если кеш результата есть.
-- [ ] Reset оставить по прежнему URL, добавить device_busy для queued/running через синхронизированную проверку; подтвердить, что входящий upload не обходит её. Не удалять идеи при reset.
-- [ ] Тесты pipeline: capture с wiki, amend той же title-заметки, query без новой идеи, plan/build только сохраняют задание; source сохраняется при ошибке LLM; неверные ссылки не пишут частичную wiki.
-- [ ] Тесты: TTS упал после публикации → повтор без второго HTTP/дубля заметки/истории; worker cancellation и restart; reset с очередью; два device tokens не дают читать чужие jobs.
-- [ ] Запустить `pytest -q backend/src`. Не удалять упавшие тесты ради зелёного результата; менять ожидания только для специально удалённого runtime.
-- [ ] Commit/push.
+- [x] Подключить новый client в app.py как единственный production LLM provider. Убрать codex/hermes ветвления создания провайдера и readiness, сохранив общие валидаторы и нужные тестовые зависимости.
+- [x] Readiness проверяет валидность конфигурации и возможность записи локальных данных; не делает платного LLM-запроса и не заявляет, что ключ подтверждён провайдером. Liveness остаётся независимым от LLM.
+- [x] Вызвать record_turn после успешного publish/query, до TTS. На пути уже существующего knowledge receipt также завершить record_turn идемпотентно, если кеш результата есть.
+- [x] Reset оставить по прежнему URL, добавить device_busy для queued/running через синхронизированную проверку; подтвердить, что входящий upload не обходит её. Не удалять идеи при reset.
+- [x] Тесты pipeline: capture с wiki, amend той же title-заметки, query без новой идеи, plan/build только сохраняют задание; source сохраняется при ошибке LLM; неверные ссылки не пишут частичную wiki.
+- [x] Тесты: TTS упал после публикации → повтор без второго HTTP/дубля заметки/истории; worker cancellation и restart; reset с очередью; два device tokens не дают читать чужие jobs.
+- [x] Запустить `pytest -q backend/src`. Не удалять упавшие тесты ради зелёного результата; менять ожидания только для специально удалённого runtime.
+- [x] Commit/push.
 
 ## Шаг 5. Один контейнер, права, systemd
 
-- [ ] В backend/Dockerfile добавить git и openssh-client. Compose: оставить один backend, запускать `user: "${ZATEYA_UID:-1000}:${ZATEYA_GID:-1000}"`; монтировать archive и obsidian read-write, ssh read-only. Удалить agent/dependency, CODEX_* и лишний OBSIDIAN_GROUP_ID (владелец единый).
-- [ ] Явно перечислить передаваемые LLM/STT/TTS/device env. Не передавать общий набор секретов через безусловный env_file в контейнер; `.env` служит источником подстановки Compose.
-- [ ] prepare-data.sh: запуск из корня проекта; прочитать effective user из `docker compose config --format json` без печати всего JSON. Проверить числовой UID:GID и отказать UID=0; создать data-каталоги, согласовать ownership для существующих данных. Приватные agent keys/known_hosts не создавать пустыми и не заменять.
-- [ ] Скрипт должен работать повторно, не удалять содержимое, не следовать symlink за пределы data. Vault/.git требуют записи того же UID; ключи SSH — 0600, каталог ssh — 0700. SQLite и архив принадлежат контейнерному пользователю. Предварительный bind smoke от этого UID проверяет фактическую запись, а не только stat.
-- [ ] Unit остаётся `/opt/zateya`, ждёт healthy одного backend. Проверки перед запуском должны сообщать отсутствующий путь/неверные права вместо немого `test` exit 1. Образы собираются заранее, не на каждой загрузке.
-- [ ] Проверки: `docker compose config --quiet`; `docker compose build backend`; `systemd-analyze verify deploy/zateya.service`; запуск на временных data и локальном fake Chat Completions endpoint с синтетическими секретами, без обращения к рабочим портам 8080/8765 и без production vault.
-- [ ] В smoke проверить права на БД/архив, публикацию в temporary vault, Git push в local bare origin, перезапуск с сохранением данных. Повторить подготовку root-owned каталогов и подтвердить исправление реальным процессом под UID контейнера. Не считать config --quiet полноценным запуском.
-- [ ] Удалить agent_service и Codex-only deployment только теперь, после переноса всего нужного. `rg` проверить активные ссылки и отсутствие openai-codex зависимости.
-- [ ] Запустить весь backend suite и проверки контейнера; commit/push.
+- [x] В backend/Dockerfile добавить git и openssh-client. Compose: оставить один backend, запускать `user: "${ZATEYA_UID:-1000}:${ZATEYA_GID:-1000}"`; монтировать archive и obsidian read-write, ssh read-only. Удалить agent/dependency, CODEX_* и лишний OBSIDIAN_GROUP_ID (владелец единый).
+- [x] Явно перечислить передаваемые LLM/STT/TTS/device env. Не передавать общий набор секретов через безусловный env_file в контейнер; `.env` служит источником подстановки Compose.
+- [x] prepare-data.sh: запуск из корня проекта; прочитать effective user из `docker compose config --format json` без печати всего JSON. Проверить числовой UID:GID и отказать UID=0; создать data-каталоги, согласовать ownership для существующих данных. Приватные agent keys/known_hosts не создавать пустыми и не заменять.
+- [x] Скрипт должен работать повторно, не удалять содержимое, не следовать symlink за пределы data. Vault/.git требуют записи того же UID; ключи SSH — 0600, каталог ssh — 0700. SQLite и архив принадлежат контейнерному пользователю. Предварительный bind smoke от этого UID проверяет фактическую запись, а не только stat.
+- [x] Unit остаётся `/opt/zateya`, ждёт healthy одного backend. Проверки перед запуском должны сообщать отсутствующий путь/неверные права вместо немого `test` exit 1. Образы собираются заранее, не на каждой загрузке.
+- [x] Проверки: `docker compose config --quiet`; `docker compose build backend`; `systemd-analyze verify deploy/zateya.service`; запуск на временных data и локальном fake Chat Completions endpoint с синтетическими секретами, без обращения к рабочим портам 8080/8765 и без production vault.
+- [x] В smoke проверить права на БД/архив, публикацию в temporary vault, Git push в local bare origin, перезапуск с сохранением данных. Повторить подготовку root-owned каталогов и подтвердить исправление реальным процессом под UID контейнера. Не считать config --quiet полноценным запуском.
+- [x] Удалить agent_service и Codex-only deployment только теперь, после переноса всего нужного. `rg` проверить активные ссылки и отсутствие openai-codex зависимости.
+- [x] Запустить весь backend suite и проверки контейнера; commit/push.
 
 ## Шаг 6. Документация и переход сервера
 
-- [ ] Обновить текущие RU/EN инструкции и схему: устройство → gateway → STT/LLM/TTS; внутри gateway writer и Git publisher. Указать, что API-расходы LLM отдельны от STT/TTS и больше не идут через аккаунт Codex.
-- [ ] В `.env.example` показать новые параметры, без обещания работы вымышленной/непроверенной модели. Формат LLM_BASE_URL описать на примерах OpenAI `/v1`, OpenRouter `/api/v1`, локального сервиса `/v1`, без выбора платной модели за пользователя.
-- [ ] Серверный runbook: остановить zateya и старые agent/backend контейнеры текущего Compose project, сделать backup archive/vault/.env; обновить код, заполнить LLM_*; build; prepare-data; установить обновлённый unit; `daemon-reload`; запустить. Старые контейнеры убирать адресно или `--remove-orphans` только внутри project zateya. Старые data/codex и data/agent оставить до ручного решения пользователя.
-- [ ] Сохранить план отката: предыдущий код/образ/.env и прежние data; запуск только одного писателя vault одновременно. Никакого автоматического удаления архивов.
-- [ ] Команды проверок: health, device-auth Git status, `docker compose logs`, одна содержательная диктовка + отдельное дополнение + query, затем файл/ссылки/Git push. Качество дешёвой модели оценивать на этих сценариях, не по одному HTTP 200.
-- [ ] Объяснить, что прежние знания доступны сразу, а короткая история диалога начинается заново.
-- [ ] `git diff --check`, проверить все локальные ссылки/пути документов, commit/push. В финале исполнителя перечислить тесты и честно отметить, проводился ли реальный provider/device/server smoke.
+- [x] Обновить текущие RU/EN инструкции и схему: устройство → gateway → STT/LLM/TTS; внутри gateway writer и Git publisher. Указать, что API-расходы LLM отдельны от STT/TTS и больше не идут через аккаунт Codex.
+- [x] В `.env.example` показать новые параметры, без обещания работы вымышленной/непроверенной модели. Формат LLM_BASE_URL описать на примерах OpenAI `/v1`, OpenRouter `/api/v1`, локального сервиса `/v1`, без выбора платной модели за пользователя.
+- [x] Серверный runbook: остановить zateya и старые agent/backend контейнеры текущего Compose project, сделать backup archive/vault/.env; обновить код, заполнить LLM_*; build; prepare-data; установить обновлённый unit; `daemon-reload`; запустить. Старые контейнеры убирать адресно или `--remove-orphans` только внутри project zateya. Старые data/codex и data/agent оставить до ручного решения пользователя.
+- [x] Сохранить план отката: предыдущий код/образ/.env и прежние data; запуск только одного писателя vault одновременно. Никакого автоматического удаления архивов.
+- [x] Команды проверок: health, device-auth Git status, `docker compose logs`, одна содержательная диктовка + отдельное дополнение + query, затем файл/ссылки/Git push. Качество дешёвой модели оценивать на этих сценариях, не по одному HTTP 200.
+- [x] Объяснить, что прежние знания доступны сразу, а короткая история диалога начинается заново.
+- [x] `git diff --check`, проверить все локальные ссылки/пути документов, commit/push. В финале исполнителя перечислить тесты и честно отметить, проводился ли реальный provider/device/server smoke.
 
 ## Завершение и передача
 

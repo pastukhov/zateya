@@ -72,6 +72,24 @@ def test_client_omits_auth_header_without_api_key_and_requests_json_mode():
     asyncio.run(scenario())
 
 
+@pytest.mark.parametrize("operation", ["capture", "amend", "query", "plan", "build"])
+def test_client_parses_each_knowledge_operation_contract(operation):
+    async def scenario():
+        note = {"create": operation != "query", "title": "Заметка", "content": "Текст",
+                "tags": ["идея"], "knowledge": {"operation": operation,
+                "target_id": "0123456789abcdef0123456789abcdef" if operation == "amend" else None, "pages": []}}
+        async def handler(request):
+            return httpx.Response(200, json=response(json.dumps({"reply": "Готово", "note": note}, ensure_ascii=False)))
+        http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        client = OpenAICompatibleAgentClient(make_config(), "rules", client=http)
+        try:
+            result = await client.complete(AgentRequest("r", "device", "words"))
+            assert result.note["knowledge"]["operation"] == operation
+        finally:
+            await http.aclose()
+    asyncio.run(scenario())
+
+
 def test_invalid_json_gets_exactly_one_format_repair_request():
     async def scenario():
         calls = []
@@ -166,6 +184,51 @@ def test_timeout_and_transport_failure_are_safe():
         finally:
             await http.aclose()
     asyncio.run(timeout_case())
+
+
+def test_cancel_stops_active_http_request():
+    async def scenario():
+        started = asyncio.Event()
+        never = asyncio.Event()
+        async def handler(request):
+            started.set()
+            await never.wait()
+            return httpx.Response(200, json=response(json.dumps(VALID)))
+        http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        client = OpenAICompatibleAgentClient(make_config(), "rules", client=http)
+        task = asyncio.create_task(client.complete(AgentRequest("r", "device", "words")))
+        try:
+            await started.wait()
+            await client.cancel("r")
+            with pytest.raises(asyncio.CancelledError):
+                await task
+        finally:
+            if not task.done():
+                task.cancel()
+                await asyncio.gather(task, return_exceptions=True)
+            await http.aclose()
+    asyncio.run(scenario())
+
+
+def test_json_repair_shares_original_request_deadline():
+    async def scenario():
+        calls = 0
+        async def handler(request):
+            nonlocal calls
+            calls += 1
+            await asyncio.sleep(.035)
+            content = "not json" if calls == 1 else json.dumps(VALID, ensure_ascii=False)
+            return httpx.Response(200, json=response(content))
+        http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        client = OpenAICompatibleAgentClient(make_config(LLM_TIMEOUT_SECONDS="0.055"), "rules", client=http)
+        try:
+            with pytest.raises(AgentClientError) as exc:
+                await client.complete(AgentRequest("r", "device", "words"))
+            assert exc.value.code == "agent_timeout"
+            assert calls == 2
+        finally:
+            await http.aclose()
+    asyncio.run(scenario())
 
 
 def test_response_body_is_bounded():

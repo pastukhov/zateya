@@ -12,8 +12,7 @@ Complete English guide set. Commands, API names, environment variables, and devi
 ## Development and operations
 
 - [Development, startup, tests, and troubleshooting](development.md)
-- [Deploy the host-side Codex Voice Agent](../../deploy/codex-voice-agent.md)
-- [Configure and operate the Codex Agent](../../agent_service/README.md)
+- [Linux server deployment runbook](../../deploy/server-migration.ru.md)
 - [Wi-Fi setup and recovery diagram](../assets/wifi-setup-flow.en.svg)
 - [System overview diagram](../assets/system-overview.svg)
 

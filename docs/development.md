@@ -1,67 +1,65 @@
 # Разработка и запуск
 
-Команды запускайте из корня репозитория, если отдельно не указано иное. Проект состоит из Python gateway, отдельного Python Codex adapter и firmware для ESP-IDF.
+Команды запускайте из корня репозитория. В проекте — Python 3.12 Gateway и прошивка ESP-IDF. Серверный Gateway напрямую использует настраиваемый OpenAI-совместимый Chat Completions API; отдельный Codex Agent не запускается.
 
-## Требования
+## Требования и конфигурация
 
-- Python 3.12.
-- Docker Compose для совместного запуска gateway и Codex Agent.
+- Python 3.12 и `pytest` для локальных проверок.
+- Docker Engine с Compose для контейнерного запуска.
 - PlatformIO Core и ESP-IDF environment из `firmware/platformio.ini` для сборки устройства.
-- Доступные STT и TTS endpoint’ы, совместимые с OpenAI API, и авторизованный Codex Agent в Compose.
+- Доступные OpenAI-совместимые STT, LLM и TTS endpoint’ы.
 
-## Настройка окружения
+Скопируйте `.env.example` в `.env` и задайте `LLM_BASE_URL`, `LLM_MODEL`, STT/TTS URL и модели. `LLM_BASE_URL` должен включать API-префикс, например `/v1` или `/api/v1`; Gateway добавляет только `/chat/completions`. Ключ LLM необязателен для локального сервера без авторизации. Тестовые readiness-проверки не отправляют запрос к платному API и не проверяют валидность ключа у провайдера.
 
-```sh
-cp .env.example .env
-# Укажите локальные URL, модели и ключи в .env; не коммитьте его.
-```
+`LLM_RESPONSE_FORMAT` принимает `text` или `json_object`. В text-режиме Gateway не передаёт JSON-mode параметр. Автоматического выбора модели, смены endpoint и tool/function calling нет. Расходы LLM оплачиваются отдельно от STT/TTS.
 
-Минимальная конфигурация для voice turn: `STT_BASE_URL`, `TTS_BASE_URL`, `TTS_MODEL`, `VOICE_AGENT_PROVIDER=codex`, `CODEX_AGENT_URL` и `CODEX_AGENT_TOKEN`. Имена и defaults смотрите в `.env.example` и `docker-compose.yml`.
+## Запуск в Docker Compose
 
-## Запуск шлюза
-
-### Docker Compose
+Для локального запуска без существующих данных создайте каталоги; для сервера с vault и Git SSH используйте [runbook](../deploy/server-migration.ru.md).
 
 ```sh
-docker compose up --build -d
+docker compose config --quiet
+docker compose build backend
+./deploy/prepare-data.sh
+docker compose up -d --wait
 curl --fail http://127.0.0.1:8080/health/live
 curl --fail http://127.0.0.1:8080/health/ready
 curl --fail http://127.0.0.1:8080/metrics
 ```
 
-Compose запускает оба сервиса в host network mode. Так шлюз видит Codex Agent на `127.0.0.1`, но слушающий `0.0.0.0` порт также может быть доступен другим узлам сети — проверьте firewall и доверие к LAN. Остановка: `docker compose down`.
+Compose использует host network mode, чтобы Gateway мог обращаться к локальному STT/LLM/TTS endpoint’у. Если bind address — `0.0.0.0`, ограничьте входящий порт firewall’ом. Остановка: `docker compose down`.
 
-### Локально
+## Локальный запуск
 
 ```sh
 python3.12 -m venv .venv
 . .venv/bin/activate
-python -m pip install -r backend/requirements.txt -r agent_service/requirements.txt
+python -m pip install -r backend/requirements.txt
 uvicorn backend.src.voice_gateway.app:app --host 127.0.0.1 --port 8080
 ```
 
-Для самостоятельного запуска Codex adapter следуйте [Codex deployment guide](../deploy/codex-voice-agent.md).
+Укажите локальные `LLM_*`, `STT_*`, `TTS_*` и `ARCHIVE_ROOT`. Если включён Obsidian writer, задайте `OBSIDIAN_VAULT_PATH` и `VOICE_KNOWLEDGE_ENABLED=true`.
 
 ## Проверки
 
-Backend tests запускаются из корня (корневой `conftest.py` настраивает import path):
-
 ```sh
-pytest -q backend
-cd agent_service
-python -m pytest -q tests
+pytest -q backend/src deploy/test_prepare_data.py
+bash -n deploy/prepare-data.sh
+docker compose config --quiet
+docker compose build backend
+systemd-analyze verify deploy/zateya.service
 ```
 
-Эти тесты используют fake runtime и HTTP mock transport. Они не доказывают, что текущая сессия Codex авторизована или что внешние STT/TTS endpoint’ы доступны.
+Unit-тесты используют fake API и временные Git-репозитории. Они не доказывают доступность реального endpoint, качество выбранной модели, работу диктофона или настройку production-сервера.
 
-Native tests firmware не требуют подключённого устройства:
+Native firmware tests:
 
 ```sh
 cd firmware
 pio test -e native
 ```
 
-Сборка целевой платы:
+Build the target board:
 
 ```sh
 cd firmware
@@ -71,22 +69,16 @@ export ZATEYA_GATEWAY_URL='http://192.168.1.10:8080'
 pio run -e sticks3
 ```
 
-Сборка получает Wi-Fi и endpoint через переменные окружения. Не вставляйте реальные значения в shell history, git или документацию; для повторяемой локальной настройки применяйте защищённый env-файл. Порядок прошивки описан в [руководстве StickS3](flash-sticks3.md).
+Сборка получает Wi-Fi и Gateway endpoint через переменные окружения. Не помещайте реальные значения в shell history, Git или документацию; для повторяемых сборок используйте защищённый env-файл. Порядок прошивки описан в [руководстве StickS3](flash-sticks3.md).
 
 ## Диагностика
 
 | Симптом | Что проверить |
 | --- | --- |
-| `/health/live` доступен, `/health/ready` возвращает 503 | Поля `checks` в ответе: обязательные STT/agent config и права записи `ARCHIVE_ROOT` |
-| Устройство не появляется в домашней сети | После минуты ищите `Zateya-Setup-XX`; устройство продолжает попытки STA-подключения |
-| Wi-Fi работает, voice turn завершается ошибкой | Gateway URL, устройство/token mapping, STT/TTS настройки и логи gateway |
-| Запись принята, но ответа нет | Проверяйте `GET /api/voice/turns/{turn_id}` и archive metadata; terminal error возвращается кодом `error` |
-| Codex service не ready | Проверяйте вход в Codex CLI под тем же системным пользователем и `GET /health/ready` adapter’а; не копируйте credentials в контейнер |
+| `/health/live` доступен, `/health/ready` возвращает 503 | `checks` в ответе, обязательные `LLM_BASE_URL`, `LLM_MODEL`, `STT_BASE_URL` и запись в archive |
+| HTTP 401/403 от LLM | `LLM_API_KEY` у провайдера; ключ не виден через readiness |
+| HTTP 429 или 5xx | Ограничение/доступность внешнего LLM API; автоматической смены провайдера нет |
+| Не отправляются Obsidian-коммиты | `GET /api/voice/knowledge/git`, remote vault, `data/ssh`, права и Git-конфликт |
+| Запись принята, но ответа нет | `GET /api/voice/turns/{turn_id}`, metadata в archive и логи Gateway |
 
-## Данные и безопасность
-
-- Archive содержит аудио, расшифровку и ответ; ограничьте права и срок хранения.
-- База заданий хранится рядом с archive, если `VOICE_JOB_DATABASE` не переопределён.
-- `/health/ready` не проверяет текущую доступность внешних STT/TTS сетей.
-- Не используйте настоящие записи и ключи в тестах. Setup AP открытый и работает только для локального provisioning.
-- Перед публикацией gateway проверьте bind address, firewall и отсутствие секретов в логах.
+Archive содержит аудио, расшифровки и ответы; ограничьте права и срок хранения. Не используйте настоящие записи и ключи в тестах. `/health/ready` проверяет настройки и локальную запись, но не делает сетевых запросов к STT/LLM/TTS.

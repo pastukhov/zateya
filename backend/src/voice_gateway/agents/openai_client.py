@@ -7,7 +7,7 @@ import json
 
 import httpx
 
-from voice_gateway.hermes.validation import HermesValidationError, parse_hermes_response
+from backend.src.voice_gateway.hermes.validation import HermesValidationError, parse_hermes_response
 
 from .base import AgentClientError, AgentReply, AgentRequest
 from .config import LLMConfig
