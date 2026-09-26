@@ -27,7 +27,7 @@ curl --fail http://127.0.0.1:8080/health/ready
 curl --fail http://127.0.0.1:8080/metrics
 ```
 
-Compose использует host network mode, чтобы Gateway мог обращаться к локальному STT/LLM/TTS endpoint’у. Если bind address — `0.0.0.0`, ограничьте входящий порт firewall’ом. Остановка: `docker compose down`.
+Gateway работает в стандартной bridge-сети Compose и публикует `VOICE_BIND_PORT` на хосте для диктофона. Порт доступен на интерфейсах хоста, поэтому ограничьте входящий доступ firewall’ом. Для локальных STT/LLM/TTS сервисов используйте адрес сервиса в общей Compose-сети или специальный адрес хоста; `localhost` внутри контейнера указывает на сам Gateway. Остановка: `docker compose down`.
 
 ## Локальный запуск
 

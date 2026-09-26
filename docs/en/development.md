@@ -27,7 +27,7 @@ curl --fail http://127.0.0.1:8080/health/ready
 curl --fail http://127.0.0.1:8080/metrics
 ```
 
-Compose uses host networking so the gateway can reach local STT/LLM/TTS endpoints. If the bind address is `0.0.0.0`, restrict inbound access with a firewall. Stop it with `docker compose down`.
+The gateway uses Compose's default bridge network and publishes `VOICE_BIND_PORT` on the host for the recorder. The port is reachable on the host interfaces, so restrict inbound access with a firewall. For local STT/LLM/TTS services, use a service address on the shared Compose network or the host's special gateway address; `localhost` inside the container points back to the gateway itself. Stop it with `docker compose down`.
 
 ## Run locally
 

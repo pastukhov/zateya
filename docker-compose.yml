@@ -5,8 +5,9 @@ services:
       context: .
       dockerfile: backend/Dockerfile
     image: zateya-voice-gateway:latest
-    network_mode: host
     user: "${ZATEYA_UID:-1000}:${ZATEYA_GID:-1000}"
+    ports:
+      - "${VOICE_BIND_PORT:-8080}:${VOICE_BIND_PORT:-8080}"
     environment:
       VOICE_BIND_HOST: ${VOICE_BIND_HOST:-0.0.0.0}
       VOICE_BIND_PORT: ${VOICE_BIND_PORT:-8080}
