@@ -32,11 +32,12 @@ rsync -a /home/artem/repos/zateya/ USER@SERVER:/opt/zateya/
 недостающие каталоги `data/archive`, `data/obsidian`, `data/agent`,
 `data/codex`, `data/ssh` и установите для них права, как показано выше.
 
-Все пять каталогов должны принадлежать этому пользователю. В `.env` задайте
-`ZATEYA_UID=$(id -u)`, `ZATEYA_GID=$(id -g)` и
-`OBSIDIAN_GROUP_ID=$(id -g)` **числами**, а не буквальной подстановкой;
-задайте существующие STT/TTS-ключи, `VOICE_DEVICE_TOKENS` и общий для двух
-контейнеров `CODEX_AGENT_TOKEN`. Права `.env` — `chmod 600 .env`.
+Агент внутри контейнера работает под UID/GID из `.env` (`ZATEYA_UID` и
+`ZATEYA_GID`, по умолчанию `1000:1000`). Не подставляйте `id -u`/`id -g`
+сеанса `root`: так агент тоже запустится от root. `OBSIDIAN_GROUP_ID` должен
+совпадать с GID агента, чтобы backend мог записывать в vault. Задайте
+действующие STT/TTS-ключи, `VOICE_DEVICE_TOKENS` и общий для двух контейнеров
+`CODEX_AGENT_TOKEN`. Права `.env` — `chmod 600 .env`.
 
 Для push Obsidian создайте отдельный ключ, выдав ему право записи **только**
 в репозиторий `pastukhov/obsidian` через GitHub → Settings → Deploy keys:
@@ -84,7 +85,9 @@ rsync -a ~/zateya-transfer/archive.tgz USER@SERVER:/opt/zateya/data/archive.tgz
 cd /opt/zateya
 tar -C data/archive -xzf data/archive.tgz
 rm data/archive.tgz
-chown -R "$(id -un):$(id -gn)" data
+agent_owner="$(docker compose config --format json | python3 -c 'import json,sys; print(json.load(sys.stdin)["services"]["agent"]["user"])')"
+chown -R "$agent_owner" data/agent data/codex data/ssh data/obsidian
+chmod 700 data/agent data/codex data/ssh
 chmod -R g+rwX data/obsidian
 find data/obsidian -type d -exec chmod g+s {} +
 ```
@@ -102,8 +105,9 @@ scp /home/artem/repos/zateya/.env USER@SERVER:/opt/zateya/.env
 провайдеров задайте соответствующие URL и ключи из `.env.example`.
 Не выводите ключи в журнал терминала и не коммитьте `.env`.
 
-После копирования проверьте `chmod 600 .env` и задайте в нём числовые
-`ZATEYA_UID`, `ZATEYA_GID` и `OBSIDIAN_GROUP_ID` пользователя сервера.
+После копирования проверьте `chmod 600 .env` и укажите в нём числовые
+`ZATEYA_UID`, `ZATEYA_GID` и `OBSIDIAN_GROUP_ID` непривилегированного агента.
+Если изменили эти значения после команды `chown` выше, повторите её.
 Не добавляйте абсолютный `OBSIDIAN_HOST_PATH`: vault всегда берётся из
 `./data/obsidian`.
 
@@ -120,6 +124,8 @@ scp /home/artem/repos/zateya/.env USER@SERVER:/opt/zateya/.env
 ```sh
 cd /opt/zateya
 docker compose build
+backend_owner="$(docker run --rm --entrypoint sh zateya-voice-gateway:latest -c 'printf "%s:%s" "$(id -u)" "$(id -g)"')"
+chown -R "$backend_owner" data/archive
 docker compose run --rm --no-deps --entrypoint codex agent login --device-auth
 docker compose run --rm --no-deps --entrypoint codex agent login status
 sudo install -m 644 deploy/zateya.service /etc/systemd/system/zateya.service
