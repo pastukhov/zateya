@@ -83,17 +83,23 @@ class OpenAICompatibleAgentClient:
                 if self.sessions is not None:
                     messages.extend(self.sessions.history(request.device_id))
                 messages.append({"role": "user", "content": self._user_message(request)})
-                payload = await self._post(messages)
+                payload = await self._post(messages, request_id=request.request_id, phase="initial")
                 content, model = self._extract_content(payload)
                 try:
                     parsed = parse_hermes_response(content)
                 except HermesValidationError:
+                    logger.warning(
+                        "LLM response needs format repair (request_id=%s)",
+                        request.request_id,
+                    )
                     repair_messages = [
                         *messages,
                         {"role": "assistant", "content": content},
                         {"role": "user", "content": self._repair_instruction()},
                     ]
-                    repaired_payload = await self._post(repair_messages)
+                    repaired_payload = await self._post(
+                        repair_messages, request_id=request.request_id, phase="repair"
+                    )
                     content, repaired_model = self._extract_content(repaired_payload)
                     model = repaired_model or model
                     try:
@@ -147,7 +153,9 @@ class OpenAICompatibleAgentClient:
     def _repair_instruction() -> str:
         return "Исправь только формат и соответствие исходному JSON-контракту. Сохрани смысл и верни только корректный JSON без пояснений."
 
-    async def _post(self, messages: list[dict[str, str]]) -> dict:
+    async def _post(
+        self, messages: list[dict[str, str]], *, request_id: str, phase: str
+    ) -> dict:
         body: dict = {
             "model": self.config.model,
             "messages": messages,
@@ -159,9 +167,15 @@ class OpenAICompatibleAgentClient:
         if self.config.api_key:
             headers["Authorization"] = f"Bearer {self.config.api_key}"
         url = f"{self.config.base_url}/chat/completions"
+        started_at = time.monotonic()
+        logger.info("LLM request started (request_id=%s, phase=%s)", request_id, phase)
         async with self._client.stream(
             "POST", url, json=body, headers=headers, timeout=None
         ) as response:
+            logger.info(
+                "LLM response headers received (request_id=%s, phase=%s, status=%s, elapsed_seconds=%.1f)",
+                request_id, phase, response.status_code, time.monotonic() - started_at,
+            )
             if response.status_code != 200:
                 self._raise_status(response.status_code)
             data = bytearray()
@@ -169,6 +183,10 @@ class OpenAICompatibleAgentClient:
                 if len(data) + len(chunk) > self.MAX_RESPONSE_BYTES:
                     raise AgentClientError("agent_invalid_response", "LLM response is too large")
                 data.extend(chunk)
+        logger.info(
+            "LLM response body received (request_id=%s, phase=%s, bytes=%s, elapsed_seconds=%.1f)",
+            request_id, phase, len(data), time.monotonic() - started_at,
+        )
         try:
             payload = json.loads(data)
         except (json.JSONDecodeError, UnicodeDecodeError):
