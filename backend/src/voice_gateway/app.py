@@ -97,7 +97,7 @@ class RequestMetricsMiddleware:
 def _default_stt_provider() -> STTProvider | None:
     """Build the production STTProvider from environment config (ТЗ §20).
 
-    Returns ``None`` when STT is not configured (``STT_BASE_URL`` unset) so
+    Returns ``None`` when STT is not configured (``LLM_BASE_URL`` unset) so
     the caller can fall back to this milestone's ingest-only contract — the
     same behavior as before STT was wired in. Only ever consulted when the
     caller did not explicitly inject a provider (tests always pass one

@@ -7,7 +7,7 @@ Environment variables (secrets stay out of the repo — ТЗ section 51):
     HERMES_MODEL      model name
     HERMES_TIMEOUT    seconds; recommended default 120 (ТЗ section 31)
 
-    STT_BASE_URL      required, OpenAI-compatible STT endpoint root
+    LLM_BASE_URL      required, shared OpenAI-compatible endpoint root
     STT_API_KEY       optional; sent as ``Authorization: *** when set
     STT_MODEL         model name
     STT_TIMEOUT       seconds; recommended default 60 (ТЗ section 31)
@@ -124,9 +124,9 @@ class STTConfig:
         ``env`` defaults to ``os.environ``; tests pass an explicit mapping.
         """
         source = os.environ if env is None else env
-        base_url = source.get("STT_BASE_URL", "").strip()
+        base_url = source.get("LLM_BASE_URL", "").strip()
         if not base_url:
-            raise STTConfigError("STT_BASE_URL is required")
+            raise STTConfigError("LLM_BASE_URL is required")
         model = source.get("STT_MODEL", "").strip() or DEFAULT_STT_MODEL
         api_key = source.get("STT_API_KEY", "")
         raw_timeout = source.get("STT_TIMEOUT") or DEFAULT_STT_TIMEOUT

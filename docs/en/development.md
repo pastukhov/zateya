@@ -9,7 +9,7 @@ Run commands from the repository root. The project contains a Python 3.12 gatewa
 - PlatformIO Core and the ESP-IDF environment configured by `firmware/platformio.ini` to build firmware.
 - Reachable OpenAI-compatible STT, LLM, and TTS endpoints.
 
-Copy `.env.example` to `.env` and configure `LLM_BASE_URL`, `LLM_MODEL`, and the STT/TTS URLs and models. `LLM_BASE_URL` includes the API prefix, such as `/v1` or `/api/v1`; the gateway only appends `/chat/completions`. The API key may be empty for an unauthenticated local service. Readiness checks do not contact a paid API or verify a provider’s key.
+Copy `.env.example` to `.env` and configure `LLM_BASE_URL`, `LLM_MODEL`, and the STT/TTS models. `LLM_BASE_URL` includes the API prefix, such as `/v1` or `/api/v1`; the gateway appends `/chat/completions`, `/audio/transcriptions`, or `/audio/speech`. The API key may be empty for an unauthenticated local service. Readiness checks do not contact a paid API or verify a provider’s key.
 
 `LLM_RESPONSE_FORMAT` accepts `text` or `json_object`. In text mode the gateway omits JSON-mode parameters. It does not choose a model, switch endpoints, or use tool/function calling. LLM usage is billed separately from STT/TTS.
 
@@ -75,7 +75,7 @@ The firmware build reads Wi-Fi and gateway values from environment variables. Do
 
 | Symptom | Check |
 | --- | --- |
-| `/health/live` works but `/health/ready` returns 503 | The `checks` body, required `LLM_BASE_URL`, `LLM_MODEL`, `STT_BASE_URL`, and archive write access |
+| `/health/live` works but `/health/ready` returns 503 | The `checks` body, required `LLM_BASE_URL`, `LLM_MODEL`, and archive write access |
 | LLM returns HTTP 401/403 | `LLM_API_KEY` with the provider; readiness does not reveal key validity |
 | LLM returns HTTP 429 or 5xx | Provider limits/availability; no automatic provider switch is attempted |
 | Obsidian commits are not pushed | `GET /api/voice/knowledge/git`, vault remote, `data/ssh`, permissions, and Git conflicts |

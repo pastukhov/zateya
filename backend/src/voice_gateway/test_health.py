@@ -55,7 +55,6 @@ def _get(app: FastAPI, path: str) -> httpx.Response:
 def _valid_env(monkeypatch) -> None:
     monkeypatch.setenv("LLM_BASE_URL", "http://127.0.0.1:9/v1")
     monkeypatch.setenv("LLM_MODEL", "test-model")
-    monkeypatch.setenv("STT_BASE_URL", "http://127.0.0.1:9/v1")
 
 
 # --- /health/live ---------------------------------------------------------
@@ -65,7 +64,6 @@ def test_live_always_200(tmp_path: Path, monkeypatch) -> None:
     # network. Even with the archive dir missing and no required env at
     # all it must answer 200 (ТЗ §35).
     monkeypatch.delenv("LLM_BASE_URL", raising=False)
-    monkeypatch.delenv("STT_BASE_URL", raising=False)
     app = _make_app(tmp_path, archive_root=tmp_path / "does-not-exist")
 
     resp = _get(app, "/health/live")
@@ -147,7 +145,6 @@ def test_ready_503_config_missing(tmp_path: Path, monkeypatch) -> None:
     archive.mkdir()
     monkeypatch.delenv("LLM_BASE_URL", raising=False)
     monkeypatch.delenv("LLM_MODEL", raising=False)
-    monkeypatch.setenv("STT_BASE_URL", "http://127.0.0.1:9/v1")
     app = _make_app(tmp_path, archive_root=archive)
 
     resp = _get(app, "/health/ready")
@@ -168,8 +165,6 @@ def test_ready_no_network_to_stt_hermes_tts(tmp_path: Path, monkeypatch) -> None
     archive.mkdir()
     monkeypatch.setenv("LLM_BASE_URL", "http://127.0.0.1:9/v1")
     monkeypatch.setenv("LLM_MODEL", "test-model")
-    monkeypatch.setenv("STT_BASE_URL", "http://127.0.0.1:9/v1")
-    monkeypatch.setenv("TTS_BASE_URL", "http://127.0.0.1:9/v1/audio/speech")
     app = _make_app(tmp_path, archive_root=archive)
 
     resp = _get(app, "/health/ready")

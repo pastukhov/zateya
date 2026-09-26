@@ -8,17 +8,24 @@ from backend.src.voice_gateway.tts.config import DEFAULT_TTS_TIMEOUT, TTSConfig
 
 
 class TestTTSConfigFromEnv:
+    def test_uses_llm_base_url(self):
+        config = TTSConfig.from_env({
+            "LLM_BASE_URL": "https://provider.example/api/v1/",
+            "TTS_MODEL": "voice-model",
+        })
+        assert config.base_url == "https://provider.example/api/v1/audio/speech"
+
     def test_all_values_from_env(self):
         config = TTSConfig.from_env(
             {
-                "TTS_BASE_URL": "https://tts.local/speech",
+                "LLM_BASE_URL": "https://tts.local/v1",
                 "TTS_API_KEY": "sekret",
                 "TTS_MODEL": "tts-1",
                 "TTS_VOICE": "alloy",
                 "TTS_TIMEOUT": "30.5",
             }
         )
-        assert config.base_url == "https://tts.local/speech"
+        assert config.base_url == "https://tts.local/v1/audio/speech"
         assert config.api_key == "sekret"
         assert config.model == "tts-1"
         assert config.voice == "alloy"
@@ -27,7 +34,7 @@ class TestTTSConfigFromEnv:
     def test_defaults_for_timeout_and_api_key(self):
         config = TTSConfig.from_env(
             {
-                "TTS_BASE_URL": "https://tts.local/speech",
+                "LLM_BASE_URL": "https://tts.local/v1",
                 "TTS_MODEL": "m",
                 "TTS_VOICE": "v",
             }
@@ -36,32 +43,32 @@ class TestTTSConfigFromEnv:
         assert config.api_key == ""
 
     def test_missing_env_defaults_to_empty_mapping(self):
-        with pytest.raises(ValueError, match="TTS_BASE_URL"):
+        with pytest.raises(ValueError, match="LLM_BASE_URL"):
             TTSConfig.from_env(None)
 
     def test_missing_base_url_raises(self):
-        with pytest.raises(ValueError, match="TTS_BASE_URL"):
+        with pytest.raises(ValueError, match="LLM_BASE_URL"):
             TTSConfig.from_env({"TTS_MODEL": "m", "TTS_VOICE": "v"})
 
     def test_whitespace_only_base_url_raises(self):
-        with pytest.raises(ValueError, match="TTS_BASE_URL"):
+        with pytest.raises(ValueError, match="LLM_BASE_URL"):
             TTSConfig.from_env(
-                {"TTS_BASE_URL": "   ", "TTS_MODEL": "m", "TTS_VOICE": "v"}
+                {"LLM_BASE_URL": "   ", "TTS_MODEL": "m", "TTS_VOICE": "v"}
             )
 
     def test_missing_model_raises(self):
         with pytest.raises(ValueError, match="TTS_MODEL"):
-            TTSConfig.from_env({"TTS_BASE_URL": "https://tts.local/speech"})
+            TTSConfig.from_env({"LLM_BASE_URL": "https://tts.local/v1"})
 
     def test_whitespace_only_model_raises(self):
         with pytest.raises(ValueError, match="TTS_MODEL"):
             TTSConfig.from_env(
-                {"TTS_BASE_URL": "https://tts.local/speech", "TTS_MODEL": "   "}
+                {"LLM_BASE_URL": "https://tts.local/v1", "TTS_MODEL": "   "}
             )
 
     def test_invalid_timeout_raises(self):
         env = {
-            "TTS_BASE_URL": "https://tts.local/speech",
+            "LLM_BASE_URL": "https://tts.local/v1",
             "TTS_MODEL": "m",
             "TTS_TIMEOUT": "not-a-number",
         }
@@ -70,7 +77,7 @@ class TestTTSConfigFromEnv:
 
     def test_zero_timeout_raises(self):
         env = {
-            "TTS_BASE_URL": "https://tts.local/speech",
+            "LLM_BASE_URL": "https://tts.local/v1",
             "TTS_MODEL": "m",
             "TTS_TIMEOUT": "0",
         }
@@ -79,7 +86,7 @@ class TestTTSConfigFromEnv:
 
     def test_negative_timeout_raises(self):
         env = {
-            "TTS_BASE_URL": "https://tts.local/speech",
+            "LLM_BASE_URL": "https://tts.local/v1",
             "TTS_MODEL": "m",
             "TTS_TIMEOUT": "-1",
         }
@@ -88,7 +95,7 @@ class TestTTSConfigFromEnv:
 
     def test_from_env_is_frozen(self):
         config = TTSConfig.from_env(
-            {"TTS_BASE_URL": "https://tts.local/speech", "TTS_MODEL": "m"}
+            {"LLM_BASE_URL": "https://tts.local/v1", "TTS_MODEL": "m"}
         )
         with pytest.raises(AttributeError):
             config.model = "other"  # pyright: ignore[reportAttributeAccessIssue]

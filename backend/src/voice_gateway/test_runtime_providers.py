@@ -11,10 +11,8 @@ def test_create_app_builds_configured_runtime_providers(monkeypatch, tmp_path):
     monkeypatch.setenv("LLM_API_KEY", "llm-test-key")
     monkeypatch.setenv("LLM_MODEL", "small-model")
     monkeypatch.setenv("LLM_RESPONSE_FORMAT", "json_object")
-    monkeypatch.setenv("STT_BASE_URL", "https://stt.example/v1")
     monkeypatch.setenv("STT_API_KEY", "stt-test-key")
     monkeypatch.setenv("STT_MODEL", "transcribe-small")
-    monkeypatch.setenv("TTS_BASE_URL", "https://tts.example/v1/audio/speech")
     monkeypatch.setenv("TTS_API_KEY", "tts-test-key")
     monkeypatch.setenv("TTS_MODEL", "speak-small")
     monkeypatch.setenv("TTS_VOICE", "alloy")
@@ -27,7 +25,9 @@ def test_create_app_builds_configured_runtime_providers(monkeypatch, tmp_path):
     assert app.state.agent_client.config.base_url == "http://127.0.0.1:8642/api/v1"
     assert app.state.agent_client.config.api_key == "llm-test-key"
     assert app.state.agent_client.config.model == "small-model"
+    assert app.state.stt_provider._config.transcriptions_url == "http://127.0.0.1:8642/api/v1/audio/transcriptions"
     assert isinstance(app.state.tts_provider, OpenAICompatibleTTS)
+    assert app.state.tts_provider._config.base_url == "http://127.0.0.1:8642/api/v1/audio/speech"
     assert app.state.agent_provider == "openai_compatible"
 
 

@@ -6,9 +6,7 @@ concurrent work on sibling stages does not collide).
 
 Environment variables (secrets stay out of the repo — ТЗ section 33):
 
-    TTS_BASE_URL   required, the FULL OpenAI-compatible TTS endpoint URL
-                   (unlike STT/Hermes, no suffix is appended by this
-                   adapter — see ТЗ section 33)
+    LLM_BASE_URL   required, shared OpenAI-compatible endpoint root
     TTS_API_KEY    optional; sent as ``Authorization: Bearer ***`` when set
     TTS_MODEL      required, model name
     TTS_VOICE      voice name
@@ -28,8 +26,7 @@ DEFAULT_TTS_TIMEOUT = 60.0
 class TTSConfig:
     """Immutable OpenAI-compatible TTS endpoint settings (ТЗ section 33).
 
-    ``base_url`` is the full TTS endpoint URL — the adapter posts to it
-    directly and never appends ``/v1/audio/speech`` or any other suffix.
+    ``base_url`` is the full TTS endpoint URL derived from ``LLM_BASE_URL``.
     """
 
     base_url: str
@@ -49,9 +46,10 @@ class TTSConfig:
         access in production code paths for this stage).
         """
         source: Mapping[str, str] = env if env is not None else {}
-        base_url = source.get("TTS_BASE_URL", "").strip()
-        if not base_url:
-            raise ValueError("TTS_BASE_URL is required")
+        llm_base_url = source.get("LLM_BASE_URL", "").strip()
+        if not llm_base_url:
+            raise ValueError("LLM_BASE_URL is required")
+        base_url = llm_base_url.rstrip("/") + "/audio/speech"
         model = source.get("TTS_MODEL", "").strip()
         if not model:
             raise ValueError("TTS_MODEL is required")

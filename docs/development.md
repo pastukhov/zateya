@@ -9,7 +9,7 @@
 - PlatformIO Core и ESP-IDF environment из `firmware/platformio.ini` для сборки устройства.
 - Доступные OpenAI-совместимые STT, LLM и TTS endpoint’ы.
 
-Скопируйте `.env.example` в `.env` и задайте `LLM_BASE_URL`, `LLM_MODEL`, STT/TTS URL и модели. `LLM_BASE_URL` должен включать API-префикс, например `/v1` или `/api/v1`; Gateway добавляет только `/chat/completions`. Ключ LLM необязателен для локального сервера без авторизации. Тестовые readiness-проверки не отправляют запрос к платному API и не проверяют валидность ключа у провайдера.
+Скопируйте `.env.example` в `.env` и задайте `LLM_BASE_URL`, `LLM_MODEL`, модели STT/TTS. `LLM_BASE_URL` должен включать API-префикс, например `/v1` или `/api/v1`; Gateway добавляет к нему `/chat/completions`, `/audio/transcriptions` и `/audio/speech`. Ключ LLM необязателен для локального сервера без авторизации. Тестовые readiness-проверки не отправляют запрос к платному API и не проверяют валидность ключа у провайдера.
 
 `LLM_RESPONSE_FORMAT` принимает `text` или `json_object`. В text-режиме Gateway не передаёт JSON-mode параметр. Автоматического выбора модели, смены endpoint и tool/function calling нет. Расходы LLM оплачиваются отдельно от STT/TTS.
 
@@ -75,7 +75,7 @@ pio run -e sticks3
 
 | Симптом | Что проверить |
 | --- | --- |
-| `/health/live` доступен, `/health/ready` возвращает 503 | `checks` в ответе, обязательные `LLM_BASE_URL`, `LLM_MODEL`, `STT_BASE_URL` и запись в archive |
+| `/health/live` доступен, `/health/ready` возвращает 503 | `checks` в ответе, обязательные `LLM_BASE_URL`, `LLM_MODEL` и запись в archive |
 | HTTP 401/403 от LLM | `LLM_API_KEY` у провайдера; ключ не виден через readiness |
 | HTTP 429 или 5xx | Ограничение/доступность внешнего LLM API; автоматической смены провайдера нет |
 | Не отправляются Obsidian-коммиты | `GET /api/voice/knowledge/git`, remote vault, `data/ssh`, права и Git-конфликт |

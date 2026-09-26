@@ -70,10 +70,16 @@ class TestHermesConfigFromEnv:
 
 
 class TestSTTConfigFromEnv:
+    def test_uses_llm_base_url(self):
+        config = STTConfig.from_env({
+            "LLM_BASE_URL": "https://provider.example/api/v1/",
+        })
+        assert config.transcriptions_url == "https://provider.example/api/v1/audio/transcriptions"
+
     def test_all_values_from_env(self):
         config = STTConfig.from_env(
             {
-                "STT_BASE_URL": "https://stt.internal/",
+                "LLM_BASE_URL": "https://stt.internal/",
                 "STT_API_KEY": "sekret",
                 "STT_MODEL": "whisper-1",
                 "STT_TIMEOUT": "90.5",
@@ -85,38 +91,38 @@ class TestSTTConfigFromEnv:
         assert config.timeout == 90.5
 
     def test_transcriptions_url_normalizes_trailing_slash(self):
-        config = STTConfig.from_env({"STT_BASE_URL": "http://192.168.1.10:8000/"})
+        config = STTConfig.from_env({"LLM_BASE_URL": "http://192.168.1.10:8000/"})
         assert config.transcriptions_url == (
             "http://192.168.1.10:8000/audio/transcriptions"
         )
 
     def test_defaults_for_model_and_timeout(self):
-        config = STTConfig.from_env({"STT_BASE_URL": "http://h"})
+        config = STTConfig.from_env({"LLM_BASE_URL": "http://h"})
         assert config.model == DEFAULT_STT_MODEL
         assert config.timeout == DEFAULT_STT_TIMEOUT
         assert config.api_key == ""
 
     def test_missing_base_url_raises(self):
-        with pytest.raises(STTConfigError, match="STT_BASE_URL"):
+        with pytest.raises(STTConfigError, match="LLM_BASE_URL"):
             STTConfig.from_env({})
 
     def test_whitespace_only_base_url_raises(self):
-        with pytest.raises(STTConfigError, match="STT_BASE_URL"):
-            STTConfig.from_env({"STT_BASE_URL": "   "})
+        with pytest.raises(STTConfigError, match="LLM_BASE_URL"):
+            STTConfig.from_env({"LLM_BASE_URL": "   "})
 
     def test_invalid_timeout_raises(self):
-        env = {"STT_BASE_URL": "http://h", "STT_TIMEOUT": "not-a-number"}
+        env = {"LLM_BASE_URL": "http://h", "STT_TIMEOUT": "not-a-number"}
         with pytest.raises(STTConfigError, match="STT_TIMEOUT"):
             STTConfig.from_env(env)
 
     def test_non_positive_timeout_raises(self):
         for bad in ("0", "-5"):
-            env = {"STT_BASE_URL": "http://h", "STT_TIMEOUT": bad}
+            env = {"LLM_BASE_URL": "http://h", "STT_TIMEOUT": bad}
             with pytest.raises(STTConfigError, match="positive"):
                 STTConfig.from_env(env)
 
     def test_from_env_is_frozen(self):
-        config = STTConfig.from_env({"STT_BASE_URL": "http://h"})
+        config = STTConfig.from_env({"LLM_BASE_URL": "http://h"})
         with pytest.raises(AttributeError):
             config.model = "other"  # pyright: ignore[reportAttributeAccessIssue]
 

@@ -100,7 +100,6 @@ def check_ready(
     """
     checks: dict = {}
 
-    missing = [name for name in ("STT_BASE_URL",) if not (env.get(name) or "").strip()]
     try:
         from .agents.config import LLMConfig, LLMConfigError
         LLMConfig.from_env(env)
@@ -108,8 +107,7 @@ def check_ready(
         llm_error = str(exc).split()[0]
     else:
         llm_error = None
-    checks["config"] = ("error:missing " + ",".join(missing) if missing
-                        else f"error:invalid {llm_error}" if llm_error
+    checks["config"] = (f"error:invalid {llm_error}" if llm_error
                         else "ok")
 
     if archive_root is None:
