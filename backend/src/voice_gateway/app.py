@@ -23,6 +23,7 @@ from backend.src.voice_gateway.jobs.worker import VoiceJobWorker
 from backend.src.voice_gateway.health import check_live, check_ready
 from backend.src.voice_gateway.config import SecurityConfig, STTConfig, STTConfigError
 from backend.src.voice_gateway.logging_config import configure_logging
+from backend.src.voice_gateway.text_turns import TextTurnProcessor
 from backend.src.voice_gateway.middleware import (
     AuthMiddleware,
     RateLimiter,
@@ -39,6 +40,11 @@ from backend.src.voice_gateway.stt.client import OpenAICompatibleSTT
 from backend.src.voice_gateway.tts.base import TTSProvider
 from backend.src.voice_gateway.tts.config import TTSConfig
 from backend.src.voice_gateway.tts.openai_compatible import OpenAICompatibleTTS
+from backend.src.voice_gateway.alice.api import install_alice_routes
+from backend.src.voice_gateway.alice.auth import AliceAuthenticator
+from backend.src.voice_gateway.alice.config import AliceConfig, AliceConfigError
+from backend.src.voice_gateway.alice.store import AliceStore
+from backend.src.voice_gateway.alice.worker import AliceWorker
 
 class RequestMetricsMiddleware:
     """Record the four request-level metrics for every request (ТЗ §34).
@@ -188,6 +194,25 @@ def create_app(
     pipeline = VoicePipeline(stt_provider, agent_client, hermes_stage, tts_provider,
                              knowledge=knowledge, git_sync=git_sync)
     job_worker = VoiceJobWorker(job_store, pipeline.run)
+    # Shared text processor for both voice channels (plan task 2): the
+    # recorder pipeline already embeds one; Alice gets the same knowledge,
+    # agent client and git sync instances through her own processor.
+    alice_processor = TextTurnProcessor(agent_client, hermes_stage,
+                                        knowledge=knowledge, git_sync=git_sync)
+    try:
+        alice_config = AliceConfig.from_env()
+    except AliceConfigError:
+        alice_config = AliceConfig(enabled=False, skill_id="", allowed_yandex_id="",
+                                   context_device_id="", database=Path("alice.sqlite3"),
+                                   archive_root=Path("archive"))
+    alice_store: AliceStore | None = None
+    alice_worker: AliceWorker | None = None
+    alice_auth: AliceAuthenticator | None = None
+    if alice_config.enabled:
+        alice_store = AliceStore(alice_config.database)
+        alice_worker = AliceWorker(alice_store, alice_processor)
+        alice_auth = AliceAuthenticator(allowed_yandex_id=alice_config.allowed_yandex_id,
+                                        context_id=alice_config.context_device_id)
     try:
         device_tokens = parse_device_tokens(os.environ.get("VOICE_DEVICE_TOKENS"))
     except ValueError:
@@ -204,6 +229,10 @@ def create_app(
     app.state.voice_job_worker = job_worker
     app.state.knowledge_git_sync = git_sync
     app.state.knowledge_git_task = None
+    app.state.alice_store = alice_store
+    app.state.alice_worker = alice_worker
+    if alice_config.enabled and alice_store is not None and alice_worker is not None and alice_auth is not None:
+        install_alice_routes(app, alice_config, alice_store, alice_worker, alice_auth)
 
     async def reset_device(device_id: str):
         if agent_client is None or not hasattr(agent_client, "reset"):
@@ -222,6 +251,8 @@ def create_app(
     @app.on_event("startup")
     async def start_voice_jobs() -> None:
         await job_worker.start()
+        if alice_worker is not None:
+            await alice_worker.start()
         if git_sync is not None:
             app.state.knowledge_git_task = asyncio.create_task(git_sync.run(), name="knowledge-git-sync")
 
@@ -230,6 +261,10 @@ def create_app(
         if app.state.knowledge_git_task is not None:
             app.state.knowledge_git_task.cancel()
             await asyncio.gather(app.state.knowledge_git_task, return_exceptions=True)
+        if alice_worker is not None:
+            await alice_worker.close()
+        if alice_auth is not None:
+            await alice_auth.aclose()
         await job_worker.close()
         if agent_client is not None:
             close = getattr(agent_client, "close", None)
