@@ -4,12 +4,24 @@
 #include <stdio.h>
 #include "vendor/qrcodegen.h"
 
-screen_backend_indicator_t screen_ui_backend_indicator(int http_status) {
-  if (http_status < 0) return (screen_backend_indicator_t){"API ...", 0x74B3};
-  if (http_status == 200) return (screen_backend_indicator_t){"API OK", 0x07E0};
-  if (http_status == 503) return (screen_backend_indicator_t){"API 503", 0xF800};
-  if (http_status == 0) return (screen_backend_indicator_t){"API НЕТ", 0xF800};
-  return (screen_backend_indicator_t){"API ERR", 0xF800};
+uint16_t screen_ui_backend_color(int http_status) {
+  if (http_status < 0) return 0x74B3;
+  return http_status == 200 ? 0x07E0 : 0xF800;
+}
+
+bool screen_ui_draw_server_icon(uint16_t *pixels, int width, int height,
+                                int center_x, uint16_t color) {
+  if (!pixels || center_x < 8 || center_x + 8 >= width || height <= 26)
+    return false;
+  for (int row = 0; row < 2; ++row) {
+    int top = 13 + row * 8;
+    for (int y = top; y <= top + 5; ++y)
+      for (int x = center_x - 8; x <= center_x + 8; ++x)
+        if (y == top || y == top + 5 || x == center_x - 8 || x == center_x + 8 ||
+            (x >= center_x + 3 && x <= center_x + 5 && y >= top + 2 && y <= top + 3))
+          pixels[y * width + x] = color;
+  }
+  return true;
 }
 
 screen_recording_timer_t screen_ui_recording_timer(uint32_t start_ms,

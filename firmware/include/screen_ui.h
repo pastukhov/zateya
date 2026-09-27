@@ -37,13 +37,14 @@ typedef struct {
   screen_recording_warning_t warning;
 } screen_recording_timer_t;
 
-typedef struct {
-  const char *text;
-  uint16_t color;
-} screen_backend_indicator_t;
+#define SCREEN_STATUS_SERVER_X 23
+#define SCREEN_STATUS_WIFI_X 67
+#define SCREEN_STATUS_WG_X 111
 
 /* -1: pending; 0: unreachable; positive: /health/ready HTTP result. */
-screen_backend_indicator_t screen_ui_backend_indicator(int http_status);
+uint16_t screen_ui_backend_color(int http_status);
+bool screen_ui_draw_server_icon(uint16_t *pixels, int width, int height,
+                                int center_x, uint16_t color);
 
 screen_recording_timer_t screen_ui_recording_timer(uint32_t start_ms,
                                                    uint32_t now_ms,

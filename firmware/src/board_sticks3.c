@@ -455,10 +455,10 @@ static void screen_wifi_icon(bool connected) {
       int r2 = x * x + y * y;
       if (y <= -abs(x) && ((r2 >= 100 && r2 <= 144) ||
                            (r2 >= 25 && r2 <= 49)))
-        screen_pixel(87 + x, 24 + y, color);
+        screen_pixel(SCREEN_STATUS_WIFI_X + x, 24 + y, color);
     }
   }
-  screen_circle(87, 23, 1, color);
+  screen_circle(SCREEN_STATUS_WIFI_X, 23, 1, color);
 }
 
 static void screen_wireguard_icon(const char *status, int phase) {
@@ -468,7 +468,7 @@ static void screen_wireguard_icon(const char *status, int phase) {
     color = 0xF800;
   else if (strcmp(status, "disabled") != 0 && strcmp(status, "paused_setup") != 0)
     color = (phase / 3) % 2 ? 0xFD20 : C_MUTED;
-  screen_font_draw_centered(s_screen, SCREEN_W, SCREEN_H, 114, 13,
+  screen_font_draw_centered(s_screen, SCREEN_W, SCREEN_H, SCREEN_STATUS_WG_X, 13,
                             SCREEN_FONT_SMALL, "WG", color);
 }
 
@@ -557,9 +557,8 @@ void board_sticks3_display_update(state_t state, uint32_t now_ms,
   screen_ui_view_t view = screen_ui_view_with_network(state, processing_phase,
                                                         s_wifi_connected, voice_wireguard_ready());
   for (int i = 0; i < SCREEN_W * SCREEN_H; ++i) s_screen[i] = C_BG;
-  screen_backend_indicator_t backend = screen_ui_backend_indicator(backend_status);
-  screen_font_draw_centered(s_screen, SCREEN_W, SCREEN_H, 42, 13,
-                            SCREEN_FONT_SMALL, backend.text, backend.color);
+  screen_ui_draw_server_icon(s_screen, SCREEN_W, SCREEN_H, SCREEN_STATUS_SERVER_X,
+                             screen_ui_backend_color(backend_status));
   screen_wifi_icon(s_wifi_connected);
   screen_wireguard_icon(wg_status, phase);
   screen_rect(10, 32, 115, 1, C_LINE);

@@ -133,21 +133,32 @@ void test_processing_screen_names_each_backend_stage(void) {
       screen_font_measure(SCREEN_FONT_HINT, synthesizing.hint));
 }
 
-void test_backend_indicator_shows_actual_readiness_result(void) {
-  screen_backend_indicator_t pending = screen_ui_backend_indicator(-1);
-  screen_backend_indicator_t ready = screen_ui_backend_indicator(200);
-  screen_backend_indicator_t not_ready = screen_ui_backend_indicator(503);
-  screen_backend_indicator_t unreachable = screen_ui_backend_indicator(0);
-  TEST_ASSERT_EQUAL_STRING("API ...", pending.text);
-  TEST_ASSERT_EQUAL_STRING("API OK", ready.text);
-  TEST_ASSERT_EQUAL_STRING("API 503", not_ready.text);
-  TEST_ASSERT_EQUAL_STRING("API НЕТ", unreachable.text);
-  TEST_ASSERT_NOT_EQUAL(ready.color, pending.color);
-  TEST_ASSERT_NOT_EQUAL(ready.color, not_ready.color);
-  TEST_ASSERT_NOT_EQUAL(ready.color, unreachable.color);
-  TEST_ASSERT_LESS_OR_EQUAL_INT(65, screen_font_measure(SCREEN_FONT_SMALL, ready.text));
-  TEST_ASSERT_LESS_OR_EQUAL_INT(65, screen_font_measure(SCREEN_FONT_SMALL, not_ready.text));
-  TEST_ASSERT_LESS_OR_EQUAL_INT(65, screen_font_measure(SCREEN_FONT_SMALL, unreachable.text));
+void test_server_icon_is_centered_and_shows_health_by_color(void) {
+  static uint16_t pixels[135 * 40];
+  const uint16_t ready = screen_ui_backend_color(200);
+  const uint16_t pending = screen_ui_backend_color(-1);
+  const uint16_t failed = screen_ui_backend_color(503);
+  TEST_ASSERT_NOT_EQUAL(ready, pending);
+  TEST_ASSERT_NOT_EQUAL(ready, failed);
+  TEST_ASSERT_EQUAL(failed, screen_ui_backend_color(0));
+  TEST_ASSERT_EQUAL(44, SCREEN_STATUS_WIFI_X - SCREEN_STATUS_SERVER_X);
+  TEST_ASSERT_EQUAL(44, SCREEN_STATUS_WG_X - SCREEN_STATUS_WIFI_X);
+  TEST_ASSERT_TRUE(screen_ui_draw_server_icon(pixels, 135, 40,
+                                              SCREEN_STATUS_SERVER_X, ready));
+  int left = 135, right = -1, top = 40, bottom = -1;
+  for (int y = 0; y < 40; ++y)
+    for (int x = 0; x < 135; ++x)
+      if (pixels[y * 135 + x]) {
+        if (x < left) left = x;
+        if (x > right) right = x;
+        if (y < top) top = y;
+        if (y > bottom) bottom = y;
+        TEST_ASSERT_EQUAL_HEX16(ready, pixels[y * 135 + x]);
+      }
+  TEST_ASSERT_EQUAL(SCREEN_STATUS_SERVER_X - 8, left);
+  TEST_ASSERT_EQUAL(SCREEN_STATUS_SERVER_X + 8, right);
+  TEST_ASSERT_EQUAL(13, top);
+  TEST_ASSERT_EQUAL(26, bottom);
 }
 
 void test_idle_waits_for_wifi_and_vpn_before_showing_ready(void) {
@@ -198,6 +209,6 @@ int main(void) {
   RUN_TEST(test_montserrat_draws_every_digit_of_device_id);
   RUN_TEST(test_montserrat_copy_fits_screen_without_clipping);
   RUN_TEST(test_processing_screen_names_each_backend_stage);
-  RUN_TEST(test_backend_indicator_shows_actual_readiness_result);
+  RUN_TEST(test_server_icon_is_centered_and_shows_health_by_color);
   return UNITY_END();
 }
