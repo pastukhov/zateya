@@ -162,16 +162,31 @@ void test_server_icon_is_centered_and_shows_health_by_color(void) {
 }
 
 void test_idle_waits_for_wifi_and_vpn_before_showing_ready(void) {
-  screen_ui_view_t wifi = screen_ui_view_with_network(STATE_IDLE, SCREEN_PROCESSING_THINKING, false, false);
-  screen_ui_view_t vpn = screen_ui_view_with_network(STATE_IDLE, SCREEN_PROCESSING_THINKING, true, false);
-  screen_ui_view_t ready = screen_ui_view_with_network(STATE_IDLE, SCREEN_PROCESSING_THINKING, true, true);
+  screen_ui_view_t wifi = screen_ui_view_with_network(STATE_IDLE, SCREEN_PROCESSING_THINKING, false, false, -1);
+  screen_ui_view_t vpn = screen_ui_view_with_network(STATE_IDLE, SCREEN_PROCESSING_THINKING, true, false, -1);
+  screen_ui_view_t checking = screen_ui_view_with_network(STATE_IDLE, SCREEN_PROCESSING_THINKING, true, true, -1);
+  screen_ui_view_t offline = screen_ui_view_with_network(STATE_IDLE, SCREEN_PROCESSING_THINKING, true, true, 0);
+  screen_ui_view_t failed = screen_ui_view_with_network(STATE_IDLE, SCREEN_PROCESSING_THINKING, true, true, 503);
+  screen_ui_view_t unexpected = screen_ui_view_with_network(STATE_IDLE, SCREEN_PROCESSING_THINKING, true, true, 404);
+  screen_ui_view_t ready = screen_ui_view_with_network(STATE_IDLE, SCREEN_PROCESSING_THINKING, true, true, 200);
   TEST_ASSERT_EQUAL_STRING("СЕТЬ", wifi.title);
   TEST_ASSERT_EQUAL_STRING("VPN", vpn.title);
+  TEST_ASSERT_EQUAL_STRING("СЕРВЕР", checking.title);
+  TEST_ASSERT_EQUAL_STRING("ПРОВЕРЯЮ", checking.hint);
+  TEST_ASSERT_EQUAL_STRING("СЕРВЕР", offline.title);
+  TEST_ASSERT_EQUAL_STRING("НЕТ СВЯЗИ", offline.hint);
+  TEST_ASSERT_EQUAL_STRING("СЕРВЕР", failed.title);
+  TEST_ASSERT_EQUAL_STRING("НЕ ГОТОВ", failed.hint);
+  TEST_ASSERT_EQUAL_STRING("ОШИБКА СЕРВЕРА", unexpected.hint);
   TEST_ASSERT_EQUAL_STRING("ГОТОВА", ready.title);
-  TEST_ASSERT_EQUAL_STRING("СЕТЬ", screen_ui_view_with_network(STATE_IDLE, SCREEN_PROCESSING_THINKING, false, true).title);
-  TEST_ASSERT_EQUAL_STRING("СЛУШАЮ", screen_ui_view_with_network(STATE_RECORDING, SCREEN_PROCESSING_THINKING, false, false).title);
+  TEST_ASSERT_EQUAL_STRING("СЕТЬ", screen_ui_view_with_network(STATE_IDLE, SCREEN_PROCESSING_THINKING, false, true, 200).title);
+  TEST_ASSERT_EQUAL_STRING("СЛУШАЮ", screen_ui_view_with_network(STATE_RECORDING, SCREEN_PROCESSING_THINKING, false, false, 0).title);
   TEST_ASSERT_LESS_OR_EQUAL_INT(115, screen_font_measure(SCREEN_FONT_HINT, wifi.hint));
   TEST_ASSERT_LESS_OR_EQUAL_INT(115, screen_font_measure(SCREEN_FONT_HINT, vpn.hint));
+  TEST_ASSERT_LESS_OR_EQUAL_INT(115, screen_font_measure(SCREEN_FONT_HINT, checking.hint));
+  TEST_ASSERT_LESS_OR_EQUAL_INT(115, screen_font_measure(SCREEN_FONT_HINT, offline.hint));
+  TEST_ASSERT_LESS_OR_EQUAL_INT(115, screen_font_measure(SCREEN_FONT_HINT, failed.hint));
+  TEST_ASSERT_LESS_OR_EQUAL_INT(115, screen_font_measure(SCREEN_FONT_HINT, unexpected.hint));
 }
 
 void test_setup_screen_renders_network_and_address_without_clipping(void) {

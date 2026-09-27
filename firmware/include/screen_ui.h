@@ -54,7 +54,8 @@ bool screen_ui_draw_setup(uint16_t *pixels, int width, int height, const char *s
 
 screen_ui_view_t screen_ui_view(state_t state);
 screen_ui_view_t screen_ui_view_with_network(state_t state, screen_processing_phase_t phase,
-                                             bool wifi_connected, bool vpn_ready);
+                                             bool wifi_connected, bool vpn_ready,
+                                             int backend_status);
 screen_ui_view_t screen_ui_view_with_phase(state_t state,
                                            screen_processing_phase_t phase);
 

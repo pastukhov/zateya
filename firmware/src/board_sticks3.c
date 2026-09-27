@@ -555,7 +555,8 @@ void board_sticks3_display_update(state_t state, uint32_t now_ms,
   if (!s_screen) return;
   lcd_init();
   screen_ui_view_t view = screen_ui_view_with_network(state, processing_phase,
-                                                        s_wifi_connected, voice_wireguard_ready());
+                                                        s_wifi_connected, voice_wireguard_ready(),
+                                                        backend_status);
   for (int i = 0; i < SCREEN_W * SCREEN_H; ++i) s_screen[i] = C_BG;
   screen_ui_draw_server_icon(s_screen, SCREEN_W, SCREEN_H, SCREEN_STATUS_SERVER_X,
                              screen_ui_backend_color(backend_status));
