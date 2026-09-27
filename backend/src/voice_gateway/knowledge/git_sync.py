@@ -36,8 +36,9 @@ class GitSync:
                               text=True, capture_output=True, timeout=30, check=check)
 
     def run_once(self):
-        if not self.queue.is_dir() or self.queue.is_symlink():
-            return {'status': 'idle'}
+        if self.queue.is_symlink():
+            return {'status': 'conflict'}
+        self.queue.mkdir(parents=True, exist_ok=True)
         try:
             descriptor = os.open(self.queue / 'writer.lock', os.O_CREAT | os.O_RDWR, 0o660)
             if os.fstat(descriptor).st_uid == os.getuid():
@@ -62,7 +63,7 @@ class GitSync:
             data = json.loads(path.read_text())
             tasks.append((data['created_ns'], path, data))
         if not tasks:
-            return {'status': 'idle'}
+            return self._refresh()
         # Later publications supersede earlier hashes of the same page.
         files = {}
         for _, _, task in sorted(tasks):
@@ -93,12 +94,32 @@ class GitSync:
             # --only commits these working-tree paths while retaining other staged files.
             self._git('add', '--', *paths)
             self._git('commit', '--only', '-m', f'voice: publish {len(tasks)} Obsidian update(s)', '--', *paths)
-        revision = self._git('rev-parse', 'HEAD').stdout.strip()
-        # Never pull/rebase/force implicitly: divergence remains a visible retry.
+        self._refresh()
         self._git('push', 'origin', f'HEAD:refs/heads/{branch}')
+        revision = self._git('rev-parse', 'HEAD').stdout.strip()
         for _, path, _ in tasks:
             path.unlink()
         return {'status': 'synced', 'commit': revision, 'updates': len(tasks)}
+
+    def _refresh(self):
+        if Path(self._git('rev-parse', '--show-toplevel').stdout.strip()).resolve() != self.vault:
+            raise ValueError('wrong repository')
+        branch = self._git('symbolic-ref', '--quiet', '--short', 'HEAD').stdout.strip()
+        if self._git('ls-files', '-u').stdout:
+            raise ValueError('unmerged index')
+        self._git('fetch', 'origin', f'refs/heads/{branch}')
+        remote = self._git('rev-parse', 'FETCH_HEAD').stdout.strip()
+        head = self._git('rev-parse', 'HEAD').stdout.strip()
+        if remote == head or self._git('merge-base', '--is-ancestor', remote, head, check=False).returncode == 0:
+            return {'status': 'idle'}
+        if self._git('merge-base', '--is-ancestor', head, remote, check=False).returncode == 0:
+            self._git('merge', '--ff-only', remote)
+            return {'status': 'updated'}
+        # Inspect the merge before touching HEAD or the index. Real conflicts stay visible.
+        if self._git('merge-tree', '--write-tree', head, remote, check=False).returncode != 0:
+            raise ValueError('conflicting remote changes')
+        self._git('merge', '--no-edit', remote)
+        return {'status': 'updated'}
 
     async def run(self):
         previous_status = None

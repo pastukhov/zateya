@@ -106,3 +106,58 @@ def test_sync_respects_shared_writer_lock(repo):
         fcntl.flock(descriptor, fcntl.LOCK_UN)
         descriptor.close()
     assert GitSync(root).run_once()['status'] == 'synced'
+
+
+def test_refresh_fast_forwards_remote_note_before_next_dictation(repo, tmp_path):
+    root, remote = repo
+    other = tmp_path / 'phone'
+    git(tmp_path, 'clone', str(remote), str(other))
+    git(other, 'checkout', 'main')
+    git(other, 'config', 'user.name', 'Phone')
+    git(other, 'config', 'user.email', 'phone@example.invalid')
+    (other / 'phone.md').write_text('new context')
+    git(other, 'add', 'phone.md')
+    git(other, 'commit', '-m', 'phone note')
+    git(other, 'push', 'origin', 'main')
+    assert GitSync(root).run_once()['status'] == 'updated'
+    assert (root / 'phone.md').read_text() == 'new context'
+
+
+def test_sync_merges_disjoint_remote_note_before_pushing_capture(repo, tmp_path):
+    root, remote = repo
+    other = tmp_path / 'phone'
+    git(tmp_path, 'clone', str(remote), str(other))
+    git(other, 'checkout', 'main')
+    git(other, 'config', 'user.name', 'Phone')
+    git(other, 'config', 'user.email', 'phone@example.invalid')
+    task = enqueue(root)
+    git(other, 'checkout', '-b', 'phone-work')
+    (other / 'phone.md').write_text('new context')
+    git(other, 'add', 'phone.md')
+    git(other, 'commit', '-m', 'phone note')
+    git(other, 'push', 'origin', 'HEAD:main')
+    assert GitSync(root).run_once()['status'] == 'synced'
+    assert not task.exists()
+    assert (root / 'phone.md').read_text() == 'new context'
+    assert git(remote, 'show', 'main:Затея/ideas/idea.md') == 'idea'
+
+
+def test_refresh_keeps_conflicting_local_and_remote_edits(repo, tmp_path):
+    root, remote = repo
+    other = tmp_path / 'phone'
+    git(tmp_path, 'clone', str(remote), str(other))
+    git(other, 'checkout', 'main')
+    git(other, 'config', 'user.name', 'Phone')
+    git(other, 'config', 'user.email', 'phone@example.invalid')
+    (root / 'initial.md').write_text('local')
+    git(root, 'add', 'initial.md')
+    git(root, 'commit', '-m', 'local edit')
+    (other / 'initial.md').write_text('phone')
+    git(other, 'add', 'initial.md')
+    git(other, 'commit', '-m', 'phone edit')
+    git(other, 'push', 'origin', 'main')
+    before = git(root, 'rev-parse', 'HEAD')
+    assert GitSync(root).run_once()['status'] == 'conflict'
+    assert git(root, 'rev-parse', 'HEAD') == before
+    assert (root / 'initial.md').read_text() == 'local'
+    assert not git(root, 'ls-files', '-u')

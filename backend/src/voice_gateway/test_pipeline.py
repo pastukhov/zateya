@@ -110,6 +110,36 @@ def test_pipeline_rejects_wrong_reply_sample_rate(tmp_path):
     asyncio.run(scenario())
 
 
+def test_pipeline_refreshes_vault_before_capturing_source(tmp_path):
+    class Knowledge:
+        def __init__(self):
+            self.captured = False
+
+        def capture(self, *_):
+            self.captured = True
+            return 'source'
+
+    class Sync:
+        def run_once(self):
+            return {'status': 'conflict'}
+
+    async def scenario():
+        audio = tmp_path / 'input.pcm'
+        audio.write_bytes(b'\0\0' * 20)
+        knowledge = Knowledge()
+        pipeline = VoicePipeline(FakeSTT(), FakeAgent(), None, FakeTTS(),
+                                 knowledge=knowledge, git_sync=Sync())
+        with pytest.raises(VoicePipelineError) as error:
+            await pipeline.run({'audio_path': str(audio), 'turn_id': 't1', 'request_id': 'r1',
+                                'device_id': 'mic-a', 'created_at': '2026-09-27',
+                                'audio_bytes': audio.stat().st_size})
+        assert error.value.code == 'knowledge_sync_failed'
+        assert not knowledge.captured
+        assert (tmp_path / 'transcript.txt').read_text() == 'тестовая фраза'
+
+    asyncio.run(scenario())
+
+
 def test_wiki_survives_tts_failure_and_retry_does_not_call_agent_twice(tmp_path):
     from backend.src.voice_gateway.knowledge.store import KnowledgeStore
     from backend.src.voice_gateway.tts.base import TTSProviderError

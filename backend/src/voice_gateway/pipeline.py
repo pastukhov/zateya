@@ -17,6 +17,7 @@ from backend.src.voice_gateway.archive import atomic_write_bytes, atomic_write_j
 from backend.src.voice_gateway.hermes.stage import HermesStage
 from backend.src.voice_gateway.models.hermes_response import HermesResponse
 from backend.src.voice_gateway.knowledge.store import KnowledgeStore, KnowledgeConflict
+from backend.src.voice_gateway.knowledge.git_sync import GitSync
 from backend.src.voice_gateway.stt.base import STTClientError, STTProvider
 from backend.src.voice_gateway.models import Transcript
 from backend.src.voice_gateway.stt.client import OpenAICompatibleSTT
@@ -42,8 +43,10 @@ class VoicePipeline:
         *,
         deadline_seconds: float = 180.0,
         knowledge: KnowledgeStore | None = None,
+        git_sync: GitSync | None = None,
     ) -> None:
         self.knowledge = knowledge
+        self.git_sync = git_sync
         self.stt = stt
         self.agent = agent
         self.hermes = hermes
@@ -79,6 +82,11 @@ class VoicePipeline:
                 atomic_write_bytes(turn_dir / "transcript.txt", transcript.text.encode("utf-8"))
                 source_id, context, receipt = None, None, None
                 if self.knowledge is not None:
+                    if self.git_sync is not None:
+                        sync_result = await asyncio.to_thread(self.git_sync.run_once)
+                        if sync_result['status'] not in ('idle', 'updated', 'synced'):
+                            logger.warning('Obsidian refresh blocked before turn %s: %s', job['turn_id'], sync_result)
+                            raise VoicePipelineError('knowledge_sync_failed')
                     source_id = await asyncio.to_thread(self.knowledge.capture, job, transcript.text)
                     receipt = await asyncio.to_thread(self.knowledge.receipt, source_id)
                     context_path = turn_dir / "knowledge-context.json"

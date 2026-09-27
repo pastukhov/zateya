@@ -185,7 +185,8 @@ def create_app(
     git_sync = GitSync(Path(vault_path)) if knowledge is not None else None
     if knowledge is not None and agent_client is None and hermes_client is None:
         raise ValueError("Knowledge capture requires an LLM client")
-    pipeline = VoicePipeline(stt_provider, agent_client, hermes_stage, tts_provider, knowledge=knowledge)
+    pipeline = VoicePipeline(stt_provider, agent_client, hermes_stage, tts_provider,
+                             knowledge=knowledge, git_sync=git_sync)
     job_worker = VoiceJobWorker(job_store, pipeline.run)
     try:
         device_tokens = parse_device_tokens(os.environ.get("VOICE_DEVICE_TOKENS"))
