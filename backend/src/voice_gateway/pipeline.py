@@ -12,15 +12,15 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Callable
 
-from backend.src.voice_gateway.agents.base import AgentClient, AgentRequest
+from backend.src.voice_gateway.agents.base import AgentClient
 from backend.src.voice_gateway.archive import atomic_write_bytes, atomic_write_json
 from backend.src.voice_gateway.hermes.stage import HermesStage
-from backend.src.voice_gateway.models.hermes_response import HermesResponse
-from backend.src.voice_gateway.knowledge.store import KnowledgeStore, KnowledgeConflict
+from backend.src.voice_gateway.knowledge.store import KnowledgeStore
 from backend.src.voice_gateway.knowledge.git_sync import GitSync
 from backend.src.voice_gateway.stt.base import STTClientError, STTProvider
 from backend.src.voice_gateway.models import Transcript
 from backend.src.voice_gateway.stt.client import OpenAICompatibleSTT
+from backend.src.voice_gateway.text_turns import TextTurnProcessor, TextTurnRequest, TextTurnError
 from backend.src.voice_gateway.tts.base import TTSProvider, TTSProviderError
 from backend.src.voice_gateway.tts.openai_compatible import OpenAICompatibleTTS
 
@@ -52,6 +52,16 @@ class VoicePipeline:
         self.hermes = hermes
         self.tts = tts
         self.deadline_seconds = deadline_seconds
+        # One shared text service behind STT: the recorder keeps its audio
+        # stages (PCM → STT → TTS), the text segment delegates to the
+        # processor that the Alice channel reuses (plan task 2).
+        self.text_processor = TextTurnProcessor(
+            agent,
+            hermes,
+            knowledge=knowledge,
+            git_sync=git_sync,
+            deadline_seconds=deadline_seconds,
+        )
 
     async def run(
         self,
@@ -80,79 +90,23 @@ class VoicePipeline:
                 if not transcript.text.strip():
                     raise VoicePipelineError("stt_failed")
                 atomic_write_bytes(turn_dir / "transcript.txt", transcript.text.encode("utf-8"))
-                source_id, context, receipt = None, None, None
-                if self.knowledge is not None:
-                    if self.git_sync is not None:
-                        sync_result = await asyncio.to_thread(self.git_sync.run_once)
-                        if sync_result['status'] not in ('idle', 'updated', 'synced'):
-                            logger.warning('Obsidian refresh blocked before turn %s: %s', job['turn_id'], sync_result)
-                            raise VoicePipelineError('knowledge_sync_failed')
-                    source_id = await asyncio.to_thread(self.knowledge.capture, job, transcript.text)
-                    receipt = await asyncio.to_thread(self.knowledge.receipt, source_id)
-                    context_path = turn_dir / "knowledge-context.json"
-                    if context_path.exists():
-                        context = json.loads(context_path.read_text())
-                    else:
-                        context = await asyncio.to_thread(self.knowledge.context, job["device_id"], source_id, transcript.text)
-                        atomic_write_json(context_path, context)
                 if report_progress:
                     report_progress("thinking")
-                if receipt is not None:
-                    response = HermesResponse(reply=receipt["reply"])
-                    metadata = {"provider": "knowledge", "model": None}
-                    # A crash may have happened after the writer committed but
-                    # before history did. Fetch the durable LLM result (cache hit)
-                    # and finish that history commit without another generation.
-                    if self.agent is not None and hasattr(self.agent, "record_turn"):
-                        await self.agent.complete(
-                            AgentRequest(job["request_id"], job["device_id"], transcript.text, context)
-                        )
-                elif self.agent is not None:
-                    reply = await self.agent.complete(
-                        AgentRequest(job["request_id"], job["device_id"], transcript.text, context)
-                    )
-                    response = HermesResponse.model_validate(
-                        {
-                            "reply": reply.reply,
-                            "note": reply.note or {
-                                "create": False, "title": "", "content": "", "tags": []
-                            },
-                        }
-                    )
-                    metadata = {"provider": reply.provider, "model": reply.model}
-                else:
-                    response = await self.hermes.run(transcript.text)
-                    metadata = {"provider": "hermes", "model": None}
-                if self.knowledge is not None and receipt is None:
-                    atomic_write_json(turn_dir / "knowledge-proposal.json", response.model_dump())
-                    try:
-                        publish_started = time.monotonic()
-                        logger.info("publishing Obsidian update for turn %s", job["turn_id"])
-                        receipt = await asyncio.to_thread(self.knowledge.publish, source_id, job["device_id"],
-                                                          response.note, context, response.reply)
-                        logger.info(
-                            "published Obsidian update for turn %s in %.2fs",
-                            job["turn_id"],
-                            time.monotonic() - publish_started,
-                        )
-                        response.reply = receipt["reply"]
-                    except KnowledgeConflict:
-                        receipt = {"source_id": source_id, "status": "needs_review"}
-                        response.reply = "Исходная запись сохранена. Обновление заметок требует проверки; существующие правки не перезаписаны."
-                    atomic_write_json(turn_dir / "knowledge-result.json", receipt)
-                if self.agent is not None and hasattr(self.agent, "record_turn"):
-                    if receipt is None or receipt.get("status") != "needs_review":
-                        history_started = time.monotonic()
-                        logger.info("saving agent history for turn %s", job["turn_id"])
-                        await self.agent.record_turn(
-                            job["device_id"], job["request_id"], transcript.text, response.reply
-                        )
-                        logger.info(
-                            "saved agent history for turn %s in %.2fs",
-                            job["turn_id"],
-                            time.monotonic() - history_started,
-                        )
-                atomic_write_bytes(turn_dir / "reply.txt", response.reply.encode("utf-8"))
+                result = await self.text_processor.process(TextTurnRequest(
+                    request_id=job["request_id"],
+                    turn_id=job["turn_id"],
+                    context_id=job["device_id"],
+                    client_id=job["device_id"],
+                    channel="recorder",
+                    transcript=transcript.text,
+                    created_at=job["created_at"],
+                    archive_dir=turn_dir,
+                ))
+                response_reply = result.reply
+                receipt = result.receipt
+                metadata = {"provider": result.provider, "model": result.model}
+                response_note_dump = result.note.model_dump()
+                atomic_write_bytes(turn_dir / "reply.txt", response_reply.encode("utf-8"))
                 if self.tts is None:
                     raise VoicePipelineError("tts_failed")
                 if report_progress:
@@ -160,7 +114,7 @@ class VoicePipeline:
                 synthesis_started = time.monotonic()
                 logger.info("starting speech synthesis for turn %s", job["turn_id"])
                 synthesis = asyncio.create_task(
-                    asyncio.to_thread(self.tts.synthesize, response.reply, output_part)
+                    asyncio.to_thread(self.tts.synthesize, response_reply, output_part)
                 )
                 try:
                     await asyncio.shield(synthesis)
@@ -175,14 +129,14 @@ class VoicePipeline:
                 self._validate_reply_wav(output_part)
                 os.replace(output_part, output_wav)
                 atomic_write_bytes(turn_dir / "transcript.txt", transcript.text.encode("utf-8"))
-                atomic_write_bytes(turn_dir / "reply.txt", response.reply.encode("utf-8"))
+                atomic_write_bytes(turn_dir / "reply.txt", response_reply.encode("utf-8"))
                 response_filename = (
                     "hermes-response.json" if metadata["provider"] == "hermes"
                     else "agent-response.json"
                 )
                 atomic_write_json(
                     turn_dir / response_filename,
-                    {**metadata, "reply": response.reply, "note": response.note.model_dump()},
+                    {**metadata, "reply": response_reply, "note": response_note_dump},
                 )
                 atomic_write_json(
                     turn_dir / "metadata.json",
@@ -194,7 +148,7 @@ class VoicePipeline:
                         "input_bytes": job["audio_bytes"],
                         "status": "success",
                         "transcript": transcript.text,
-                        "reply": response.reply,
+                        "reply": response_reply,
                         **metadata,
                     },
                 )
@@ -205,6 +159,9 @@ class VoicePipeline:
         except VoicePipelineError:
             output_part.unlink(missing_ok=True)
             raise
+        except TextTurnError as exc:
+            output_part.unlink(missing_ok=True)
+            raise VoicePipelineError(exc.code) from None
         except STTClientError as exc:
             logger.warning(
                 "speech recognition failed for turn %s: %s",

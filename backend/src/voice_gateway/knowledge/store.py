@@ -174,9 +174,14 @@ class KnowledgeStore:
     def capture(self, job: dict, transcript: str) -> str:
         source_id = hashlib.sha256((job["device_id"] + ":" + job["request_id"]).encode()).hexdigest()[:32]
         relative = f"sources/{source_id}.md"
+        origin = {
+            key: job[key]
+            for key in ("channel", "client_id")
+            if job.get(key) is not None
+        }
         content = markdown({"id": source_id, "type": "source", "created": job["created_at"],
                             "request_id": job["request_id"], "device_id": job["device_id"],
-                            "audio_turn_id": job["turn_id"]}, "Голосовая запись", transcript)
+                            "audio_turn_id": job["turn_id"], **origin}, "Голосовая запись", transcript)
         with self._locked() as db:
             self._recover(db)
             existing = self._read(relative)
