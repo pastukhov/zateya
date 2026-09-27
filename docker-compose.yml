@@ -45,6 +45,10 @@ services:
       GIT_AUTHOR_EMAIL: ${GIT_AUTHOR_EMAIL:-zateya@localhost}
       GIT_COMMITTER_NAME: ${GIT_COMMITTER_NAME:-Затея}
       GIT_COMMITTER_EMAIL: ${GIT_COMMITTER_EMAIL:-zateya@localhost}
+      ALICE_ENABLED: ${ALICE_ENABLED:-false}
+      ALICE_SKILL_ID: ${ALICE_SKILL_ID:-}
+      ALICE_ALLOWED_YANDEX_ID: ${ALICE_ALLOWED_YANDEX_ID:-}
+      ALICE_CONTEXT_DEVICE_ID: ${ALICE_CONTEXT_DEVICE_ID:-}
     volumes:
       - ./data/archive:/data/archive
       - ./data/obsidian:/data/obsidian

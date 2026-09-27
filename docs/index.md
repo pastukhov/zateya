@@ -16,6 +16,7 @@
 - [LLM Wiki, Ramble your idea, then build и Git-синхронизация](voice-knowledge.md)
 - [Защита устройства и действия при потере](device-security.md)
 - [Формат HTTP-запросов устройства](protocol.md)
+- [Навык «Моя затея» для Алисы: запуск и ограничения](alice-skill.md)
 
 ## Разработка и эксплуатация
 
