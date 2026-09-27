@@ -83,6 +83,7 @@
 #include "voice_config_httpd.h"
 #include "voice_settings.h"
 #include "voice_turn_http.h"
+#include "voice_gateway_health.h"
 #include "voice_turn_client.h"
 #include "wav_parser.h"
 
@@ -651,6 +652,7 @@ void app_init(void) {
     (void)board_sticks3_wifi_start_ap();
   }
   voice_wireguard_start(&voice_settings.wireguard);
+  (void)voice_gateway_health_start(voice_settings.gateway_url);
   voice_config_httpd_start(&voice_settings);
   const http_voice_config_t cfg = {
       .url = voice_settings.gateway_url,

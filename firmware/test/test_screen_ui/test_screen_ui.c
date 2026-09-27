@@ -133,6 +133,23 @@ void test_processing_screen_names_each_backend_stage(void) {
       screen_font_measure(SCREEN_FONT_HINT, synthesizing.hint));
 }
 
+void test_backend_indicator_shows_actual_readiness_result(void) {
+  screen_backend_indicator_t pending = screen_ui_backend_indicator(-1);
+  screen_backend_indicator_t ready = screen_ui_backend_indicator(200);
+  screen_backend_indicator_t not_ready = screen_ui_backend_indicator(503);
+  screen_backend_indicator_t unreachable = screen_ui_backend_indicator(0);
+  TEST_ASSERT_EQUAL_STRING("API ...", pending.text);
+  TEST_ASSERT_EQUAL_STRING("API OK", ready.text);
+  TEST_ASSERT_EQUAL_STRING("API 503", not_ready.text);
+  TEST_ASSERT_EQUAL_STRING("API НЕТ", unreachable.text);
+  TEST_ASSERT_NOT_EQUAL(ready.color, pending.color);
+  TEST_ASSERT_NOT_EQUAL(ready.color, not_ready.color);
+  TEST_ASSERT_NOT_EQUAL(ready.color, unreachable.color);
+  TEST_ASSERT_LESS_OR_EQUAL_INT(65, screen_font_measure(SCREEN_FONT_SMALL, ready.text));
+  TEST_ASSERT_LESS_OR_EQUAL_INT(65, screen_font_measure(SCREEN_FONT_SMALL, not_ready.text));
+  TEST_ASSERT_LESS_OR_EQUAL_INT(65, screen_font_measure(SCREEN_FONT_SMALL, unreachable.text));
+}
+
 void test_idle_waits_for_wifi_and_vpn_before_showing_ready(void) {
   screen_ui_view_t wifi = screen_ui_view_with_network(STATE_IDLE, SCREEN_PROCESSING_THINKING, false, false);
   screen_ui_view_t vpn = screen_ui_view_with_network(STATE_IDLE, SCREEN_PROCESSING_THINKING, true, false);
@@ -181,5 +198,6 @@ int main(void) {
   RUN_TEST(test_montserrat_draws_every_digit_of_device_id);
   RUN_TEST(test_montserrat_copy_fits_screen_without_clipping);
   RUN_TEST(test_processing_screen_names_each_backend_stage);
+  RUN_TEST(test_backend_indicator_shows_actual_readiness_result);
   return UNITY_END();
 }

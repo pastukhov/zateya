@@ -4,6 +4,14 @@
 #include <stdio.h>
 #include "vendor/qrcodegen.h"
 
+screen_backend_indicator_t screen_ui_backend_indicator(int http_status) {
+  if (http_status < 0) return (screen_backend_indicator_t){"API ...", 0x74B3};
+  if (http_status == 200) return (screen_backend_indicator_t){"API OK", 0x07E0};
+  if (http_status == 503) return (screen_backend_indicator_t){"API 503", 0xF800};
+  if (http_status == 0) return (screen_backend_indicator_t){"API НЕТ", 0xF800};
+  return (screen_backend_indicator_t){"API ERR", 0xF800};
+}
+
 screen_recording_timer_t screen_ui_recording_timer(uint32_t start_ms,
                                                    uint32_t now_ms,
                                                    uint32_t limit_seconds) {
