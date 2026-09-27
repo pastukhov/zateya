@@ -4,6 +4,9 @@ services:
     build:
       context: .
       dockerfile: backend/Dockerfile
+      args:
+        ZATEYA_UID: ${ZATEYA_UID:-1000}
+        ZATEYA_GID: ${ZATEYA_GID:-1000}
     image: zateya-voice-gateway:latest
     user: "${ZATEYA_UID:-1000}:${ZATEYA_GID:-1000}"
     ports:

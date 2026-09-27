@@ -26,14 +26,17 @@ RUN pip install --no-cache-dir -r requirements.txt
 # ---- runtime stage --------------------------------------------------------
 FROM python:3.12-slim
 
+ARG ZATEYA_UID=1000
+ARG ZATEYA_GID=1000
+
 # The gateway publishes the Obsidian Git outbox to origin itself.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends git openssh-client \
     && rm -rf /var/lib/apt/lists/*
 
 # Non-root user (ТЗ §37: container must not run as root when avoidable).
-RUN groupadd --system app \
-    && useradd --system --gid app --create-home app
+RUN groupadd --gid "${ZATEYA_GID}" app \
+    && useradd --uid "${ZATEYA_UID}" --gid app --create-home app
 
 # Runtime configuration defaults (ТЗ §36). All overridable via `-e`/compose.
 #   VOICE_BIND_HOST / VOICE_BIND_PORT -> uvicorn bind address (launch cmd).
@@ -45,6 +48,7 @@ RUN groupadd --system app \
 ENV VOICE_BIND_HOST=0.0.0.0 \
     VOICE_BIND_PORT=8000 \
     ARCHIVE_ROOT=/data/archive \
+    HOME=/home/app \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONPATH=/app
