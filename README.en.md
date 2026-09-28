@@ -1,6 +1,6 @@
 # Zateya · Затея
 
-Zateya is a pocket voice assistant for the M5Stack StickS3. It turns free-form speech into Obsidian notes and a linked LLM Wiki, then helps develop ideas into plans and draft build tasks following “Ramble your idea, then build.”
+Zateya is a voice assistant with two interfaces: an M5Stack StickS3 pocket recorder and the Yandex Alice skill “Моя затея” (My Zateya). It turns free-form speech into Obsidian notes and a linked LLM Wiki, then helps develop ideas into plans and draft build tasks following “Ramble your idea, then build.”
 
 Documentation: [English](docs/en/index.md) · [Русский](docs/ru/index.md).
 
@@ -34,15 +34,25 @@ The device follows a half-duplex cycle: `READY → LISTENING → THINKING → SP
 
 For a substantive dictation, Zateya replies briefly, saves the source transcript and formatted idea in Obsidian, then commits and pushes the changes to `origin`. See the [LLM Wiki guide](docs/voice-knowledge.md).
 
+## Yandex Alice skill “Моя затея”
+
+Dictate ideas through Alice alongside the recorder. Both interfaces share the backend, conversation context, and Obsidian vault to capture thoughts, amend notes, and develop the linked LLM Wiki. Alice handles speech recognition and spoken replies for the skill.
+
+Dictate a thought in one message, or say “Начни запись” (start recording), add several fragments, then say “Закончи запись” (finish recording). Fast results are spoken immediately. Otherwise, Alice acknowledges receipt and processing continues in the background. Asking “Готово?” (ready?) is optional and retrieves the result later.
+
+Account linking through Yandex ID restricts access to the configured owner. The optional Compose profile `alice` adds a dedicated Nginx proxy for KeenDNS: only `POST /api/alice/webhook` is exposed publicly, while the recorder API stays on the local network.
+
+See the [Alice skill setup guide (Russian)](docs/alice-skill.md) for skill creation, OAuth, `ALICE_*` variables, KeenDNS, and troubleshooting.
+
 ## Repository layout
 
 | Path | Purpose |
 | --- | --- |
 | `firmware/` | ESP-IDF/PlatformIO firmware for M5Stack StickS3 |
 | `backend/` | FastAPI gateway, LLM/STT/TTS clients, archive, Obsidian writer, and Git publisher |
-| `deploy/` | data preparation and systemd unit |
+| `deploy/` | data preparation, systemd unit, and Alice proxy |
 | `docs/` | architecture, protocol, development, device setup, and diagrams |
-| `docker-compose.yml` | single backend container |
+| `docker-compose.yml` | backend and optional Alice proxy (`alice` profile) |
 | `.env.example` | environment template without real secrets |
 
 Never commit `.env`, Wi-Fi passwords, device tokens, API keys, or SSH keys. The setup AP is open and intended for nearby provisioning only.
