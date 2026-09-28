@@ -65,7 +65,9 @@ sequenceDiagram
 
 ```mermaid
 flowchart LR
-    A["Алиса<br/>распознавание и озвучивание"] -->|"HTTPS webhook · токен Яндекс ID"| H["/api/alice/webhook<br/>бюджет 2 с"]
+    A["Алиса<br/>распознавание и озвучивание"] -->|"HTTPS · токен Яндекс ID"| K["KeenDNS / Keenetic<br/>TLS"]
+    K -->|"HTTP :7071"| N["Nginx в Compose<br/>только POST webhook"]
+    N --> H["backend /api/alice/webhook<br/>бюджет 2 с"]
     H --> Q[("alice.sqlite3<br/>события · черновики · задания")]
     Q --> W["Alice worker"]
     W --> T["Общий обработчик текста<br/>Git → LLM → publish → история"]
