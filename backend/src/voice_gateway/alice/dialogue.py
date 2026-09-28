@@ -50,6 +50,8 @@ COMMANDS = {
     "готово?": ACTION_STATUS,
     "статус": ACTION_STATUS,
     "проверка связи": ACTION_PING,
+    "проверка заметку не создавай": ACTION_PING,
+    "проверка связи заметку не создавай": ACTION_PING,
     "пинг": ACTION_PING,
     "дальше": ACTION_NEXT_REPLY,
 }

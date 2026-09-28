@@ -231,3 +231,16 @@ def test_http_disconnect_after_commit_keeps_job(tmp_path):
         replay = post(client2, envelope())
     assert store.pending_count("owner-1") == 1
     assert replay.json()["response"]["text"] == response.json()["response"]["text"]
+
+@pytest.mark.parametrize('phrase', [
+    'проверка, заметку не создавай',
+    'Проверка связи, заметку не создавай.',
+    'Проверка связи, заметку не создавай!',
+])
+def test_non_capture_connection_check_never_queues_job(tmp_path, phrase):
+    app, store, _ = make_app(tmp_path)
+    with TestClient(app) as client:
+        response = post(client, envelope(text=phrase))
+    assert response.status_code == 200
+    assert response.json()['response']['text'] == 'Связь есть, заметку не создавала.'
+    assert store.pending_count('owner-1') == 0
