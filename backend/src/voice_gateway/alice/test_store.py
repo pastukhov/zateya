@@ -140,7 +140,8 @@ def test_complete_and_fail_store_results(tmp_path):
     result = TextTurnResult(reply="Готово", note=None, receipt={"reply": "Готово"},
                             provider="codex", model="m1")
     store.complete(job.job_id, result)
-    assert store.latest_reply("owner-1") == {"status": "done", "reply": "Готово", "error": None}
+    assert store.latest_reply("owner-1")["status"] == "done"
+    assert store.latest_reply("owner-1")["reply"] == "Готово"
 
     store.accept(make_event(2, action="new_idea", text="вторая"), AliceReply(text="ok"))
     job2 = store.claim_next()
@@ -148,6 +149,22 @@ def test_complete_and_fail_store_results(tmp_path):
     latest = store.latest_reply("owner-1")
     assert latest["status"] == "failed"
     assert latest["error"] == "agent_timeout"
+
+
+def test_long_reply_advances_once_per_idempotent_next_event(tmp_path):
+    store = make_store(tmp_path)
+    store.accept(make_event(), AliceReply(text="принято"))
+    job = store.claim_next()
+    first_page = "А" * 850
+    second_page = "Б" * 100
+    store.complete(job.job_id, TextTurnResult(reply=f"{first_page}. {second_page}", note=None,
+                                              receipt=None, provider="p", model=None))
+    event = make_event(2, action="next_reply", text="дальше")
+    first = store.accept(event, AliceReply(text="продолжаю"))
+    replay = store.accept(event, AliceReply(text="не тот ответ"))
+    assert first.text == second_page
+    assert replay.text == second_page
+    assert store.reply_page("owner-1") == (1, 2)
 
 
 def test_ongoing_status_counts_queued_and_running(tmp_path):

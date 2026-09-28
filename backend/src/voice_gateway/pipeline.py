@@ -44,6 +44,7 @@ class VoicePipeline:
         deadline_seconds: float = 180.0,
         knowledge: KnowledgeStore | None = None,
         git_sync: GitSync | None = None,
+        text_processor: TextTurnProcessor | None = None,
     ) -> None:
         self.knowledge = knowledge
         self.git_sync = git_sync
@@ -55,7 +56,7 @@ class VoicePipeline:
         # One shared text service behind STT: the recorder keeps its audio
         # stages (PCM → STT → TTS), the text segment delegates to the
         # processor that the Alice channel reuses (plan task 2).
-        self.text_processor = TextTurnProcessor(
+        self.text_processor = text_processor or TextTurnProcessor(
             agent,
             hermes,
             knowledge=knowledge,

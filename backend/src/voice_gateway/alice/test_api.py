@@ -73,10 +73,11 @@ def post(client, payload, token="oauth-token", headers=None):
                        headers=send)
 
 
-def test_ping_answers_without_auth_or_data(tmp_path):
+def test_yandex_ping_uses_original_utterance_without_auth_or_data(tmp_path):
     app, store, _ = make_app(tmp_path)
+    payload = envelope(text="ping")
     with TestClient(app) as client:
-        response = post(client, envelope(skill_id="ping"))
+        response = post(client, payload, token=None)
     assert response.status_code == 200
     assert response.json()["response"]["text"] == "pong"
     assert store.pending_count("owner-1") == 0
@@ -92,10 +93,33 @@ def test_wrong_skill_id_is_rejected(tmp_path):
 
 def test_missing_token_asks_account_linking(tmp_path):
     app, store, _ = make_app(tmp_path)
+    payload = envelope()
+    payload["meta"]["interfaces"]["account_linking"] = {}
+    with TestClient(app) as client:
+        response = post(client, payload, token=None)
+    assert response.status_code == 200
+    assert response.json()["start_account_linking"] == {}
+    assert "response" not in response.json()
+    assert store.pending_count("owner-1") == 0
+
+
+def test_missing_token_without_linking_interface_gets_instruction(tmp_path):
+    app, store, _ = make_app(tmp_path)
     with TestClient(app) as client:
         response = post(client, envelope(), token=None)
-    assert response.status_code == 200
     assert "Подключите аккаунт" in response.json()["response"]["text"]
+    assert "start_account_linking" not in response.json()
+    assert store.pending_count("owner-1") == 0
+
+
+def test_account_linking_completion_is_acknowledged_without_creating_idea(tmp_path):
+    app, store, _ = make_app(tmp_path)
+    payload = envelope(text="")
+    payload["request"] = {"account_linking_complete_event": {}}
+    with TestClient(app) as client:
+        response = post(client, payload)
+    assert response.status_code == 200
+    assert response.json()["response"]["text"] == "Аккаунт подключён. Можно диктовать заметку."
     assert store.pending_count("owner-1") == 0
 
 

@@ -191,14 +191,13 @@ def create_app(
     git_sync = GitSync(Path(vault_path)) if knowledge is not None else None
     if knowledge is not None and agent_client is None and hermes_client is None:
         raise ValueError("Knowledge capture requires an LLM client")
+    shared_text_processor = TextTurnProcessor(agent_client, hermes_stage,
+                                              knowledge=knowledge, git_sync=git_sync)
     pipeline = VoicePipeline(stt_provider, agent_client, hermes_stage, tts_provider,
-                             knowledge=knowledge, git_sync=git_sync)
+                             knowledge=knowledge, git_sync=git_sync,
+                             text_processor=shared_text_processor)
     job_worker = VoiceJobWorker(job_store, pipeline.run)
-    # Shared text processor for both voice channels (plan task 2): the
-    # recorder pipeline already embeds one; Alice gets the same knowledge,
-    # agent client and git sync instances through her own processor.
-    alice_processor = TextTurnProcessor(agent_client, hermes_stage,
-                                        knowledge=knowledge, git_sync=git_sync)
+    alice_processor = shared_text_processor
     try:
         alice_config = AliceConfig.from_env()
     except AliceConfigError:

@@ -106,14 +106,30 @@ def install_alice_routes(
             return JSONResponse(safe_reply(reply_busy(), version=None), status_code=400)
 
         session = envelope.get("session") or {}
+        request_data = envelope.get("request") or {}
         skill_id = session.get("skill_id", "")
-        # Ping needs no auth and no data access (plan task 4).
-        if skill_id == "ping":
+        if skill_id != config.skill_id:
+            return JSONResponse(safe_reply(reply_busy(), version=envelope.get("version")), status_code=403)
+        # Yandex Dialogs use request.original_utterance="ping" for platform probes.
+        if request_data.get("original_utterance") == "ping":
             return JSONResponse({"version": envelope.get("version", "1.0"),
                                  "session": session,
                                  "response": {"text": "pong", "end_session": True}})
-        if skill_id != config.skill_id:
-            return JSONResponse(safe_reply(reply_busy(), version=envelope.get("version")), status_code=403)
+
+        # Account-link completion has no request.command/original_utterance.
+        # Validate the delivered token, then acknowledge without creating a
+        # transcript job (the service is personal and has no deferred query).
+        if "account_linking_complete_event" in request_data:
+            token = _extract_token(request) or _token_from_body(envelope)
+            if token is None:
+                return JSONResponse(_linking_reply(envelope))
+            try:
+                await authenticator.authenticate(token)
+            except AuthFailure:
+                return JSONResponse(_linking_reply(envelope))
+            return JSONResponse({"version": envelope.get("version", "1.0"),
+                                 "session": session,
+                                 "response": {"text": "Аккаунт подключён. Можно диктовать заметку."}})
 
         # Ingress rate limit per owner candidate before OAuth verification:
         # unauthenticated floods are capped by the general limiter + body size;
@@ -142,7 +158,7 @@ def install_alice_routes(
             message_id=str(session.get("message_id", "")),
             payload_hash="",
             action=action.action,
-            text=utterance,
+            text=action.transcript if action.transcript is not None else utterance,
             has_screen=bool((envelope.get("meta") or {}).get("interfaces", {}).get("screen")),
             archive_dir=str(config.archive_root / "alice"),
         )
@@ -184,12 +200,17 @@ def _utterance(envelope: dict) -> str:
 
 
 def _linking_reply(envelope: dict) -> dict:
-    """Official start_account_linking when possible, otherwise instruction."""
-    response: dict = {"text": "Подключите аккаунт в приложении Яндекса: откройте навык и войдите.",
-                      "end_session": True}
-    return {"version": envelope.get("version", "1.0"),
-            "session": envelope.get("session", {}),
-            "response": response}
+    """Ask supported Alice clients to start official account linking."""
+    result = {"version": envelope.get("version", "1.0"),
+              "session": envelope.get("session", {})}
+    interfaces = ((envelope.get("meta") or {}).get("interfaces") or {})
+    if "account_linking" in interfaces:
+        result["start_account_linking"] = {}
+    else:
+        result["response"] = {
+            "text": "Подключите аккаунт в приложении Яндекса: откройте навык и войдите."
+        }
+    return result
 
 
 __all__ = ["install_alice_routes", "MAX_BODY_BYTES", "WEBHOOK_BUDGET_SECONDS"]

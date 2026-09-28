@@ -20,11 +20,17 @@ from dataclasses import dataclass
 from backend.src.voice_gateway.alice.models import (
     ACTION_APPEND_DRAFT,
     ACTION_CANCEL_DRAFT,
+    ACTION_CANCEL_REQUEST,
+    ACTION_CONFIRM_CANCEL,
+    ACTION_DECLINE_CANCEL,
     ACTION_FINISH_DRAFT,
     ACTION_HELP,
     ACTION_NEW_IDEA,
     ACTION_PING,
     ACTION_START_DRAFT,
+    ACTION_RESUME_DRAFT,
+    ACTION_NOOP,
+    ACTION_NEXT_REPLY,
     ACTION_STATUS,
     ACTION_VERBATIM,
     AliceReply,
@@ -45,6 +51,7 @@ COMMANDS = {
     "статус": ACTION_STATUS,
     "проверка связи": ACTION_PING,
     "пинг": ACTION_PING,
+    "дальше": ACTION_NEXT_REPLY,
 }
 
 #: Prefix that records the remainder as literal content.
@@ -58,6 +65,7 @@ CANCEL_CONFIRMATIONS = {"да", "подтверждаю", "отменяй", "п�
 class AliceAction:
     action: str
     reply: AliceReply
+    transcript: str | None = None
 
 
 _GREETING = "Здравствуйте! Я навык «Моя затея». Продиктуйте мысль одним сообщением или скажите «Начни запись»."
@@ -69,7 +77,9 @@ _STATUS_EMPTY = "Сейчас ничего не обрабатывается. П
 _STATUS_PENDING = "Обрабатываю. Скажите «Готово?» через минуту."
 _CANCEL_ASK = "Отменить текущий черновик? Скажите «да» для подтверждения."
 _CANCELLED = "Черновик отменён."
+_CANCEL_DECLINED = "Продолжаем запись."
 _DRAFT_STARTED = "Запись началась. Диктуйте, я буду добавлять фразы."
+_DRAFT_RESUMED = "Продолжаем запись. Диктуйте дальше."
 _FRAGMENT_ACCEPTED = "Приняла. Продолжайте."
 _NOTHING_TO_FINISH = "Запись не начиналась."
 _FINISHED = ("Запись закончена, мысль в обработке. Спросите «Готово?», чтобы узнать результат.")
@@ -87,6 +97,30 @@ def route_utterance(envelope: dict, *, store, owner: str) -> AliceAction:
     if not isinstance(utterance, str):
         utterance = ""
     normalized = _normalized(utterance)
+    draft = store.draft_state(owner)
+    draft_open = draft is not None and draft.get("status") == "open"
+
+    if draft_open and draft.get("cancel_pending"):
+        if normalized in CANCEL_CONFIRMATIONS:
+            return AliceAction(ACTION_CONFIRM_CANCEL, render_reply(_CANCELLED))
+        if normalized in {"нет", "не надо", "продолжай", "продолжить"}:
+            return AliceAction(ACTION_DECLINE_CANCEL, render_reply(_CANCEL_DECLINED))
+
+    # An open draft collects every utterance as content except explicit
+    # finish/cancel/exit controls. Questions such as «Готово?» are content.
+    if draft_open:
+        if normalized in {"закончи запись", "запись окончена"}:
+            return AliceAction(ACTION_FINISH_DRAFT, render_reply(_FINISHED))
+        if normalized in {"отмени черновик", "отмена", "отмени"}:
+            return AliceAction(ACTION_CANCEL_REQUEST, render_reply(_CANCEL_ASK))
+        if normalized in {"выйти", "до свидания", "хватит"}:
+            return AliceAction("exit", render_reply(_EXITED, end_session=True))
+        if normalized in {"начни запись", "продолжи запись"}:
+            return AliceAction(ACTION_RESUME_DRAFT, render_reply(_DRAFT_RESUMED))
+        if normalized.startswith(VERBATIM_PREFIX):
+            remainder = utterance.strip()[len(VERBATIM_PREFIX):].strip()
+            return AliceAction(ACTION_APPEND_DRAFT, render_reply(_FRAGMENT_ACCEPTED), remainder)
+        return AliceAction(ACTION_APPEND_DRAFT, render_reply(_FRAGMENT_ACCEPTED), utterance)
 
     # Whole-utterance service commands only; «готово» inside a thought
     # never triggers here because content phrases don't match exactly.
@@ -94,19 +128,15 @@ def route_utterance(envelope: dict, *, store, owner: str) -> AliceAction:
     if command is not None:
         return _service_action(command, store=store, owner=owner)
 
-    if normalized in CANCEL_CONFIRMATIONS:
-        # Cancellation needs an explicit prior request; without it, treat as content.
-        if getattr(route_utterance, "_cancel_pending", False):
-            route_utterance._cancel_pending = False
-            return AliceAction(ACTION_CANCEL_DRAFT, render_reply(_CANCELLED))
     if normalized in ("отмена", "отмени"):
-        route_utterance._cancel_pending = True
-        return AliceAction("cancel_request", render_reply(_CANCEL_ASK))
+        if getattr(store, "has_pending_cancel", lambda _owner: False)(owner):
+            return AliceAction("cancel_draft", render_reply(_CANCELLED))
+        return AliceAction(ACTION_NOOP, render_reply("Нет активного черновика."))
 
     if normalized.startswith(VERBATIM_PREFIX):
         verbatim = utterance.strip()[len(VERBATIM_PREFIX):].strip()
         if verbatim:
-            return AliceAction(ACTION_VERBATIM, render_reply("Приняла мысль в обработку."))
+            return AliceAction(ACTION_VERBATIM, render_reply("Приняла мысль в обработку."), verbatim)
         return AliceAction("empty_verbatim", render_reply("Скажите текст после «Запиши дословно»."))
 
     greeting_phrases = (
@@ -131,6 +161,8 @@ def _service_action(command: str, *, store, owner: str) -> AliceAction:
         return AliceAction(ACTION_PING, render_reply(_PING, end_session=True))
     if command == ACTION_STATUS:
         return AliceAction(ACTION_STATUS, _status_reply(store, owner))
+    if command == ACTION_NEXT_REPLY:
+        return AliceAction(ACTION_NEXT_REPLY, render_reply("Продолжаю."))
     if command == ACTION_START_DRAFT:
         return AliceAction(ACTION_START_DRAFT, render_reply(_DRAFT_STARTED))
     if command == ACTION_FINISH_DRAFT:
@@ -148,9 +180,13 @@ def _status_reply(store, owner: str) -> AliceReply:
     if latest is None:
         return render_reply(_STATUS_EMPTY)
     if latest["status"] == "done":
-        text = latest["reply"] or "Готово."
-        from backend.src.voice_gateway.alice.render import render_long_reply
-        return render_long_reply(text)
+        from backend.src.voice_gateway.alice.render import chunk_text
+        pages = chunk_text(latest["reply"] or "Готово.")
+        page_index, total = store.reply_page(owner) if hasattr(store, "reply_page") else (0, len(pages))
+        text = pages[page_index]
+        if page_index + 1 < total:
+            text += "\n(Скажите «Дальше», чтобы продолжить.)"
+        return render_reply(text)
     if latest["status"] == "needs_review":
         return render_reply("Запись сохранила, но обновление заметок требует проверки.")
     return render_reply("Не получилось обработать последнюю мысль. Повторите её, пожалуйста.")

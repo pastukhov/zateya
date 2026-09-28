@@ -15,6 +15,7 @@ from backend.src.voice_gateway.agents.openai_client import OpenAICompatibleAgent
 from backend.src.voice_gateway.agents.sessions import AgentSessionStore
 from backend.src.voice_gateway.models import TTSResult, Transcript
 from backend.src.voice_gateway.pipeline import VoicePipeline, VoicePipelineError
+from backend.src.voice_gateway.text_turns import TextTurnProcessor
 
 
 class FakeSTT:
@@ -55,6 +56,13 @@ class FakeTTS:
             wav.setframerate(self.rate)
             wav.writeframes(b"\x00\x00" * 100)
         return TTSResult(wav_path=output, sample_rate=self.rate)
+
+
+def test_pipeline_uses_injected_shared_text_processor():
+    processor = TextTurnProcessor(FakeAgent())
+    pipeline = VoicePipeline(FakeSTT(), FakeAgent(), None, FakeTTS(),
+                             text_processor=processor)
+    assert pipeline.text_processor is processor
 
 
 def test_pipeline_runs_agent_and_publishes_only_valid_24khz_wav(tmp_path):

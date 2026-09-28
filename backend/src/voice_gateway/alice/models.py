@@ -21,6 +21,12 @@ ACTION_START_DRAFT = "start_draft"
 ACTION_APPEND_DRAFT = "append_draft"
 ACTION_FINISH_DRAFT = "finish_draft"
 ACTION_CANCEL_DRAFT = "cancel_draft"
+ACTION_CANCEL_REQUEST = "cancel_request"
+ACTION_CONFIRM_CANCEL = "confirm_cancel"
+ACTION_DECLINE_CANCEL = "decline_cancel"
+ACTION_RESUME_DRAFT = "resume_draft"
+ACTION_NOOP = "noop"
+ACTION_NEXT_REPLY = "next_reply"
 ACTION_NEW_IDEA = "new_idea"
 ACTION_STATUS = "status"
 ACTION_HELP = "help"
@@ -29,7 +35,9 @@ ACTION_LINKING = "linking"
 ACTION_VERBATIM = "verbatim"
 KNOWN_ACTIONS = frozenset({
     ACTION_START_DRAFT, ACTION_APPEND_DRAFT, ACTION_FINISH_DRAFT,
-    ACTION_CANCEL_DRAFT, ACTION_NEW_IDEA, ACTION_STATUS, ACTION_HELP,
+    ACTION_CANCEL_DRAFT, ACTION_CANCEL_REQUEST, ACTION_CONFIRM_CANCEL,
+    ACTION_DECLINE_CANCEL, ACTION_RESUME_DRAFT, ACTION_NOOP, ACTION_NEXT_REPLY,
+    ACTION_NEW_IDEA, ACTION_STATUS, ACTION_HELP,
     ACTION_PING, ACTION_LINKING, ACTION_VERBATIM,
 })
 
@@ -101,6 +109,9 @@ class AliceReply:
             payload["tts"] = self.tts
         if self.end_session:
             payload["end_session"] = True
+        directives = self.extra.get("directives")
+        if directives:
+            payload["directives"] = directives
         response: dict[str, Any] = {"response": payload}
-        response.update(self.extra)
+        response.update({key: value for key, value in self.extra.items() if key != "directives"})
         return response

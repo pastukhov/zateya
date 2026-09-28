@@ -12,6 +12,7 @@ from backend.src.voice_gateway.alice.models import (
     ACTION_START_DRAFT,
     ACTION_STATUS,
     ACTION_VERBATIM,
+    AliceEvent,
 )
 from backend.src.voice_gateway.alice.store import AliceStore
 
@@ -28,6 +29,9 @@ class FakeStatusStore:
 
     def latest_reply(self, owner):
         return self._latest
+
+    def draft_state(self, owner):
+        return None
 
 
 def envelope(text, screen=False):
@@ -75,6 +79,53 @@ def test_verbatim_prefix_captures_literal_remainder():
     routed = route_utterance(envelope(f"{VERBATIM_PREFIX} закончи запись, потом проверка связи"),
                              store=FakeStatusStore(), owner="o")
     assert routed.action == ACTION_VERBATIM
+    assert routed.transcript == "закончи запись, потом проверка связи"
+
+
+def test_dialogue_collects_all_fragments_until_finish(tmp_path):
+    store = AliceStore(tmp_path / "alice.sqlite3")
+    store.initialize()
+
+    for number, text in enumerate(("начни запись", "мысль первая", "готово?",
+                                   "мысль вторая", "закончи запись"), start=1):
+        request = envelope(text)
+        request["session"]["session_id"] = "one-session"
+        request["session"]["message_id"] = number
+        action = route_utterance(request, store=store, owner="owner-1")
+        event = AliceEvent(owner="owner-1", context_id="mic", skill_id="s",
+                           session_id="one-session", message_id=str(number),
+                           payload_hash="", action=action.action,
+                           text=action.transcript if action.transcript is not None else text)
+        store.accept(event, action.reply)
+
+    assert store.pending_count("owner-1") == 1
+    job = store.claim_next()
+    assert job.request.transcript == "мысль первая\nготово?\nмысль вторая"
+
+
+def test_cancel_confirmation_is_persisted_per_owner(tmp_path):
+    store = AliceStore(tmp_path / "alice.sqlite3")
+    store.initialize()
+
+    def send(number, owner, text):
+        request = envelope(text)
+        request["session"]["session_id"] = f"session-{owner}"
+        request["session"]["message_id"] = number
+        action = route_utterance(request, store=store, owner=owner)
+        event = AliceEvent(owner=owner, context_id="mic", skill_id="s",
+                           session_id=f"session-{owner}", message_id=str(number),
+                           payload_hash="", action=action.action,
+                           text=action.transcript if action.transcript is not None else text)
+        return store.accept(event, action.reply)
+
+    send(1, "owner-1", "начни запись")
+    send(2, "owner-1", "отмена")
+    send(1, "owner-2", "начни запись")
+    send(2, "owner-2", "да")
+    assert store.draft_state("owner-2")["text"] == "да"
+    send(3, "owner-1", "да")
+    assert store.draft_state("owner-1") is None
+    assert store.draft_state("owner-2")["text"] == "да"
 
 
 def test_status_reports_processing_without_regeneration():
@@ -97,10 +148,10 @@ def test_status_reports_failure_honestly():
 
 
 def test_cancel_requires_confirmation():
-    ask = route_utterance(envelope("Отмена"), store=FakeStatusStore(), owner="o")
-    assert ask.reply.text  # asks for confirmation
-    confirm = route_utterance(envelope("да"), store=FakeStatusStore(), owner="o")
-    assert confirm.action == "cancel_draft"
+    store = FakeStatusStore()
+    ask = route_utterance(envelope("Отмена"), store=store, owner="o")
+    assert ask.action == "noop"
+    assert "Нет активного" in ask.reply.text
 
 
 def test_exit_keeps_state_message():

@@ -31,7 +31,11 @@ from typing import Iterator
 from contextlib import contextmanager
 
 from backend.src.voice_gateway.alice.models import (
+    ACTION_CANCEL_REQUEST,
+    ACTION_CONFIRM_CANCEL,
+    ACTION_DECLINE_CANCEL,
     ACTION_FINISH_DRAFT,
+    ACTION_NEXT_REPLY,
     DRAFT_MAX_CHARS,
     MAX_QUEUED_JOBS,
     AliceEvent,
@@ -40,6 +44,7 @@ from backend.src.voice_gateway.alice.models import (
     JOB_STATUSES,
 )
 from backend.src.voice_gateway.text_turns import TextTurnRequest, TextTurnResult
+from backend.src.voice_gateway.alice.render import chunk_text, render_reply
 
 #: Short busy timeout for webhook-path operations (plan task 3: ≤150 ms).
 WEBHOOK_BUSY_TIMEOUT_MS = 150
@@ -67,6 +72,11 @@ CREATE TABLE IF NOT EXISTS drafts (
     fragments INTEGER NOT NULL DEFAULT 0,
     updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
 );
+CREATE TABLE IF NOT EXISTS draft_confirmations (
+    owner TEXT PRIMARY KEY,
+    action TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
 CREATE TABLE IF NOT EXISTS jobs (
     job_id TEXT PRIMARY KEY,
     owner TEXT NOT NULL,
@@ -76,6 +86,11 @@ CREATE TABLE IF NOT EXISTS jobs (
     error_code TEXT,
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
     updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
+CREATE TABLE IF NOT EXISTS reply_cursors (
+    owner TEXT PRIMARY KEY,
+    job_id TEXT NOT NULL,
+    page_index INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS jobs_owner_status ON jobs(owner, status, created_at);
 """
@@ -179,12 +194,56 @@ class AliceStore:
             db.execute("UPDATE drafts SET text=?, fragments=fragments+1, "
                        "updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE owner=?",
                        (combined, event.owner))
+            db.execute("DELETE FROM draft_confirmations WHERE owner=?", (event.owner,))
         elif event.action == "start_draft":
+            if draft is not None and draft["status"] == DRAFT_OPEN:
+                return AliceReply(text="Продолжаем запись. Диктуйте дальше.")
             db.execute("INSERT INTO drafts(owner, status, text, fragments) VALUES (?, 'open', '', 0) "
                        "ON CONFLICT(owner) DO UPDATE SET status='open', "
                        "text='', fragments=0, "
                        "updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')",
                        (event.owner,))
+        elif event.action == "resume_draft":
+            if draft is None or draft["status"] != DRAFT_OPEN:
+                return AliceReply(text="Нет открытого черновика. Скажите «Начни запись».")
+        elif event.action == ACTION_CANCEL_REQUEST:
+            if draft is None or draft["status"] != DRAFT_OPEN:
+                return AliceReply(text="Нет активного черновика.")
+            db.execute("INSERT INTO draft_confirmations(owner, action) VALUES (?, 'cancel') "
+                       "ON CONFLICT(owner) DO UPDATE SET action='cancel', "
+                       "created_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')", (event.owner,))
+        elif event.action == ACTION_CONFIRM_CANCEL:
+            pending = db.execute("SELECT action FROM draft_confirmations WHERE owner=?",
+                                 (event.owner,)).fetchone()
+            if pending is not None and pending["action"] == "cancel":
+                db.execute("DELETE FROM drafts WHERE owner=?", (event.owner,))
+                db.execute("DELETE FROM draft_confirmations WHERE owner=?", (event.owner,))
+            else:
+                return AliceReply(text="Нет ожидающего подтверждения отмены.")
+        elif event.action == ACTION_DECLINE_CANCEL:
+            db.execute("DELETE FROM draft_confirmations WHERE owner=?", (event.owner,))
+        elif event.action == ACTION_NEXT_REPLY:
+            latest = db.execute(
+                "SELECT job_id, reply FROM jobs WHERE owner=? AND status='done' "
+                "ORDER BY created_at DESC, rowid DESC LIMIT 1", (event.owner,)
+            ).fetchone()
+            if latest is None:
+                return AliceReply(text="Пока нет готового ответа.")
+            pages = chunk_text(latest["reply"] or "Готово.")
+            cursor = db.execute("SELECT job_id, page_index FROM reply_cursors WHERE owner=?",
+                                 (event.owner,)).fetchone()
+            page_index = cursor["page_index"] if cursor and cursor["job_id"] == latest["job_id"] else 0
+            next_index = page_index + 1
+            if next_index >= len(pages):
+                return render_reply("Это конец ответа.")
+            db.execute("INSERT INTO reply_cursors(owner, job_id, page_index) VALUES (?, ?, ?) "
+                       "ON CONFLICT(owner) DO UPDATE SET job_id=excluded.job_id, "
+                       "page_index=excluded.page_index", (event.owner, latest["job_id"], next_index))
+            has_more = next_index + 1 < len(pages)
+            text = pages[next_index]
+            if has_more:
+                text += "\\n(Скажите «Дальше», чтобы продолжить.)"
+            return render_reply(text)
         elif event.action == "finish_draft":
             if draft is None or draft["status"] != DRAFT_OPEN:
                 return None  # nothing to finish; caller's reply stands
@@ -196,6 +255,7 @@ class AliceStore:
             db.execute("DELETE FROM drafts WHERE owner=?", (event.owner,))
         elif event.action == "cancel_draft":
             db.execute("DELETE FROM drafts WHERE owner=?", (event.owner,))
+            db.execute("DELETE FROM draft_confirmations WHERE owner=?", (event.owner,))
         return None
 
     def _create_job(self, db: sqlite3.Connection, event: AliceEvent, text: str,
@@ -289,12 +349,25 @@ class AliceStore:
     def latest_reply(self, owner: str) -> dict | None:
         """Most recent finished job's reply for the status dialogue."""
         with self._connect(WEBHOOK_BUSY_TIMEOUT_MS) as db:
-            row = db.execute("SELECT status, reply, error_code FROM jobs WHERE owner=? "
+            row = db.execute("SELECT job_id, status, reply, error_code FROM jobs WHERE owner=? "
                              "AND status IN ('done','failed','needs_review') "
                              "ORDER BY created_at DESC, rowid DESC LIMIT 1", (owner,)).fetchone()
             if row is None:
                 return None
-            return {"status": row["status"], "reply": row["reply"], "error": row["error_code"]}
+            return {"job_id": row["job_id"], "status": row["status"], "reply": row["reply"],
+                    "error": row["error_code"]}
+
+    def reply_page(self, owner: str) -> tuple[int, int] | None:
+        """Return the current page index and total for the latest completed reply."""
+        with self._connect(WEBHOOK_BUSY_TIMEOUT_MS) as db:
+            latest = db.execute("SELECT job_id, reply FROM jobs WHERE owner=? AND status='done' "
+                                "ORDER BY created_at DESC, rowid DESC LIMIT 1", (owner,)).fetchone()
+            if latest is None:
+                return None
+            cursor = db.execute("SELECT job_id, page_index FROM reply_cursors WHERE owner=?",
+                                (owner,)).fetchone()
+            index = cursor["page_index"] if cursor and cursor["job_id"] == latest["job_id"] else 0
+            return index, len(chunk_text(latest["reply"] or "Готово."))
 
     def pending_count(self, owner: str) -> int:
         with self._connect(WEBHOOK_BUSY_TIMEOUT_MS) as db:
@@ -304,11 +377,19 @@ class AliceStore:
 
     def draft_state(self, owner: str) -> dict | None:
         with self._connect(WEBHOOK_BUSY_TIMEOUT_MS) as db:
-            row = db.execute("SELECT status, text, fragments FROM drafts WHERE owner=?",
+            row = db.execute("SELECT status, text, fragments, "
+                             "EXISTS(SELECT 1 FROM draft_confirmations c WHERE c.owner=drafts.owner "
+                             "AND c.action='cancel') AS cancel_pending FROM drafts WHERE owner=?",
                              (owner,)).fetchone()
             if row is None:
                 return None
-            return {"status": row["status"], "text": row["text"], "fragments": row["fragments"]}
+            return {"status": row["status"], "text": row["text"], "fragments": row["fragments"],
+                    "cancel_pending": bool(row["cancel_pending"])}
+
+    def has_pending_cancel(self, owner: str) -> bool:
+        with self._connect(WEBHOOK_BUSY_TIMEOUT_MS) as db:
+            return db.execute("SELECT 1 FROM draft_confirmations WHERE owner=? AND action='cancel'",
+                              (owner,)).fetchone() is not None
 
     def set_draft_target(self, owner: str, target_id: str) -> None:
         """Freeze the amend target when the owner picks a note to extend."""
