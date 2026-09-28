@@ -76,7 +76,7 @@ _HELP = ("Продиктуйте мысль — я сохраню её в вик
          "«Проверка связи» — проверка без сохранения.")
 _PING = "Связь есть, заметку не создавала."
 _STATUS_EMPTY = "Сейчас ничего не обрабатывается. Продиктуйте новую мысль."
-_STATUS_PENDING = "Обрабатываю. Скажите «Готово?» через минуту."
+_STATUS_PENDING = "Ещё обрабатываю запись."
 _CANCEL_ASK = "Отменить текущий черновик? Скажите «да» для подтверждения."
 _CANCELLED = "Черновик отменён."
 _CANCEL_DECLINED = "Продолжаем запись."
@@ -84,7 +84,7 @@ _DRAFT_STARTED = "Запись началась. Диктуйте, я буду �
 _DRAFT_RESUMED = "Продолжаем запись. Диктуйте дальше."
 _FRAGMENT_ACCEPTED = "Приняла. Продолжайте."
 _NOTHING_TO_FINISH = "Запись не начиналась."
-_FINISHED = ("Запись закончена, мысль в обработке. Спросите «Готово?», чтобы узнать результат.")
+_FINISHED = ("Приняла запись, обработаю её в фоне.")
 _EXITED = "До встречи! Черновик и принятые задания сохранены."
 
 
@@ -138,7 +138,7 @@ def route_utterance(envelope: dict, *, store, owner: str) -> AliceAction:
     if normalized.startswith(VERBATIM_PREFIX):
         verbatim = utterance.strip()[len(VERBATIM_PREFIX):].strip()
         if verbatim:
-            return AliceAction(ACTION_VERBATIM, render_reply("Приняла мысль в обработку."), verbatim)
+            return AliceAction(ACTION_VERBATIM, render_reply("Приняла запись, обработаю её в фоне."), verbatim)
         return AliceAction("empty_verbatim", render_reply("Скажите текст после «Запиши дословно»."))
 
     greeting_phrases = (
@@ -153,7 +153,7 @@ def route_utterance(envelope: dict, *, store, owner: str) -> AliceAction:
 
     # Any other utterance becomes content (plan: мысли записываются как содержание).
     return AliceAction(ACTION_NEW_IDEA, render_reply(
-        "Приняла мысль в обработку. Спросите «Готово?», чтобы узнать результат."))
+        "Приняла запись, обработаю её в фоне."))
 
 
 def _service_action(command: str, *, store, owner: str) -> AliceAction:
@@ -171,7 +171,7 @@ def _service_action(command: str, *, store, owner: str) -> AliceAction:
         return AliceAction(ACTION_FINISH_DRAFT, render_reply(_FINISHED))
     if command == ACTION_CANCEL_DRAFT:
         return AliceAction(ACTION_CANCEL_DRAFT, render_reply(_CANCELLED))
-    return AliceAction(ACTION_NEW_IDEA, render_reply("Приняла мысль в обработку."))
+    return AliceAction(ACTION_NEW_IDEA, render_reply("Приняла запись, обработаю её в фоне."))
 
 
 def _status_reply(store, owner: str) -> AliceReply:

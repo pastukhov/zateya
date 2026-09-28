@@ -44,7 +44,7 @@ from backend.src.voice_gateway.alice.models import (
     JOB_STATUSES,
 )
 from backend.src.voice_gateway.text_turns import TextTurnRequest, TextTurnResult
-from backend.src.voice_gateway.alice.render import chunk_text, render_reply
+from backend.src.voice_gateway.alice.render import chunk_text, render_reply, render_long_reply
 
 #: Short busy timeout for webhook-path operations (plan task 3: ≤150 ms).
 WEBHOOK_BUSY_TIMEOUT_MS = 150
@@ -63,6 +63,10 @@ CREATE TABLE IF NOT EXISTS events (
     payload_hash TEXT NOT NULL,
     reply_json TEXT NOT NULL,
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
+CREATE TABLE IF NOT EXISTS webhook_replies (
+    key TEXT PRIMARY KEY,
+    reply_json TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS drafts (
     owner TEXT PRIMARY KEY,
@@ -165,6 +169,43 @@ class AliceStore:
                 reply = transition or reply
                 db.execute("INSERT INTO events(key, owner, payload_hash, reply_json) VALUES (?,?,?,?)",
                            (event.key(), event.owner, digest, json.dumps(
+                               {"text": reply.text, "tts": reply.tts,
+                                "end_session": reply.end_session, "extra": reply.extra},
+                               ensure_ascii=False)))
+                db.execute("COMMIT")
+                return reply
+            except Exception:
+                db.execute("ROLLBACK")
+                raise
+
+    def resolve_webhook_reply(self, event: AliceEvent, fallback: AliceReply,
+                              *, finish: bool = False) -> AliceReply | None:
+        """Freeze one response per event, using only that event's own job."""
+        with self._connect(WEBHOOK_BUSY_TIMEOUT_MS) as db:
+            db.execute("BEGIN IMMEDIATE")
+            try:
+                saved = db.execute("SELECT reply_json FROM webhook_replies WHERE key=?",
+                                   (event.key(),)).fetchone()
+                if saved:
+                    db.execute("COMMIT")
+                    return AliceReply(**json.loads(saved["reply_json"]))
+                job = db.execute(
+                    "SELECT status, reply FROM jobs WHERE owner=? AND "
+                    "json_extract(request_json, '$.request.request_id')=?",
+                    (event.owner, f"alice:{event.session_id}:{event.message_id}"),
+                ).fetchone()
+                reply = fallback
+                if job and job["status"] in ("queued", "running") and not finish:
+                    db.execute("COMMIT")
+                    return None
+                if job and job["status"] == "done":
+                    reply = render_long_reply(job["reply"] or "Готово.")
+                elif job and job["status"] == "needs_review":
+                    reply = render_reply("Запись сохранила, но обновление заметок требует проверки.")
+                elif job and job["status"] == "failed":
+                    reply = render_reply("Запись приняла, но обработать её не получилось.")
+                db.execute("INSERT INTO webhook_replies(key, reply_json) VALUES (?, ?)",
+                           (event.key(), json.dumps(
                                {"text": reply.text, "tts": reply.tts,
                                 "end_session": reply.end_session, "extra": reply.extra},
                                ensure_ascii=False)))

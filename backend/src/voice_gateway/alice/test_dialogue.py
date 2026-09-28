@@ -66,7 +66,7 @@ def test_content_phrase_becomes_new_idea():
     routed = route_utterance(envelope("Запиши мысль: поливать огород по утрам"),
                              store=FakeStatusStore(), owner="o")
     assert routed.action == ACTION_NEW_IDEA
-    assert "Приняла мысль" in routed.reply.text
+    assert "Приняла запись" in routed.reply.text
 
 
 def test_done_word_inside_thought_does_not_finish_draft():
@@ -132,7 +132,7 @@ def test_status_reports_processing_without_regeneration():
     store = FakeStatusStore(pending=2)
     routed = route_utterance(envelope("Готово?"), store=store, owner="o")
     assert routed.action == ACTION_STATUS
-    assert "Обрабатываю" in routed.reply.text
+    assert "обрабатываю" in routed.reply.text.lower()
 
 
 def test_status_reports_done_reply():

@@ -155,7 +155,7 @@ def test_verified_owner_creates_job_and_gets_reply(tmp_path):
     with TestClient(app) as client:
         response = post(client, envelope())
     assert response.status_code == 200
-    assert "Приняла мысль" in response.json()["response"]["text"]
+    assert "Приняла запись" in response.json()["response"]["text"]
     assert store.pending_count("owner-1") == 1
 
 
@@ -175,7 +175,7 @@ def test_same_key_with_different_text_is_rejected(tmp_path):
         conflict = post(client, envelope(text="совсем другая мысль"))
     assert first.status_code == 200
     assert conflict.status_code == 200  # safe reply, not an error
-    assert "Приняла мысль" not in conflict.json()["response"]["text"]
+    assert "Приняла запись" not in conflict.json()["response"]["text"]
     assert store.pending_count("owner-1") == 1
 
 
@@ -244,3 +244,35 @@ def test_non_capture_connection_check_never_queues_job(tmp_path, phrase):
     assert response.status_code == 200
     assert response.json()['response']['text'] == 'Связь есть, заметку не создавала.'
     assert store.pending_count('owner-1') == 0
+
+@pytest.mark.parametrize('delay,expected', [(0.01, 'ответ'), (0.4, 'Приняла запись, обработаю её в фоне.')])
+def test_bounded_wait_returns_result_or_durable_ack(tmp_path, monkeypatch, delay, expected):
+    from backend.src.voice_gateway.alice import api
+    from backend.src.voice_gateway.test_text_turns import FakeAgent
+    monkeypatch.setattr(api, 'WEBHOOK_BUDGET_SECONDS', 0.2)
+
+    class Agent(FakeAgent):
+        async def complete(self, request):
+            await asyncio.sleep(delay)
+            return await super().complete(request)
+
+    async def scenario():
+        app, store, worker = make_app(tmp_path)
+        worker.processor = TextTurnProcessor(Agent())
+        await worker.start()
+        try:
+            async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://test') as client:
+                payload = envelope()
+                headers = {'Authorization': 'Bearer oauth-token'}
+                started = time.monotonic()
+                response = await client.post('/api/alice/webhook', json=payload, headers=headers)
+                assert time.monotonic() - started < 0.35
+                assert response.json()['response']['text'] == expected
+                await asyncio.sleep(0.5)
+                replay = await client.post('/api/alice/webhook', json=payload, headers=headers)
+                assert replay.json() == response.json()
+                assert store.latest_reply('owner-1')['status'] == 'done'
+                assert len(worker.processor.agent.requests) == 1
+        finally:
+            await worker.close()
+    asyncio.run(scenario())

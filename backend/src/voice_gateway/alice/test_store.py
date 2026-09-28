@@ -186,3 +186,25 @@ def test_requests_do_not_contain_tokens(tmp_path):
     encoded = json.dumps(job.request, ensure_ascii=False, default=str)
     assert "oauth" not in encoded.lower()
     assert "token" not in encoded.lower()
+
+@pytest.mark.parametrize('status', ['done', 'failed', 'needs_review'])
+def test_webhook_result_is_specific_to_event_and_survives_reopen(tmp_path, status):
+    store = make_store(tmp_path)
+    event = make_event(1)
+    fallback = AliceReply(text='Приняла запись, обработаю её в фоне.')
+    store.accept(event, fallback)
+    own = store.claim_next()
+    store.accept(make_event(2), fallback)
+    other = store.claim_next()
+    store.complete(other.job_id, TextTurnResult('Чужой результат', None, None, 'test', None))
+    assert store.resolve_webhook_reply(event, fallback) is None
+    if status == 'failed':
+        store.fail(own.job_id, 'agent_timeout')
+        expected = 'обработать её не получилось'
+    else:
+        receipt = {'status': 'needs_review'} if status == 'needs_review' else None
+        store.complete(own.job_id, TextTurnResult('Мой результат', None, receipt, 'test', None))
+        expected = 'требует проверки' if receipt else 'Мой результат'
+    reply = store.resolve_webhook_reply(event, fallback)
+    assert expected in reply.text
+    assert make_store(tmp_path).resolve_webhook_reply(event, fallback) == reply

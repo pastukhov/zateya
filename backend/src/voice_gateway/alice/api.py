@@ -1,10 +1,8 @@
 """Fast Alice webhook endpoint (plan task 4).
 
-Budget: the whole handler fits into 2 s (platform limit is 4.5 s). The
-endpoint does only four things: verify the token, build the verified event,
-persist it through the durable store (short busy timeout), and return the
-stored reply. LLM, Git and knowledge work happen in the background worker
-— a slow LLM/Git never delays the HTTP answer (tested separately).
+Budget: 2 s including authentication and optional result waiting. Accepted
+jobs always run in the independent durable worker. Waiting never cancels
+processing; each event's first HTTP reply is frozen for retries.
 
 Limits: 64 KiB body, 30 requests/minute per owner plus the general ingress
 limiter before OAuth verification. HTTP client disconnects after the store
@@ -175,6 +173,18 @@ def install_alice_routes(
             logger.warning("alice webhook store commit exceeded the budget")
             return JSONResponse(safe_reply(reply_busy(), version=envelope.get("version")), status_code=503)
         worker.notify()
+        if event.action in {"new_idea", "verbatim", "finish_draft"}:
+            # Reserve time for the final SQLite transaction and HTTP response.
+            deadline = started + WEBHOOK_BUDGET_SECONDS - 0.1
+            while True:
+                resolved = await asyncio.to_thread(
+                    store.resolve_webhook_reply, event, reply,
+                    finish=time.monotonic() >= deadline,
+                )
+                if resolved is not None:
+                    reply = resolved
+                    break
+                await asyncio.sleep(min(0.025, max(0, deadline - time.monotonic())))
         return JSONResponse(safe_reply(reply, version=envelope.get("version")))
 
 
