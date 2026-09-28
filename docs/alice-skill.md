@@ -82,3 +82,34 @@ ALICE_CONTEXT_DEVICE_ID=<существующий device_id диктофона>
   десятиминутной записи через протокол Алисы нет.
 - До модерации приватного навыка доступ владельца невозможен; для
   первого прогона используется ответ-заглушка без vault.
+
+
+## KeenDNS: zateya.atitlan.keenetic.link
+
+Публичный адрес webhook: `https://zateya.atitlan.keenetic.link/api/alice/webhook`.
+Keenetic направляет приложение на `192.168.11.2:7071` по HTTP. Сертификат
+обслуживает Keenetic. Внутри Compose Nginx передаёт только POST точного пути
+webhook на backend и использует его `VOICE_BIND_PORT` (на сервере 7070).
+Остальные пути возвращают 404, другие методы webhook — 405; тело ограничено
+64 KiB. Логи proxy содержат только статус, метод и время запроса.
+
+Для постоянного запуска proxy добавьте в `.env` рядом с Compose:
+
+```dotenv
+COMPOSE_PROFILES=alice
+ALICE_PROXY_PORT=7071
+```
+
+Затем `docker compose up -d alice-proxy`. Существующий systemd unit читает
+профиль через Compose из `.env`; при следующем запуске `systemctl restart zateya`
+оба контейнера подключаются к журналу unit. До этого журналы отдельно запущенного
+proxy доступны через `docker compose logs alice-proxy`.
+
+`ALICE_ENABLED=false` оставляет сам webhook отключённым: публичный POST вернёт
+404 от backend, хотя маршрут KeenDNS и proxy уже работает. Для активации нужны
+настройки Яндекс ID и навыка из раздела выше и проверка на тестовом vault.
+Не включайте браузерную авторизацию Keenetic для этого веб-приложения:
+авторизацию владельца проверяет backend. Порт 7070 остаётся входом диктофона.
+
+Интеграционная проверка proxy (требуется Docker, без vault и реальных токенов):
+`python -m pytest -q deploy/test_alice_proxy.py`.
