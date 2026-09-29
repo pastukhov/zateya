@@ -9,15 +9,17 @@ import logging
 import os
 from pathlib import Path
 import subprocess
+import time
 
 logger = logging.getLogger(__name__)
 
 
 class GitSync:
-    def __init__(self, vault: Path):
+    def __init__(self, vault: Path, metrics=None):
         self.vault = Path(vault).resolve()
         self.queue = self.vault / 'Затея/.sync'
         self.last_result = {'status': 'idle'}
+        self.metrics = metrics
 
     def _git(self, *args, check=True):
         # Git and SSH do not need provider or device credentials from the gateway.
@@ -36,6 +38,7 @@ class GitSync:
                               text=True, capture_output=True, timeout=30, check=check)
 
     def run_once(self):
+        started = time.monotonic()
         if self.queue.is_symlink():
             return {'status': 'conflict'}
         self.queue.mkdir(parents=True, exist_ok=True)
@@ -47,12 +50,18 @@ class GitSync:
                 fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
                 result = self._sync()
         except BlockingIOError:
-            return {'status': 'busy'}
+            result = {'status': 'busy'}
         except (subprocess.SubprocessError, OSError):
             result = {'status': 'retry'}
         except (ValueError, KeyError, TypeError):
             result = {'status': 'conflict'}
         self.last_result = result
+        if self.metrics is not None:
+            self.metrics.git_sync_total.labels(status=result['status']).inc()
+            if result['status'] in ('idle', 'updated', 'synced'):
+                self.metrics.git_last_success.set(time.time())
+            if result['status'] == 'busy':
+                self.metrics.git_lock_wait.observe(time.monotonic() - started)
         return result
 
     def _sync(self):

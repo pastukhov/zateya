@@ -387,6 +387,14 @@ class AliceStore:
                 db.execute("ROLLBACK")
                 raise
 
+    def job_counts(self) -> dict[str, int]:
+        """Return bounded current-status counts for Prometheus."""
+        with self._connect(WEBHOOK_BUSY_TIMEOUT_MS) as db:
+            rows = db.execute("SELECT status, COUNT(*) AS count FROM jobs GROUP BY status").fetchall()
+        counts = {status: 0 for status in JOB_STATUSES}
+        counts.update({row["status"]: row["count"] for row in rows})
+        return counts
+
     def latest_reply(self, owner: str) -> dict | None:
         """Most recent finished job's reply for the status dialogue."""
         with self._connect(WEBHOOK_BUSY_TIMEOUT_MS) as db:

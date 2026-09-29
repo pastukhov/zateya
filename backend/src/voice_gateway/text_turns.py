@@ -32,6 +32,7 @@ from backend.src.voice_gateway.knowledge.git_sync import GitSync
 from backend.src.voice_gateway.knowledge.store import KnowledgeConflict, KnowledgeStore
 from backend.src.voice_gateway.models import Transcript
 from backend.src.voice_gateway.models.hermes_response import HermesResponse
+from backend.src.voice_gateway.usage.recorder import UsageRecorder
 
 logger = logging.getLogger(__name__)
 
@@ -102,6 +103,7 @@ class TextTurnProcessor:
         *,
         knowledge: KnowledgeStore | None = None,
         git_sync: GitSync | None = None,
+        usage_recorder: UsageRecorder | None = None,
         deadline_seconds: float = TEXT_TURN_DEADLINE_SECONDS,
     ) -> None:
         if agent is None and hermes is None:
@@ -115,6 +117,7 @@ class TextTurnProcessor:
             self.hermes = hermes
         self.knowledge = knowledge
         self.git_sync = git_sync
+        self.usage_recorder = usage_recorder
         self.deadline_seconds = deadline_seconds
         self._context_locks: dict[str, asyncio.Lock] = {}
 
@@ -134,14 +137,23 @@ class TextTurnProcessor:
         async with self._lock_for(request.context_id):
             try:
                 async with asyncio.timeout(self.deadline_seconds):
-                    return await self._process(request)
+                    result = await self._process(request)
+                    self._finish_usage(request, result=result, outcome="success")
+                    return result
+            except asyncio.CancelledError:
+                self._finish_usage(request, outcome="cancelled")
+                raise
             except TimeoutError:
+                self._finish_usage(request, outcome="timeout")
                 raise TextTurnError("agent_timeout") from None
             except TextTurnError:
+                self._finish_usage(request, outcome="error")
                 raise
             except KnowledgeConflict:
+                self._finish_usage(request, outcome="error")
                 raise TextTurnError("knowledge_conflict") from None
             except Exception as exc:
+                self._finish_usage(request, outcome="error")
                 code = getattr(exc, "code", None)
                 if code in {
                     "agent_auth_required", "agent_rate_limited", "agent_timeout",
@@ -157,6 +169,22 @@ class TextTurnProcessor:
                 logger.exception("text turn %s failed", request.turn_id)
                 raise TextTurnError("agent_unavailable") from None
 
+    def _finish_usage(self, request: TextTurnRequest, *, result: TextTurnResult | None = None,
+                      outcome: str) -> None:
+        if self.usage_recorder is None:
+            return
+        receipt = result.receipt if result is not None else None
+        operation = receipt.get("operation", "none") if receipt else "none"
+        saved = bool(
+            receipt
+            and receipt.get("status") != "needs_review"
+            and operation in {"capture", "amend"}
+        )
+        self.usage_recorder.finish_turn(
+            request.turn_id, channel=request.channel, outcome=outcome,
+            operation=operation, note_saved=saved,
+        )
+
     async def _process(self, request: TextTurnRequest) -> TextTurnResult:
         archive_dir = Path(request.archive_dir)
         # Alice's service calls must never be mistaken for recorder audio
@@ -167,6 +195,7 @@ class TextTurnProcessor:
         receipt: dict | None = None
         if self.knowledge is not None:
             if self.git_sync is not None:
+                sync_started = time.monotonic()
                 sync_result = await asyncio.to_thread(self.git_sync.run_once)
                 if sync_result["status"] == "busy":
                     logger.info("Waiting for Obsidian Git lock for text turn %s", request.turn_id)
@@ -176,11 +205,13 @@ class TextTurnProcessor:
                     await asyncio.sleep(0.25)
                     sync_result = await asyncio.to_thread(self.git_sync.run_once)
                 if sync_result["status"] not in ("idle", "updated", "synced"):
+                    self._record_stage(request, "git_refresh", "error", sync_started)
                     logger.warning(
                         "Obsidian refresh blocked before text turn %s: %s",
                         request.turn_id, sync_result,
                     )
                     raise TextTurnError("knowledge_sync_failed")
+                self._record_stage(request, "git_refresh", "success", sync_started)
             # ``job`` mirrors the pipeline's capture() argument; channel and
             # physical client are recorded as origin, context stays the key.
             job = {
@@ -241,7 +272,9 @@ class TextTurnProcessor:
                     request.turn_id, time.monotonic() - publish_started,
                 )
                 response.reply = receipt["reply"]
+                self._record_stage(request, "publish", "success", publish_started)
             except KnowledgeConflict:
+                self._record_stage(request, "publish", "error", publish_started)
                 receipt = {"source_id": source_id, "status": "needs_review"}
                 response.reply = ("Исходная запись сохранена. Обновление заметок требует проверки; "
                                   "существующие правки не перезаписаны.")
@@ -275,3 +308,11 @@ class TextTurnProcessor:
             provider=metadata["provider"],
             model=metadata["model"],
         )
+
+    def _record_stage(self, request: TextTurnRequest, stage: str, outcome: str,
+                      started: float) -> None:
+        if self.usage_recorder is not None:
+            self.usage_recorder.record_stage(
+                channel=request.channel, stage=stage, outcome=outcome,
+                elapsed_seconds=time.monotonic() - started,
+            )

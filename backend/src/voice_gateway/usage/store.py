@@ -46,6 +46,13 @@ CREATE TABLE IF NOT EXISTS turns (
     note_saved INTEGER NOT NULL,
     finished_at REAL NOT NULL
 );
+CREATE TABLE IF NOT EXISTS stage_events (
+    event_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    channel TEXT NOT NULL,
+    stage TEXT NOT NULL,
+    outcome TEXT NOT NULL,
+    elapsed_seconds REAL NOT NULL
+);
 """
 
 
@@ -138,6 +145,14 @@ class UsageStore:
                 (turn_id, channel, outcome, operation, int(note_saved), time.time()),
             )
 
+    def record_stage(self, *, channel: str, stage: str, outcome: str,
+                     elapsed_seconds: float) -> None:
+        with self._connect() as connection:
+            connection.execute(
+                "INSERT INTO stage_events(channel,stage,outcome,elapsed_seconds) VALUES (?,?,?,?)",
+                (channel, stage, outcome, elapsed_seconds),
+            )
+
     def snapshot(self) -> dict:
         with self._connect() as connection:
             rows = connection.execute("SELECT * FROM calls ORDER BY started_at, call_id").fetchall()
@@ -145,14 +160,18 @@ class UsageStore:
                 "SELECT value FROM metadata WHERE key='started_at'"
             ).fetchone()[0])
             turns = [dict(row) for row in connection.execute("SELECT * FROM turns")]
+            stage_events = [dict(row) for row in connection.execute("SELECT * FROM stage_events")]
         totals: dict[tuple[str, str, str, str, str], Decimal] = {}
         finished = 0
         unknown = 0
         for row in rows:
-            if row["state"] != "finished" or row["cost_amount"] is None:
+            if row["state"] != "finished":
                 unknown += 1
                 continue
             finished += 1
+            if row["cost_amount"] is None:
+                unknown += 1
+                continue
             key = (row["channel"], row["stage"], row["model"],
                    row["cost_currency"], row["cost_kind"])
             totals[key] = totals.get(key, Decimal(0)) + Decimal(row["cost_amount"])
@@ -160,6 +179,7 @@ class UsageStore:
             "accounting_started_at": started_at,
             "calls": [dict(row) for row in rows],
             "turns": turns,
+            "stage_events": stage_events,
             "finished_calls": finished,
             "unknown_calls": unknown,
             "cost_totals": totals,

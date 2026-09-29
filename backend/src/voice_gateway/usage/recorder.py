@@ -58,3 +58,9 @@ class UsageRecorder:
             self.store.finish_turn(turn_id, **fields)
         except Exception as exc:
             self._failed(exc)
+
+    def record_stage(self, **fields) -> None:
+        try:
+            self.store.record_stage(**fields)
+        except Exception as exc:
+            self._failed(exc)

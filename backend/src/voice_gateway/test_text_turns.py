@@ -13,6 +13,8 @@ from backend.src.voice_gateway.text_turns import (
     TextTurnRequest,
     TextTurnError,
 )
+from backend.src.voice_gateway.usage.recorder import UsageRecorder
+from backend.src.voice_gateway.usage.store import UsageStore
 
 
 class FakeAgent:
@@ -185,11 +187,18 @@ def test_explicit_query_creates_no_idea(tmp_path):
         vault = tmp_path / "vault"
         vault.mkdir()
         knowledge = KnowledgeStore(vault, tmp_path / "state")
-        processor = TextTurnProcessor(QueryAgent(), knowledge=knowledge)
+        usage_store = UsageStore(tmp_path / "usage.sqlite3")
+        usage_store.initialize()
+        processor = TextTurnProcessor(QueryAgent(), knowledge=knowledge,
+                                      usage_recorder=UsageRecorder(usage_store))
         result = await processor.process(make_request(archive_dir=tmp_path / "q"))
         assert result.receipt["reply"] == "ответ"
         assert result.receipt["pages"] == []
         assert not (vault / "Затея/ideas").exists()
+        turn = usage_store.snapshot()["turns"][0]
+        assert (turn["outcome"], turn["operation"], turn["note_saved"]) == (
+            "success", "query", 0
+        )
 
     asyncio.run(scenario())
 
@@ -201,13 +210,18 @@ def test_needs_review_on_manual_edit_keeps_source_and_reply(tmp_path):
         knowledge = KnowledgeStore(vault, tmp_path / "state")
         # An agent reply without a knowledge proposal makes publish raise a
         # conflict: the source stays, the reply explains the review state.
-        processor = TextTurnProcessor(FakeAgent(), knowledge=knowledge)
+        usage_store = UsageStore(tmp_path / "usage.sqlite3")
+        usage_store.initialize()
+        processor = TextTurnProcessor(FakeAgent(), knowledge=knowledge,
+                                      usage_recorder=UsageRecorder(usage_store))
         archive = tmp_path / "a1"
         result = await processor.process(make_request(1, "первая", archive_dir=archive))
         assert result.receipt["status"] == "needs_review"
         assert result.reply.startswith("Исходная запись сохранена")
         assert (archive / "reply.txt").exists()
         assert (vault / "Затея/sources").exists()
+        turn = usage_store.snapshot()["turns"][0]
+        assert (turn["operation"], turn["note_saved"]) == ("none", 0)
 
     asyncio.run(scenario())
 

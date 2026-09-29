@@ -16,6 +16,8 @@ from backend.src.voice_gateway.agents.sessions import AgentSessionStore
 from backend.src.voice_gateway.models import TTSResult, Transcript
 from backend.src.voice_gateway.pipeline import VoicePipeline, VoicePipelineError
 from backend.src.voice_gateway.text_turns import TextTurnProcessor
+from backend.src.voice_gateway.usage.recorder import UsageRecorder
+from backend.src.voice_gateway.usage.store import UsageStore
 
 
 class FakeSTT:
@@ -181,9 +183,18 @@ def test_wiki_survives_tts_failure_and_retry_does_not_call_agent_twice(tmp_path)
         job = dict(audio_path=str(audio), turn_id='t1', request_id='r1', device_id='mic',
                    created_at='2026-09-25', audio_bytes=200)
         agent = WikiAgent()
-        pipeline = VoicePipeline(FakeSTT(), agent, None, BrokenTTS(), knowledge=knowledge)
+        usage_store = UsageStore(tmp_path / 'usage.sqlite3')
+        usage_store.initialize()
+        usage = UsageRecorder(usage_store)
+        processor = TextTurnProcessor(agent, knowledge=knowledge, usage_recorder=usage)
+        pipeline = VoicePipeline(FakeSTT(), agent, None, BrokenTTS(), knowledge=knowledge,
+                                 text_processor=processor, usage_recorder=usage)
         with pytest.raises(VoicePipelineError):
             await pipeline.run(job)
+        turn = usage_store.snapshot()['turns'][0]
+        assert (turn['outcome'], turn['operation'], turn['note_saved']) == (
+            'error', 'capture', 1
+        )
         assert len(list((vault / 'Затея/ideas').glob('*.md'))) == 1
         assert (tmp_path / 'transcript.txt').exists()
         pipeline.tts = FakeTTS()

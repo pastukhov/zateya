@@ -39,6 +39,7 @@ from backend.src.voice_gateway.knowledge.git_sync import GitSync
 from backend.src.voice_gateway.usage.pricing import PricingError, load_rates
 from backend.src.voice_gateway.usage.recorder import UsageRecorder
 from backend.src.voice_gateway.usage.store import UsageStore
+from backend.src.voice_gateway.usage.collector import UsageCollector
 from backend.src.voice_gateway.stt.base import STTProvider
 from backend.src.voice_gateway.stt.client import OpenAICompatibleSTT
 from backend.src.voice_gateway.tts.base import TTSProvider
@@ -212,14 +213,17 @@ def create_app(
     job_store = VoiceJobStore(job_database, root)
     vault_path = os.environ.get("OBSIDIAN_VAULT_PATH")
     knowledge = KnowledgeStore(Path(vault_path), root / "knowledge-state") if vault_path and os.environ.get("VOICE_KNOWLEDGE_ENABLED", "false").lower() == "true" else None
-    git_sync = GitSync(Path(vault_path)) if knowledge is not None else None
+    git_sync = GitSync(Path(vault_path), metrics=metrics) if knowledge is not None else None
     if knowledge is not None and agent_client is None and hermes_client is None:
         raise ValueError("Knowledge capture requires an LLM client")
-    shared_text_processor = TextTurnProcessor(agent_client, hermes_stage,
-                                              knowledge=knowledge, git_sync=git_sync)
+    shared_text_processor = TextTurnProcessor(
+        agent_client, hermes_stage, knowledge=knowledge, git_sync=git_sync,
+        usage_recorder=usage_recorder,
+    )
     pipeline = VoicePipeline(stt_provider, agent_client, hermes_stage, tts_provider,
                              knowledge=knowledge, git_sync=git_sync,
-                             text_processor=shared_text_processor)
+                             text_processor=shared_text_processor,
+                             usage_recorder=usage_recorder)
     job_worker = VoiceJobWorker(job_store, pipeline.run)
     alice_processor = shared_text_processor
     try:
@@ -236,6 +240,10 @@ def create_app(
         alice_worker = AliceWorker(alice_store, alice_processor)
         alice_auth = AliceAuthenticator(allowed_yandex_id=alice_config.allowed_yandex_id,
                                         context_id=alice_config.context_device_id)
+    if root.exists():
+        metrics.registry.register(UsageCollector(
+            usage_store, alice_store.job_counts if alice_store is not None else None
+        ))
     try:
         device_tokens = parse_device_tokens(os.environ.get("VOICE_DEVICE_TOKENS"))
     except ValueError:

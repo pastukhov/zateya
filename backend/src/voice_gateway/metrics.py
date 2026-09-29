@@ -173,6 +173,19 @@ class VoiceMetrics:
             "Accounting writes that could not be persisted.",
             registry=registry,
         )
+        self.git_sync_total = Counter(
+            "zateya_git_sync_total", "Git synchronization attempts by status.",
+            ("status",), registry=registry,
+        )
+        self.git_last_success = Gauge(
+            "zateya_git_last_success_timestamp_seconds",
+            "Unix timestamp of the last successful Git synchronization.",
+            registry=registry,
+        )
+        self.git_lock_wait = Histogram(
+            "zateya_git_lock_wait_seconds", "Time spent attempting the Git writer lock.",
+            registry=registry, buckets=_BUCKETS,
+        )
 
 
 #: Process-wide namespace used by the module-level ``app`` (production).

@@ -24,6 +24,7 @@ from backend.src.voice_gateway.text_turns import TextTurnProcessor, TextTurnRequ
 from backend.src.voice_gateway.tts.base import TTSProvider, TTSProviderError
 from backend.src.voice_gateway.tts.openai_compatible import OpenAICompatibleTTS
 from backend.src.voice_gateway.usage.models import CallContext
+from backend.src.voice_gateway.usage.recorder import UsageRecorder
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +47,7 @@ class VoicePipeline:
         knowledge: KnowledgeStore | None = None,
         git_sync: GitSync | None = None,
         text_processor: TextTurnProcessor | None = None,
+        usage_recorder: UsageRecorder | None = None,
     ) -> None:
         self.knowledge = knowledge
         self.git_sync = git_sync
@@ -54,6 +56,7 @@ class VoicePipeline:
         self.hermes = hermes
         self.tts = tts
         self.deadline_seconds = deadline_seconds
+        self.usage_recorder = usage_recorder
         # One shared text service behind STT: the recorder keeps its audio
         # stages (PCM → STT → TTS), the text segment delegates to the
         # processor that the Alice channel reuses (plan task 2).
@@ -63,6 +66,7 @@ class VoicePipeline:
             knowledge=knowledge,
             git_sync=git_sync,
             deadline_seconds=deadline_seconds,
+            usage_recorder=usage_recorder,
         )
 
     async def run(
@@ -163,15 +167,23 @@ class VoicePipeline:
                         **metadata,
                     },
                 )
+                self._finish_usage(job, "success")
                 return output_wav
+        except asyncio.CancelledError:
+            output_part.unlink(missing_ok=True)
+            self._finish_usage(job, "cancelled")
+            raise
         except TimeoutError:
             output_part.unlink(missing_ok=True)
+            self._finish_usage(job, "timeout")
             raise VoicePipelineError("agent_timeout") from None
         except VoicePipelineError:
             output_part.unlink(missing_ok=True)
+            self._finish_usage(job, "error")
             raise
         except TextTurnError as exc:
             output_part.unlink(missing_ok=True)
+            self._finish_usage(job, "timeout" if exc.code == "agent_timeout" else "error")
             raise VoicePipelineError(exc.code) from None
         except STTClientError as exc:
             logger.warning(
@@ -180,12 +192,15 @@ class VoicePipeline:
                 exc,
             )
             output_part.unlink(missing_ok=True)
+            self._finish_usage(job, "error")
             raise VoicePipelineError("stt_failed") from None
         except TTSProviderError:
             output_part.unlink(missing_ok=True)
+            self._finish_usage(job, "error")
             raise VoicePipelineError("tts_failed") from None
         except Exception as exc:
             output_part.unlink(missing_ok=True)
+            self._finish_usage(job, "error")
             if hasattr(exc, "status") and getattr(exc, "status") in {
                 "hermes_failed", "hermes_invalid_response"
             }:
@@ -198,6 +213,13 @@ class VoicePipeline:
             }:
                 raise VoicePipelineError(code) from None
             raise VoicePipelineError("agent_unavailable") from None
+
+    def _finish_usage(self, job: dict[str, Any], outcome: str) -> None:
+        if self.usage_recorder is not None:
+            self.usage_recorder.finish_turn(
+                job["turn_id"], channel="recorder", outcome=outcome,
+                operation="none", note_saved=False,
+            )
 
     @staticmethod
     def _pcm_to_wav(source: Path, target: Path) -> None:

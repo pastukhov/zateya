@@ -255,7 +255,8 @@ class KnowledgeStore:
             if operation == "query":
                 if note.create or proposal.pages:
                     raise KnowledgeConflict("query must not mutate pages")
-                return {"reply": reply, "source_id": source_id, "pages": []}
+                return {"reply": reply, "source_id": source_id,
+                        "operation": "query", "pages": []}
             if not note.create or not note.title.strip() or not note.content.strip():
                 raise KnowledgeConflict("empty idea")
             known = {p["path"]: p for p in context["pages"]}
