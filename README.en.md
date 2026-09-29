@@ -40,6 +40,10 @@ Dictate ideas through Alice alongside the recorder. Both interfaces share the ba
 
 Dictate a thought in one message, or say “Начни запись” (start recording), add several fragments, then say “Закончи запись” (finish recording). Fast results are spoken immediately. Otherwise, Alice acknowledges receipt and processing continues in the background. Asking “Готово?” (ready?) is optional and retrieves the result later.
 
+The server exports Prometheus metrics for turns, processing stages, Git sync,
+and LLM/STT/TTS costs. See the [monitoring guide](docs/monitoring.md) for the
+Grafana dashboard and vmagent scrape example.
+
 Account linking through Yandex ID restricts access to the configured owner. The optional Compose profile `alice` adds a dedicated Nginx proxy for KeenDNS: only `POST /api/alice/webhook` is exposed publicly, while the recorder API stays on the local network.
 
 See the [Alice skill setup guide (Russian)](docs/alice-skill.md) for skill creation, OAuth, `ALICE_*` variables, KeenDNS, and troubleshooting.
