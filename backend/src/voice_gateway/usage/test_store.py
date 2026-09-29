@@ -77,6 +77,34 @@ def test_concurrent_writes_are_not_lost(tmp_path):
     assert next(iter(snapshot["cost_totals"].values())) == Decimal("0.30")
 
 
+def test_concurrent_turn_rollups_are_atomic_and_terminal_is_idempotent(tmp_path):
+    store = UsageStore(tmp_path / "usage.sqlite3")
+    store.initialize()
+
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        list(executor.map(
+            lambda number: store.finish_turn(
+                f"turn-{number}", channel="alice", outcome="success",
+                operation="query", note_saved=False,
+            ),
+            range(30),
+        ))
+    store.finish_turn("shared", channel="alice", outcome="pending",
+                      operation="query", note_saved=False)
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        list(executor.map(
+            lambda _: store.finish_turn(
+                "shared", channel="alice", outcome="success",
+                operation="none", note_saved=False,
+            ),
+            range(10),
+        ))
+
+    totals = store.metrics_snapshot()["metrics"]
+    assert dict(totals["turns"])[("alice", "success")] == Decimal(31)
+    assert dict(totals["operations"])[("alice", "query")] == Decimal(31)
+
+
 def test_different_currencies_are_never_combined(tmp_path):
     store = UsageStore(tmp_path / "usage.sqlite3")
     store.initialize()

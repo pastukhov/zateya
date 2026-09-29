@@ -157,29 +157,45 @@ class UsageStore:
         note_saved: bool,
     ) -> None:
         with self._connect() as connection:
-            previous = connection.execute("SELECT * FROM turns WHERE turn_id=?", (turn_id,)).fetchone()
-            connection.execute(
-                "INSERT INTO turns(turn_id,channel,outcome,operation,note_saved,finished_at) "
-                "VALUES (?,?,?,?,?,?) ON CONFLICT(turn_id) DO UPDATE SET "
-                "outcome=excluded.outcome, operation=CASE WHEN excluded.operation='none' "
-                "THEN turns.operation ELSE excluded.operation END, "
-                "note_saved=MAX(turns.note_saved,excluded.note_saved), finished_at=excluded.finished_at",
-                (turn_id, channel, outcome, operation, int(note_saved), time.time()),
-            )
-            if outcome != "pending" and (previous is None or previous["outcome"] == "pending"):
-                final = connection.execute("SELECT * FROM turns WHERE turn_id=?", (turn_id,)).fetchone()
-                self._increment(connection, "turns", (channel, outcome), 1)
-                if final["operation"] != "none":
-                    self._increment(connection, "operations", (channel, final["operation"]), 1)
-                if final["note_saved"] and final["operation"] in ("capture", "amend"):
-                    self._increment(connection, "notes", (channel, final["operation"]), 1)
-                if final["note_saved"] and final["operation"] == "capture":
-                    self._rollup_completed_capture(connection, turn_id, channel)
+            connection.execute("BEGIN IMMEDIATE")
+            try:
+                previous = connection.execute(
+                    "SELECT * FROM turns WHERE turn_id=?", (turn_id,)
+                ).fetchone()
+                connection.execute(
+                    "INSERT INTO turns(turn_id,channel,outcome,operation,note_saved,finished_at) "
+                    "VALUES (?,?,?,?,?,?) ON CONFLICT(turn_id) DO UPDATE SET "
+                    "outcome=excluded.outcome, operation=CASE WHEN excluded.operation='none' "
+                    "THEN turns.operation ELSE excluded.operation END, "
+                    "note_saved=MAX(turns.note_saved,excluded.note_saved), finished_at=excluded.finished_at",
+                    (turn_id, channel, outcome, operation, int(note_saved), time.time()),
+                )
+                if outcome != "pending" and (previous is None or previous["outcome"] == "pending"):
+                    final = connection.execute(
+                        "SELECT * FROM turns WHERE turn_id=?", (turn_id,)
+                    ).fetchone()
+                    self._increment(connection, "turns", (channel, outcome), 1)
+                    if final["operation"] != "none":
+                        self._increment(connection, "operations", (channel, final["operation"]), 1)
+                    if final["note_saved"] and final["operation"] in ("capture", "amend"):
+                        self._increment(connection, "notes", (channel, final["operation"]), 1)
+                    if final["note_saved"] and final["operation"] == "capture":
+                        self._rollup_completed_capture(connection, turn_id, channel)
+                connection.execute("COMMIT")
+            except Exception:
+                connection.execute("ROLLBACK")
+                raise
 
     def record_stage(self, *, channel: str, stage: str, outcome: str,
                      elapsed_seconds: float) -> None:
         with self._connect() as connection:
-            self._rollup_stage(connection, channel, stage, outcome, elapsed_seconds)
+            connection.execute("BEGIN IMMEDIATE")
+            try:
+                self._rollup_stage(connection, channel, stage, outcome, elapsed_seconds)
+                connection.execute("COMMIT")
+            except Exception:
+                connection.execute("ROLLBACK")
+                raise
 
     @staticmethod
     def _increment(connection, metric: str, labels: tuple, amount) -> None:
@@ -221,7 +237,10 @@ class UsageStore:
 
     def _rollup_completed_capture(self, connection, turn_id, channel) -> None:
         rows = connection.execute("SELECT * FROM calls WHERE turn_id=?", (turn_id,)).fetchall()
-        if not rows or any(row["state"] != "finished" or row["cost_amount"] is None for row in rows):
+        stages = {row["stage"] for row in rows}
+        required = {"llm"} if channel == "alice" else {"stt", "llm", "tts"}
+        if (not required <= stages
+                or any(row["state"] != "finished" or row["cost_amount"] is None for row in rows)):
             self._increment(connection, "completed_excluded", (channel, "incomplete_usage"), 1)
             return
         currencies = {row["cost_currency"] for row in rows}

@@ -134,7 +134,12 @@ class VoicePipeline:
                 try:
                     await asyncio.shield(synthesis)
                 except asyncio.CancelledError:
-                    synthesis.add_done_callback(lambda _: output_part.unlink(missing_ok=True))
+                    # The provider call may already be billable. Wait for its
+                    # accounting record before finalizing the cancelled turn.
+                    try:
+                        await asyncio.shield(synthesis)
+                    finally:
+                        output_part.unlink(missing_ok=True)
                     raise
                 logger.info(
                     "finished speech synthesis for turn %s in %.2fs",
