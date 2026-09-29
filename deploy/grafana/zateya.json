@@ -1,0 +1,32 @@
+{
+  "annotations": {"list": []},
+  "editable": true,
+  "graphTooltip": 1,
+  "panels": [
+    {"id": 1, "title": "Backend доступен", "type": "stat", "gridPos": {"h": 4, "w": 4, "x": 0, "y": 0}, "targets": [{"refId": "A", "expr": "up{job=\"zateya\"}", "datasource": {"uid": "$datasource"}}]},
+    {"id": 2, "title": "Ошибки задач", "type": "stat", "gridPos": {"h": 4, "w": 5, "x": 4, "y": 0}, "fieldConfig": {"defaults": {"unit": "percentunit"}, "overrides": []}, "targets": [{"refId": "A", "expr": "sum(rate(zateya_turns_total{channel=~\"$channel\",outcome!=\"success\"}[$__rate_interval])) / clamp_min(sum(rate(zateya_turns_total{channel=~\"$channel\"}[$__rate_interval])), 1)", "datasource": {"uid": "$datasource"}}]},
+    {"id": 3, "title": "Очередь Алисы", "type": "timeseries", "gridPos": {"h": 6, "w": 7, "x": 9, "y": 0}, "targets": [{"refId": "A", "expr": "sum by(status) (zateya_alice_jobs)", "legendFormat": "{{status}}", "datasource": {"uid": "$datasource"}}]},
+    {"id": 4, "title": "Последняя синхронизация Git", "type": "stat", "gridPos": {"h": 4, "w": 8, "x": 16, "y": 0}, "fieldConfig": {"defaults": {"unit": "dateTimeFromNow"}, "overrides": []}, "targets": [{"refId": "A", "expr": "zateya_git_last_success_timestamp_seconds", "datasource": {"uid": "$datasource"}}, {"refId": "B", "expr": "sum by(status) (increase(zateya_git_sync_total[$__range]))", "hide": true, "datasource": {"uid": "$datasource"}}, {"refId": "C", "expr": "histogram_quantile(0.95, rate(zateya_git_lock_wait_seconds_bucket[$__rate_interval]))", "hide": true, "datasource": {"uid": "$datasource"}}]},
+    {"id": 5, "title": "Длительность этапов p50/p95", "type": "timeseries", "gridPos": {"h": 8, "w": 12, "x": 0, "y": 6}, "fieldConfig": {"defaults": {"unit": "s"}, "overrides": []}, "targets": [{"refId": "A", "expr": "histogram_quantile(0.50, sum by(le,stage) (rate(zateya_stage_duration_seconds_bucket{channel=~\"$channel\"}[$__rate_interval])))", "legendFormat": "p50 {{stage}}", "datasource": {"uid": "$datasource"}}, {"refId": "B", "expr": "histogram_quantile(0.95, sum by(le,stage) (rate(zateya_stage_duration_seconds_bucket{channel=~\"$channel\"}[$__rate_interval])))", "legendFormat": "p95 {{stage}}", "datasource": {"uid": "$datasource"}}]},
+    {"id": 6, "title": "Расходы по этапам", "type": "timeseries", "gridPos": {"h": 8, "w": 12, "x": 12, "y": 6}, "targets": [{"refId": "A", "expr": "sum by(stage,cost_kind) (rate(zateya_provider_cost_total{channel=~\"$channel\",currency=~\"$currency\"}[$__rate_interval]))", "legendFormat": "{{stage}} / {{cost_kind}}", "datasource": {"uid": "$datasource"}}]},
+    {"id": 7, "title": "Неизвестная стоимость", "type": "stat", "gridPos": {"h": 5, "w": 6, "x": 0, "y": 14}, "targets": [{"refId": "A", "expr": "sum(increase(zateya_usage_unknown_total{channel=~\"$channel\"}[$__range]))", "datasource": {"uid": "$datasource"}}, {"refId": "B", "expr": "increase(zateya_completed_note_cost_excluded_total{channel=~\"$channel\"}[$__range])", "hide": true, "datasource": {"uid": "$datasource"}}]},
+    {"id": 8, "title": "Расходы за период", "type": "stat", "gridPos": {"h": 5, "w": 6, "x": 6, "y": 14}, "targets": [{"refId": "A", "expr": "sum by(currency,cost_kind) (increase(zateya_provider_cost_total{channel=~\"$channel\",currency=~\"$currency\"}[$__range]))", "legendFormat": "{{currency}} / {{cost_kind}}", "datasource": {"uid": "$datasource"}}]},
+    {"id": 9, "title": "Средняя цена заметки", "description": "Только capture с полностью известной стоимостью всех вызовов; без знаменателя — нет данных.", "type": "stat", "gridPos": {"h": 5, "w": 6, "x": 12, "y": 14}, "targets": [{"refId": "A", "expr": "sum by(currency,cost_kind) (increase(zateya_completed_note_cost_total{channel=~\"$channel\",currency=~\"$currency\"}[$__range])) / sum by(currency,cost_kind) (increase(zateya_completed_notes_costed_total{channel=~\"$channel\",currency=~\"$currency\"}[$__range]))", "legendFormat": "{{currency}} / {{cost_kind}}", "datasource": {"uid": "$datasource"}}]},
+    {"id": 10, "title": "Операции с заметками", "type": "barchart", "gridPos": {"h": 7, "w": 12, "x": 0, "y": 19}, "targets": [{"refId": "A", "expr": "sum by(operation) (increase(zateya_notes_total{channel=~\"$channel\"}[$__range]))", "legendFormat": "{{operation}}", "datasource": {"uid": "$datasource"}}, {"refId": "B", "expr": "sum by(channel,outcome) (increase(zateya_turns_total{channel=~\"$channel\"}[$__range]))", "hide": true, "datasource": {"uid": "$datasource"}}]},
+    {"id": 11, "title": "Начало учёта", "description": "Расходы до этой даты не восстанавливаются.", "type": "stat", "gridPos": {"h": 5, "w": 6, "x": 18, "y": 14}, "fieldConfig": {"defaults": {"unit": "dateTimeAsIso"}, "overrides": []}, "targets": [{"refId": "A", "expr": "zateya_accounting_started_timestamp_seconds", "datasource": {"uid": "$datasource"}}]},
+    {"id": 12, "title": "Накопленные расходы", "type": "stat", "gridPos": {"h": 7, "w": 12, "x": 12, "y": 19}, "targets": [{"refId": "A", "expr": "sum by(currency,cost_kind) (zateya_provider_cost_total{channel=~\"$channel\",currency=~\"$currency\"})", "legendFormat": "{{currency}} / {{cost_kind}}", "datasource": {"uid": "$datasource"}}]}
+  ],
+  "refresh": "15s",
+  "schemaVersion": 39,
+  "tags": ["zateya", "voice"],
+  "templating": {"list": [
+    {"name": "datasource", "label": "Источник", "type": "datasource", "query": "prometheus", "current": {}},
+    {"name": "channel", "label": "Канал", "type": "custom", "query": "alice,recorder", "includeAll": true, "allValue": ".*", "current": {"text": "All", "value": "$__all"}},
+    {"name": "currency", "label": "Валюта", "type": "query", "datasource": {"uid": "$datasource"}, "query": {"query": "label_values(zateya_provider_cost_total, currency)", "refId": "VariableQuery"}, "includeAll": true, "allValue": ".*"}
+  ]},
+  "time": {"from": "now-24h", "to": "now"},
+  "timezone": "browser",
+  "title": "Затея — сервер и расходы",
+  "uid": "zateya",
+  "version": 1
+}

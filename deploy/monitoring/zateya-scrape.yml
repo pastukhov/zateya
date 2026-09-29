@@ -1,0 +1,8 @@
+scrape_configs:
+  - job_name: zateya
+    metrics_path: /metrics
+    scrape_interval: 15s
+    scrape_timeout: 5s
+    static_configs:
+      - targets:
+          - 192.168.11.2:7070

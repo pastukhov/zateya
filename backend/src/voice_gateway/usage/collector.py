@@ -156,8 +156,6 @@ class UsageCollector:
             if not turn["note_saved"] or turn["operation"] not in {"capture", "amend"}:
                 continue
             base = (turn["channel"], turn["operation"])
-            if turn["operation"] == "capture":
-                completed_counts[(turn["channel"],)] += 1
             rows = by_turn[turn["turn_id"]]
             if not rows or any(r["state"] != "finished" or r["cost_amount"] is None for r in rows):
                 if turn["operation"] == "capture":
@@ -171,11 +169,13 @@ class UsageCollector:
             kind = "reported" if all(r["cost_kind"] == "reported" for r in rows) else "estimated"
             total = sum((Decimal(r["cost_amount"]) for r in rows), Decimal(0))
             if turn["operation"] == "capture":
-                completed_costs[(turn["channel"], currencies.pop(), kind)] += total
+                currency = currencies.pop()
+                completed_costs[(turn["channel"], currency, kind)] += total
+                completed_counts[(turn["channel"], currency, kind)] += 1
 
         completed = CounterMetricFamily(
             "zateya_completed_notes_costed_total", "Saved captures included in cost accounting.",
-            labels=["channel"],
+            labels=["channel", "currency", "cost_kind"],
         )
         for labels, value in sorted(completed_counts.items()):
             completed.add_metric(list(labels), value)

@@ -33,7 +33,8 @@ def test_collector_exports_provider_and_completed_note_totals(tmp_path):
             'model="cheap-model",stage="llm"} 10.0') in body
     assert ('zateya_completed_note_cost_total{channel="alice",cost_kind="estimated",'
             'currency="RUB"} 0.012') in body
-    assert 'zateya_completed_notes_costed_total{channel="alice"} 1.0' in body
+    assert ('zateya_completed_notes_costed_total{channel="alice",cost_kind="estimated",'
+            'currency="RUB"} 1.0') in body
 
 
 def test_collector_excludes_incomplete_note_cost_and_counts_unknown_usage(tmp_path):
