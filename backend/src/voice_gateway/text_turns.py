@@ -104,6 +104,7 @@ class TextTurnProcessor:
         knowledge: KnowledgeStore | None = None,
         git_sync: GitSync | None = None,
         usage_recorder: UsageRecorder | None = None,
+        metrics=None,
         deadline_seconds: float = TEXT_TURN_DEADLINE_SECONDS,
     ) -> None:
         if agent is None and hermes is None:
@@ -118,6 +119,7 @@ class TextTurnProcessor:
         self.knowledge = knowledge
         self.git_sync = git_sync
         self.usage_recorder = usage_recorder
+        self.metrics = metrics
         self.deadline_seconds = deadline_seconds
         self._context_locks: dict[str, asyncio.Lock] = {}
 
@@ -138,22 +140,17 @@ class TextTurnProcessor:
             try:
                 async with asyncio.timeout(self.deadline_seconds):
                     result = await self._process(request)
-                    self._finish_usage(request, result=result, outcome="success")
+                    self._finish_usage(request, result=result, outcome="pending")
                     return result
             except asyncio.CancelledError:
-                self._finish_usage(request, outcome="cancelled")
                 raise
             except TimeoutError:
-                self._finish_usage(request, outcome="timeout")
                 raise TextTurnError("agent_timeout") from None
             except TextTurnError:
-                self._finish_usage(request, outcome="error")
                 raise
             except KnowledgeConflict:
-                self._finish_usage(request, outcome="error")
                 raise TextTurnError("knowledge_conflict") from None
             except Exception as exc:
-                self._finish_usage(request, outcome="error")
                 code = getattr(exc, "code", None)
                 if code in {
                     "agent_auth_required", "agent_rate_limited", "agent_timeout",
@@ -197,6 +194,7 @@ class TextTurnProcessor:
             if self.git_sync is not None:
                 sync_started = time.monotonic()
                 sync_result = await asyncio.to_thread(self.git_sync.run_once)
+                lock_was_busy = sync_result["status"] == "busy"
                 if sync_result["status"] == "busy":
                     logger.info("Waiting for Obsidian Git lock for text turn %s", request.turn_id)
                 while sync_result["status"] == "busy":
@@ -204,6 +202,8 @@ class TextTurnProcessor:
                     # is transient; the enclosing turn deadline bounds waiting.
                     await asyncio.sleep(0.25)
                     sync_result = await asyncio.to_thread(self.git_sync.run_once)
+                if lock_was_busy and self.metrics is not None:
+                    self.metrics.git_lock_wait.observe(time.monotonic() - sync_started)
                 if sync_result["status"] not in ("idle", "updated", "synced"):
                     self._record_stage(request, "git_refresh", "error", sync_started)
                     logger.warning(

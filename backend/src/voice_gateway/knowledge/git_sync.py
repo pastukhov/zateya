@@ -39,10 +39,10 @@ class GitSync:
 
     def run_once(self):
         started = time.monotonic()
-        if self.queue.is_symlink():
-            return {'status': 'conflict'}
-        self.queue.mkdir(parents=True, exist_ok=True)
         try:
+            if self.queue.is_symlink():
+                raise ValueError('symlink queue')
+            self.queue.mkdir(parents=True, exist_ok=True)
             descriptor = os.open(self.queue / 'writer.lock', os.O_CREAT | os.O_RDWR, 0o660)
             if os.fstat(descriptor).st_uid == os.getuid():
                 os.fchmod(descriptor, 0o660)
@@ -60,8 +60,6 @@ class GitSync:
             self.metrics.git_sync_total.labels(status=result['status']).inc()
             if result['status'] in ('idle', 'updated', 'synced'):
                 self.metrics.git_last_success.set(time.time())
-            if result['status'] == 'busy':
-                self.metrics.git_lock_wait.observe(time.monotonic() - started)
         return result
 
     def _sync(self):

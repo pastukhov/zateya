@@ -19,14 +19,17 @@ import logging
 from backend.src.voice_gateway.alice.models import AliceJob
 from backend.src.voice_gateway.alice.store import AliceStore
 from backend.src.voice_gateway.text_turns import TextTurnProcessor, TextTurnError
+from backend.src.voice_gateway.usage.recorder import UsageRecorder
 
 logger = logging.getLogger(__name__)
 
 
 class AliceWorker:
-    def __init__(self, store: AliceStore, processor: TextTurnProcessor) -> None:
+    def __init__(self, store: AliceStore, processor: TextTurnProcessor,
+                 usage_recorder: UsageRecorder | None = None) -> None:
         self.store = store
         self.processor = processor
+        self.usage_recorder = usage_recorder
         self._task: asyncio.Task | None = None
         self._wakeup: asyncio.Event | None = None
         self._started = False
@@ -75,10 +78,20 @@ class AliceWorker:
         except TextTurnError as exc:
             logger.warning("alice job %s failed: %s", job.job_id, exc.code)
             await asyncio.to_thread(self.store.fail, job.job_id, exc.code)
+            self._finish(job, "timeout" if exc.code == "agent_timeout" else "error")
             return
         except Exception:
             logger.exception("alice job %s failed unexpectedly", job.job_id)
             await asyncio.to_thread(self.store.fail, job.job_id, "agent_unavailable")
+            self._finish(job, "error")
             return
         await asyncio.to_thread(self.store.complete, job.job_id, result)
+        self._finish(job, "success")
         logger.info("alice job %s finished", job.job_id)
+
+    def _finish(self, job: AliceJob, outcome: str) -> None:
+        if self.usage_recorder is not None:
+            self.usage_recorder.finish_turn(
+                job.request.turn_id, channel="alice", outcome=outcome,
+                operation="none", note_saved=False,
+            )

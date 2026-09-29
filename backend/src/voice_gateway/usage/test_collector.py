@@ -53,3 +53,21 @@ def test_collector_excludes_incomplete_note_cost_and_counts_unknown_usage(tmp_pa
     assert ('zateya_completed_note_cost_excluded_total{channel="recorder",'
             'reason="incomplete_usage"} 1.0') in body
     assert 'zateya_completed_note_cost_total{channel="recorder"' not in body
+
+
+def test_pending_turn_is_hidden_until_terminal_and_query_is_visible_as_operation(tmp_path):
+    store = UsageStore(tmp_path / "usage.sqlite3")
+    store.initialize()
+    store.finish_turn("turn-query", channel="alice", outcome="pending",
+                      operation="query", note_saved=False)
+    registry = CollectorRegistry()
+    registry.register(UsageCollector(store))
+    pending = generate_latest(registry).decode()
+    assert 'zateya_turns_total{channel="alice"' not in pending
+    assert 'zateya_operations_total{channel="alice"' not in pending
+
+    store.finish_turn("turn-query", channel="alice", outcome="success",
+                      operation="none", note_saved=False)
+    terminal = generate_latest(registry).decode()
+    assert 'zateya_turns_total{channel="alice",outcome="success"} 1.0' in terminal
+    assert 'zateya_operations_total{channel="alice",operation="query"} 1.0' in terminal

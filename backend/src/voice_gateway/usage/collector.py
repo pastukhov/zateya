@@ -124,7 +124,13 @@ class UsageCollector:
 
     @staticmethod
     def _turn_metrics(turns, calls):
-        turn_counts = Counter((row["channel"], row["outcome"]) for row in turns)
+        turn_counts = Counter(
+            (row["channel"], row["outcome"]) for row in turns if row["outcome"] != "pending"
+        )
+        operation_counts = Counter(
+            (row["channel"], row["operation"])
+            for row in turns if row["outcome"] != "pending" and row["operation"] != "none"
+        )
         note_counts = Counter(
             (row["channel"], row["operation"])
             for row in turns
@@ -145,6 +151,14 @@ class UsageCollector:
         for labels, value in sorted(note_counts.items()):
             notes_family.add_metric(list(labels), value)
         yield notes_family
+
+        operations = CounterMetricFamily(
+            "zateya_operations_total", "Completed turns by knowledge operation.",
+            labels=["channel", "operation"],
+        )
+        for labels, value in sorted(operation_counts.items()):
+            operations.add_metric(list(labels), value)
+        yield operations
 
         by_turn = defaultdict(list)
         for row in calls:

@@ -218,7 +218,7 @@ def create_app(
         raise ValueError("Knowledge capture requires an LLM client")
     shared_text_processor = TextTurnProcessor(
         agent_client, hermes_stage, knowledge=knowledge, git_sync=git_sync,
-        usage_recorder=usage_recorder,
+        usage_recorder=usage_recorder, metrics=metrics,
     )
     pipeline = VoicePipeline(stt_provider, agent_client, hermes_stage, tts_provider,
                              knowledge=knowledge, git_sync=git_sync,
@@ -237,7 +237,7 @@ def create_app(
     alice_auth: AliceAuthenticator | None = None
     if alice_config.enabled:
         alice_store = AliceStore(alice_config.database)
-        alice_worker = AliceWorker(alice_store, alice_processor)
+        alice_worker = AliceWorker(alice_store, alice_processor, usage_recorder)
         alice_auth = AliceAuthenticator(allowed_yandex_id=alice_config.allowed_yandex_id,
                                         context_id=alice_config.context_device_id)
     if root.exists():
@@ -351,7 +351,7 @@ def create_app(
     @app.get("/metrics")
     async def metrics_endpoint() -> Response:
         """Prometheus scrape endpoint (ТЗ §34)."""
-        payload = generate_latest(metrics.registry)
+        payload = await asyncio.to_thread(generate_latest, metrics.registry)
         return Response(content=payload, media_type="text/plain; version=0.0.4")
 
     security = security if security is not None else SecurityConfig.from_env()

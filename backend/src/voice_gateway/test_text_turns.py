@@ -197,7 +197,7 @@ def test_explicit_query_creates_no_idea(tmp_path):
         assert not (vault / "Затея/ideas").exists()
         turn = usage_store.snapshot()["turns"][0]
         assert (turn["outcome"], turn["operation"], turn["note_saved"]) == (
-            "success", "query", 0
+            "pending", "query", 0
         )
 
     asyncio.run(scenario())

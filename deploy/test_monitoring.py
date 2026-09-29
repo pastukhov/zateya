@@ -24,7 +24,8 @@ def test_dashboard_contract_and_metric_names():
         "Backend доступен", "Ошибки задач", "Длительность этапов p50/p95",
         "Очередь Алисы", "Последняя синхронизация Git", "Расходы по этапам",
         "Неизвестная стоимость", "Расходы за период", "Средняя цена заметки",
-        "Накопленные расходы", "Операции с заметками", "Начало учёта",
+        "Накопленные расходы", "Операции с заметками", "Исключено из средней",
+        "Начало учёта",
     }
     assert required <= panels.keys()
     expressions = "\n".join(
@@ -37,6 +38,7 @@ def test_dashboard_contract_and_metric_names():
         "zateya_usage_unknown_total", "zateya_accounting_started_timestamp_seconds",
         "zateya_completed_note_cost_total", "zateya_completed_notes_costed_total",
         "zateya_completed_note_cost_excluded_total",
+        "zateya_operations_total",
     ):
         assert metric in expressions
     assert "increase(" in expressions
