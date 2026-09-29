@@ -76,3 +76,12 @@ def test_existing_metrics_not_broken() -> None:
         "voice_active_turns 1.0",
     ):
         assert name in text, f"missing: {name}"
+
+
+def test_usage_write_error_counter_is_exposed() -> None:
+    from backend.src.voice_gateway.metrics import VoiceMetrics
+
+    metrics = VoiceMetrics(CollectorRegistry())
+    metrics.usage_write_errors.inc()
+
+    assert "zateya_usage_write_errors_total 1.0" in _scrape_text(metrics)

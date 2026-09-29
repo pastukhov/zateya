@@ -168,6 +168,11 @@ class VoiceMetrics:
             "Voice turns currently being processed.",
             registry=registry,
         )
+        self.usage_write_errors = Counter(
+            "zateya_usage_write_errors_total",
+            "Accounting writes that could not be persisted.",
+            registry=registry,
+        )
 
 
 #: Process-wide namespace used by the module-level ``app`` (production).
