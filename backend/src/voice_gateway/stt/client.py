@@ -19,6 +19,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
+import wave
+from decimal import Decimal
 from pathlib import Path
 
 import httpx
@@ -26,6 +29,8 @@ import httpx
 from backend.src.voice_gateway.config import STTConfig
 from backend.src.voice_gateway.models import Transcript
 from backend.src.voice_gateway.stt.base import STTClientError, STTProvider
+from backend.src.voice_gateway.usage.models import CallContext, Cost, UsageObservation
+from backend.src.voice_gateway.usage.recorder import UsageRecorder
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +57,7 @@ class OpenAICompatibleSTT(STTProvider):
         self,
         config: STTConfig,
         client: httpx.AsyncClient | None = None,
+        usage_recorder: UsageRecorder | None = None,
     ) -> None:
         self._config = config
         # httpx.Timeout(float) applies the same bound to every phase the
@@ -60,16 +66,17 @@ class OpenAICompatibleSTT(STTProvider):
             timeout=httpx.Timeout(config.timeout)
         )
         self._owns_client = client is None
+        self._usage_recorder = usage_recorder
 
-    def transcribe(self, wav: Path) -> Transcript:
+    def transcribe(self, wav: Path, *, context: CallContext | None = None) -> Transcript:
         """Transcribe the WAV file at ``wav`` (sync ABC method)."""
-        return _run_sync(self._transcribe_async(wav))
+        return _run_sync(self._transcribe_async(wav, context=context))
 
-    async def transcribe_async(self, wav: Path) -> Transcript:
+    async def transcribe_async(self, wav: Path, *, context: CallContext | None = None) -> Transcript:
         """Transcribe within an existing event loop without nesting loops."""
-        return await self._transcribe_async(wav)
+        return await self._transcribe_async(wav, context=context)
 
-    async def _transcribe_async(self, wav: Path) -> Transcript:
+    async def _transcribe_async(self, wav: Path, *, context: CallContext | None = None) -> Transcript:
         try:
             data = Path(wav).read_bytes()
         except OSError as exc:
@@ -79,6 +86,11 @@ class OpenAICompatibleSTT(STTProvider):
         if self._config.api_key:
             headers["Authorization"] = f"Bearer {self._config.api_key}"
 
+        actual_context = context or CallContext("unknown", "recorder", "stt", self._config.model)
+        call_id = self._usage_recorder.begin_call(actual_context) if self._usage_recorder else None
+        observation = UsageObservation(audio_seconds=self._wav_seconds(wav))
+        outcome = "error"
+        started_at = time.monotonic()
         try:
             response = await self._client.post(
                 self._config.transcriptions_url,
@@ -93,26 +105,56 @@ class OpenAICompatibleSTT(STTProvider):
                       "response_format": "verbose_json"},
                 headers=headers,
             )
-        except httpx.HTTPError as exc:
+        except httpx.TimeoutException as exc:
+            outcome = "timeout"
+            if self._usage_recorder is not None:
+                self._usage_recorder.finish_call(
+                    call_id, outcome=outcome, elapsed_seconds=time.monotonic() - started_at,
+                    usage=observation, cost=Cost(None, None, "unknown"),
+                )
             raise STTClientError(f"stt request failed: {exc.__class__.__name__}") from exc
-
-        if response.status_code >= 400:
-            logger.warning("stt returned HTTP %s", response.status_code)
-            raise STTClientError(f"stt returned HTTP {response.status_code}")
+        except httpx.HTTPError as exc:
+            if self._usage_recorder is not None:
+                self._usage_recorder.finish_call(
+                    call_id, outcome=outcome, elapsed_seconds=time.monotonic() - started_at,
+                    usage=observation, cost=Cost(None, None, "unknown"),
+                )
+            raise STTClientError(f"stt request failed: {exc.__class__.__name__}") from exc
         try:
-            body = response.json()
-        except (ValueError, UnicodeDecodeError) as exc:
-            raise STTClientError("stt returned a non-JSON response body") from exc
-        if not isinstance(body, dict):
-            raise STTClientError("stt response body is not a JSON object")
-        text = body.get("text")
-        if not isinstance(text, str) or not text.strip():
-            raise STTClientError("stt response is missing a non-empty 'text' field")
-        language = body.get("language")
-        if not isinstance(language, str) or not language.strip():
-            logger.warning("stt response omitted language; continuing with unknown")
-            language = "unknown"
-        return Transcript(text=text, language=language)
+            if response.status_code >= 400:
+                logger.warning("stt returned HTTP %s", response.status_code)
+                raise STTClientError(f"stt returned HTTP {response.status_code}")
+            try:
+                body = response.json()
+            except (ValueError, UnicodeDecodeError) as exc:
+                raise STTClientError("stt returned a non-JSON response body") from exc
+            if not isinstance(body, dict):
+                raise STTClientError("stt response body is not a JSON object")
+            text = body.get("text")
+            if not isinstance(text, str) or not text.strip():
+                raise STTClientError("stt response is missing a non-empty 'text' field")
+            language = body.get("language")
+            if not isinstance(language, str) or not language.strip():
+                logger.warning("stt response omitted language; continuing with unknown")
+                language = "unknown"
+            outcome = "success"
+            return Transcript(text=text, language=language)
+        finally:
+            if self._usage_recorder is not None:
+                cost = (self._usage_recorder.price(actual_context, observation)
+                        if outcome == "success" else Cost(None, None, "unknown"))
+                self._usage_recorder.finish_call(
+                    call_id, outcome=outcome, elapsed_seconds=time.monotonic() - started_at,
+                    usage=observation, cost=cost,
+                )
+
+    @staticmethod
+    def _wav_seconds(path: Path) -> Decimal | None:
+        try:
+            with wave.open(str(path), "rb") as source:
+                return Decimal(source.getnframes()) / Decimal(source.getframerate())
+        except (OSError, RuntimeError, wave.Error, ZeroDivisionError):
+            return None
 
     async def aclose(self) -> None:
         """Close the underlying HTTP client (idempotent)."""

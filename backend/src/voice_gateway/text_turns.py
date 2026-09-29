@@ -208,11 +208,13 @@ class TextTurnProcessor:
             metadata = {"provider": "knowledge", "model": None}
             if self.agent is not None and hasattr(self.agent, "record_turn"):
                 await self.agent.complete(
-                    AgentRequest(request.request_id, request.context_id, request.transcript, context)
+                    AgentRequest(request.request_id, request.context_id, request.transcript, context,
+                                 channel=request.channel, turn_id=request.turn_id)
                 )
         elif self.agent is not None:
             reply = await self.agent.complete(
-                AgentRequest(request.request_id, request.context_id, request.transcript, context)
+                AgentRequest(request.request_id, request.context_id, request.transcript, context,
+                             channel=request.channel, turn_id=request.turn_id)
             )
             response = HermesResponse.model_validate(
                 {

@@ -18,12 +18,16 @@ from pathlib import Path
 
 import httpx
 import pytest
+from decimal import Decimal
 
 from backend.common.error_codes import ErrorCode
 from backend.src.voice_gateway.models import TTSResult
 from backend.src.voice_gateway.tts import TTSProvider, TTSProviderError
 from backend.src.voice_gateway.tts.config import TTSConfig
 from backend.src.voice_gateway.tts.openai_compatible import OpenAICompatibleTTS
+from backend.src.voice_gateway.usage.models import CallContext
+from backend.src.voice_gateway.usage.recorder import UsageRecorder
+from backend.src.voice_gateway.usage.store import UsageStore
 
 API_KEY = "sekret"
 
@@ -67,6 +71,27 @@ def _wav_response(body: bytes = WAV_16K, status: int = 200) -> httpx.Response:
 
 
 class TestSuccessfulRequest:
+    def test_records_text_characters_for_physical_request(self, tmp_path: Path):
+        store = UsageStore(tmp_path / "usage.sqlite3")
+        store.initialize()
+        recorder = UsageRecorder(store, rates={"version": 1, "rates": [
+            {"stage": "tts", "model": "tts-1", "currency": "RUB",
+             "unit": "text_characters_1m", "price": Decimal("10")},
+        ]})
+        client = OpenAICompatibleTTS(
+            _config(), client=httpx.Client(transport=httpx.MockTransport(
+                lambda request: _wav_response()
+            )), usage_recorder=recorder,
+        )
+
+        client.synthesize(
+            "четыре", tmp_path / "out.wav",
+            context=CallContext("turn-1", "recorder", "tts", "tts-1"),
+        )
+
+        call = store.snapshot()["calls"][0]
+        assert call["text_characters"] == 6
+        assert Decimal(call["cost_amount"]) == Decimal("0.00006")
     def test_request_shape(self, tmp_path: Path):
         seen: dict = {}
 

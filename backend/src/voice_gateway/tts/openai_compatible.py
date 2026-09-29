@@ -32,6 +32,8 @@ from backend.src.voice_gateway.logging_config import log_stage_event
 from backend.src.voice_gateway.models import TTSResult
 from backend.src.voice_gateway.tts.base import TTSProvider, TTSProviderError
 from backend.src.voice_gateway.tts.config import TTSConfig
+from backend.src.voice_gateway.usage.models import CallContext, Cost, UsageObservation
+from backend.src.voice_gateway.usage.recorder import UsageRecorder
 
 logger = logging.getLogger(__name__)
 
@@ -46,14 +48,49 @@ class OpenAICompatibleTTS(TTSProvider):
         self,
         config: TTSConfig,
         client: httpx.Client | None = None,
+        usage_recorder: UsageRecorder | None = None,
     ) -> None:
         self._config = config
         # httpx.Timeout(float) applies the same bound to every phase the
         # client supports (connect/read/write/pool) — ТЗ section 31.
         self._client = client or httpx.Client(timeout=httpx.Timeout(config.timeout))
         self._owns_client = client is None
+        self._usage_recorder = usage_recorder
 
     def synthesize(
+        self,
+        text: str,
+        out_path: Path,
+        *,
+        turn_id: str | None = None,
+        device_id: str | None = None,
+        context: CallContext | None = None,
+    ) -> TTSResult:
+        actual_context = context or CallContext(turn_id or "unknown", "recorder", "tts",
+                                                self._config.model)
+        call_id = self._usage_recorder.begin_call(actual_context) if self._usage_recorder else None
+        usage = UsageObservation(text_characters=len(text))
+        started_at = time.monotonic()
+        try:
+            result = self._synthesize_untracked(
+                text, out_path, turn_id=turn_id, device_id=device_id
+            )
+        except TTSProviderError as exc:
+            if self._usage_recorder is not None:
+                outcome = "timeout" if isinstance(exc.__cause__, httpx.TimeoutException) else "error"
+                self._usage_recorder.finish_call(
+                    call_id, outcome=outcome, elapsed_seconds=time.monotonic() - started_at,
+                    usage=usage, cost=Cost(None, None, "unknown"),
+                )
+            raise
+        if self._usage_recorder is not None:
+            self._usage_recorder.finish_call(
+                call_id, outcome="success", elapsed_seconds=time.monotonic() - started_at,
+                usage=usage, cost=self._usage_recorder.price(actual_context, usage),
+            )
+        return result
+
+    def _synthesize_untracked(
         self,
         text: str,
         out_path: Path,

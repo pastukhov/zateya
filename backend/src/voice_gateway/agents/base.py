@@ -12,6 +12,8 @@ class AgentRequest:
     device_id: str
     transcript: str
     knowledge_context: dict[str, Any] | None = None
+    channel: str = "recorder"
+    turn_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

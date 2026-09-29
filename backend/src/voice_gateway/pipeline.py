@@ -23,6 +23,7 @@ from backend.src.voice_gateway.stt.client import OpenAICompatibleSTT
 from backend.src.voice_gateway.text_turns import TextTurnProcessor, TextTurnRequest, TextTurnError
 from backend.src.voice_gateway.tts.base import TTSProvider, TTSProviderError
 from backend.src.voice_gateway.tts.openai_compatible import OpenAICompatibleTTS
+from backend.src.voice_gateway.usage.models import CallContext
 
 logger = logging.getLogger(__name__)
 
@@ -85,7 +86,11 @@ class VoicePipeline:
                 if (turn_dir / "transcript.txt").exists():
                     transcript = Transcript(text=(turn_dir / "transcript.txt").read_text(), language="ru")
                 elif isinstance(self.stt, OpenAICompatibleSTT):
-                    transcript = await self.stt.transcribe_async(input_wav)
+                    transcript = await self.stt.transcribe_async(
+                        input_wav,
+                        context=CallContext(job["turn_id"], "recorder", "stt",
+                                            self.stt._config.model),
+                    )
                 else:
                     transcript = await asyncio.to_thread(self.stt.transcribe, input_wav)
                 if not transcript.text.strip():
@@ -114,9 +119,14 @@ class VoicePipeline:
                     report_progress("synthesizing")
                 synthesis_started = time.monotonic()
                 logger.info("starting speech synthesis for turn %s", job["turn_id"])
-                synthesis = asyncio.create_task(
-                    asyncio.to_thread(self.tts.synthesize, response_reply, output_part)
-                )
+                synthesis_kwargs = {}
+                if isinstance(self.tts, OpenAICompatibleTTS):
+                    synthesis_kwargs["context"] = CallContext(
+                        job["turn_id"], "recorder", "tts", self.tts._config.model
+                    )
+                synthesis = asyncio.create_task(asyncio.to_thread(
+                    self.tts.synthesize, response_reply, output_part, **synthesis_kwargs
+                ))
                 try:
                     await asyncio.shield(synthesis)
                 except asyncio.CancelledError:

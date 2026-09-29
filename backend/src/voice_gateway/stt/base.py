@@ -7,6 +7,7 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 
 from backend.src.voice_gateway.models import Transcript
+from backend.src.voice_gateway.usage.models import CallContext
 
 
 class STTClientError(Exception):
@@ -27,5 +28,5 @@ class STTProvider(ABC):
     """
 
     @abstractmethod
-    def transcribe(self, wav: Path) -> Transcript:
+    def transcribe(self, wav: Path, *, context: CallContext | None = None) -> Transcript:
         """Transcribe the WAV file at ``wav`` into a Transcript."""

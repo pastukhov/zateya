@@ -14,11 +14,17 @@ from pathlib import Path
 
 import httpx
 import pytest
+from decimal import Decimal
+import io
+import wave
 
 from backend.src.voice_gateway.config import STTConfig
 from backend.src.voice_gateway.models import Transcript
 from backend.src.voice_gateway.stt import STTClientError, STTProvider
 from backend.src.voice_gateway.stt.client import OpenAICompatibleSTT
+from backend.src.voice_gateway.usage.models import CallContext
+from backend.src.voice_gateway.usage.recorder import UsageRecorder
+from backend.src.voice_gateway.usage.store import UsageStore
 
 API_KEY = "sekret"
 WAV_BYTES = b"RIFF....WAVE....fmt...."
@@ -54,6 +60,50 @@ def _write_wav(tmp_path: Path) -> Path:
     wav = tmp_path / "input.wav"
     wav.write_bytes(WAV_BYTES)
     return wav
+
+
+def test_stt_records_audio_duration_and_failed_http_attempt(tmp_path):
+    wav = tmp_path / "valid.wav"
+    buffer = io.BytesIO()
+    with wave.open(buffer, "wb") as target:
+        target.setnchannels(1)
+        target.setsampwidth(2)
+        target.setframerate(16000)
+        target.writeframes(b"\0\0" * 8000)
+    wav.write_bytes(buffer.getvalue())
+    store = UsageStore(tmp_path / "usage.sqlite3")
+    store.initialize()
+    recorder = UsageRecorder(store)
+    client = OpenAICompatibleSTT(
+        _config(), client=httpx.AsyncClient(transport=httpx.MockTransport(
+            lambda request: httpx.Response(500)
+        )), usage_recorder=recorder,
+    )
+
+    with pytest.raises(STTClientError):
+        client.transcribe(wav, context=CallContext("turn-1", "recorder", "stt", "whisper-1"))
+
+    call = store.snapshot()["calls"][0]
+    assert call["outcome"] == "error"
+    assert Decimal(call["audio_seconds"]) == Decimal("0.5")
+    assert call["cost_kind"] == "unknown"
+
+
+def test_stt_timeout_is_recorded_as_unknown(tmp_path):
+    wav = _write_wav(tmp_path)
+    store = UsageStore(tmp_path / "usage.sqlite3")
+    store.initialize()
+    def timeout(request):
+        raise httpx.ReadTimeout("slow", request=request)
+    client = OpenAICompatibleSTT(
+        _config(), client=httpx.AsyncClient(transport=httpx.MockTransport(timeout)),
+        usage_recorder=UsageRecorder(store),
+    )
+
+    with pytest.raises(STTClientError):
+        client.transcribe(wav, context=CallContext("turn-1", "recorder", "stt", "whisper-1"))
+
+    assert store.snapshot()["calls"][0]["outcome"] == "timeout"
 
 
 def _run(coro):

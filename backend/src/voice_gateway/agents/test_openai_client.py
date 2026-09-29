@@ -3,11 +3,14 @@ import json
 
 import httpx
 import pytest
+from decimal import Decimal
 
 from .base import AgentClientError, AgentRequest
 from .config import LLMConfig
 from .openai_client import OpenAICompatibleAgentClient
 from .sessions import AgentSessionStore
+from backend.src.voice_gateway.usage.recorder import UsageRecorder
+from backend.src.voice_gateway.usage.store import UsageStore
 
 
 VALID = {
@@ -25,6 +28,42 @@ def make_config(**values):
 def response(content, *, model="small-actual", finish="stop", message_extra=None):
     message = {"role": "assistant", "content": content, **(message_extra or {})}
     return {"choices": [{"message": message, "finish_reason": finish}], "model": model}
+
+
+def test_usage_records_each_physical_llm_attempt_and_not_cached_replay(tmp_path):
+    async def scenario():
+        calls = 0
+        async def handler(request):
+            nonlocal calls
+            calls += 1
+            content = "not json" if calls == 1 else json.dumps(VALID, ensure_ascii=False)
+            payload = response(content)
+            payload["usage"] = {"prompt_tokens": 100, "completion_tokens": 50}
+            return httpx.Response(200, json=payload)
+        store = UsageStore(tmp_path / "usage.sqlite3")
+        store.initialize()
+        sessions = AgentSessionStore(tmp_path / "sessions.sqlite3")
+        recorder = UsageRecorder(store, rates={"version": 1, "rates": [
+            {"stage": "llm", "model": "small", "currency": "RUB",
+             "unit": "input_tokens_1m", "price": Decimal("1")},
+            {"stage": "llm", "model": "small", "currency": "RUB",
+             "unit": "output_tokens_1m", "price": Decimal("2")},
+        ]})
+        http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        client = OpenAICompatibleAgentClient(make_config(), "rules", client=http,
+                                             sessions=sessions, usage_recorder=recorder)
+        request = AgentRequest("r", "device", "words", channel="alice", turn_id="turn-1")
+        try:
+            await client.complete(request)
+            await client.complete(request)
+        finally:
+            await http.aclose()
+        snapshot = store.snapshot()
+        assert calls == 2
+        assert snapshot["finished_calls"] == 2
+        assert sum(snapshot["cost_totals"].values()) == Decimal("0.0004")
+        assert [row["input_tokens"] for row in snapshot["calls"]] == [100, 100]
+    asyncio.run(scenario())
 
 
 def test_client_sends_openai_chat_completion_and_parses_knowledge_json():

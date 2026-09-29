@@ -2,6 +2,7 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 
 from backend.src.voice_gateway.models import TTSResult
+from backend.src.voice_gateway.usage.models import CallContext
 
 
 class TTSProviderError(Exception):
@@ -31,6 +32,7 @@ class TTSProvider(ABC):
         *,
         turn_id: str | None = None,
         device_id: str | None = None,
+        context: CallContext | None = None,
     ) -> TTSResult:
         """Synthesize ``text`` into the WAV file at ``out_path``.
 

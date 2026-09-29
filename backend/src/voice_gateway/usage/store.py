@@ -21,6 +21,7 @@ CREATE TABLE IF NOT EXISTS calls (
     channel TEXT NOT NULL,
     stage TEXT NOT NULL,
     model TEXT NOT NULL,
+    attempt TEXT NOT NULL,
     state TEXT NOT NULL,
     outcome TEXT,
     elapsed_seconds REAL,
@@ -78,9 +79,10 @@ class UsageStore:
             connection.execute("BEGIN IMMEDIATE")
             try:
                 connection.execute(
-                    "INSERT INTO calls(call_id,turn_id,channel,stage,model,state,started_at) "
-                    "VALUES (?,?,?,?,?,'started',?)",
-                    (call_id, context.turn_id, context.channel, context.stage, context.model, time.time()),
+                    "INSERT INTO calls(call_id,turn_id,channel,stage,model,attempt,state,started_at) "
+                    "VALUES (?,?,?,?,?,?,'started',?)",
+                    (call_id, context.turn_id, context.channel, context.stage, context.model,
+                     context.attempt, time.time()),
                 )
                 connection.execute("COMMIT")
             except Exception:

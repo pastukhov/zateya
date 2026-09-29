@@ -14,6 +14,8 @@ from backend.src.voice_gateway.hermes.validation import HermesValidationError, p
 from .base import AgentClientError, AgentReply, AgentRequest
 from .config import LLMConfig
 from .sessions import AgentSessionStore, IdempotencyConflict, input_digest
+from backend.src.voice_gateway.usage.models import CallContext, Cost, UsageObservation
+from backend.src.voice_gateway.usage.recorder import UsageRecorder
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +30,7 @@ class OpenAICompatibleAgentClient:
         *,
         client: httpx.AsyncClient | None = None,
         sessions: AgentSessionStore | None = None,
+        usage_recorder: UsageRecorder | None = None,
     ) -> None:
         self.config = config
         self.system_prompt = system_prompt
@@ -35,6 +38,7 @@ class OpenAICompatibleAgentClient:
         self._owns_client = client is None
         self._active: dict[str, asyncio.Task] = {}
         self.sessions = sessions
+        self.usage_recorder = usage_recorder
         if sessions is not None:
             sessions.initialize()
 
@@ -83,7 +87,7 @@ class OpenAICompatibleAgentClient:
                 if self.sessions is not None:
                     messages.extend(self.sessions.history(request.device_id))
                 messages.append({"role": "user", "content": self._user_message(request)})
-                payload = await self._post(messages, request_id=request.request_id, phase="initial")
+                payload = await self._post(messages, request=request, phase="initial")
                 content, model = self._extract_content(payload)
                 try:
                     parsed = parse_hermes_response(content)
@@ -98,7 +102,7 @@ class OpenAICompatibleAgentClient:
                         {"role": "user", "content": self._repair_instruction()},
                     ]
                     repaired_payload = await self._post(
-                        repair_messages, request_id=request.request_id, phase="repair"
+                        repair_messages, request=request, phase="repair"
                     )
                     content, repaired_model = self._extract_content(repaired_payload)
                     model = repaired_model or model
@@ -154,8 +158,9 @@ class OpenAICompatibleAgentClient:
         return "Исправь только формат и соответствие исходному JSON-контракту. Сохрани смысл и верни только корректный JSON без пояснений."
 
     async def _post(
-        self, messages: list[dict[str, str]], *, request_id: str, phase: str
+        self, messages: list[dict[str, str]], *, request: AgentRequest, phase: str
     ) -> dict:
+        request_id = request.request_id
         body: dict = {
             "model": self.config.model,
             "messages": messages,
@@ -168,32 +173,64 @@ class OpenAICompatibleAgentClient:
             headers["Authorization"] = f"Bearer {self.config.api_key}"
         url = f"{self.config.base_url}/chat/completions"
         started_at = time.monotonic()
-        logger.info("LLM request started (request_id=%s, phase=%s)", request_id, phase)
-        async with self._client.stream(
-            "POST", url, json=body, headers=headers, timeout=None
-        ) as response:
-            logger.info(
-                "LLM response headers received (request_id=%s, phase=%s, status=%s, elapsed_seconds=%.1f)",
-                request_id, phase, response.status_code, time.monotonic() - started_at,
-            )
-            if response.status_code != 200:
-                self._raise_status(response.status_code)
-            data = bytearray()
-            async for chunk in response.aiter_bytes():
-                if len(data) + len(chunk) > self.MAX_RESPONSE_BYTES:
-                    raise AgentClientError("agent_invalid_response", "LLM response is too large")
-                data.extend(chunk)
-        logger.info(
-            "LLM response body received (request_id=%s, phase=%s, bytes=%s, elapsed_seconds=%.1f)",
-            request_id, phase, len(data), time.monotonic() - started_at,
+        context = CallContext(
+            request.turn_id or request.request_id, request.channel, "llm", self.config.model, phase
         )
+        call_id = self.usage_recorder.begin_call(context) if self.usage_recorder else None
+        usage = UsageObservation()
+        outcome = "error"
+        logger.info("LLM request started (request_id=%s, phase=%s)", request_id, phase)
         try:
-            payload = json.loads(data)
-        except (json.JSONDecodeError, UnicodeDecodeError):
-            raise AgentClientError("agent_invalid_response", "LLM returned invalid response JSON") from None
-        if not isinstance(payload, dict):
-            raise AgentClientError("agent_invalid_response", "LLM returned invalid response JSON")
-        return payload
+            async with self._client.stream(
+                "POST", url, json=body, headers=headers, timeout=None
+            ) as response:
+                logger.info(
+                    "LLM response headers received (request_id=%s, phase=%s, status=%s, elapsed_seconds=%.1f)",
+                    request_id, phase, response.status_code, time.monotonic() - started_at,
+                )
+                if response.status_code != 200:
+                    self._raise_status(response.status_code)
+                data = bytearray()
+                async for chunk in response.aiter_bytes():
+                    if len(data) + len(chunk) > self.MAX_RESPONSE_BYTES:
+                        raise AgentClientError("agent_invalid_response", "LLM response is too large")
+                    data.extend(chunk)
+            logger.info(
+                "LLM response body received (request_id=%s, phase=%s, bytes=%s, elapsed_seconds=%.1f)",
+                request_id, phase, len(data), time.monotonic() - started_at,
+            )
+            try:
+                payload = json.loads(data)
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                raise AgentClientError("agent_invalid_response", "LLM returned invalid response JSON") from None
+            if not isinstance(payload, dict):
+                raise AgentClientError("agent_invalid_response", "LLM returned invalid response JSON")
+            usage = self._usage(payload)
+            outcome = "success"
+            return payload
+        except (TimeoutError, httpx.TimeoutException):
+            outcome = "timeout"
+            raise
+        finally:
+            if self.usage_recorder is not None:
+                cost = (self.usage_recorder.price(context, usage) if outcome == "success"
+                        else Cost(None, None, "unknown"))
+                self.usage_recorder.finish_call(
+                    call_id, outcome=outcome, elapsed_seconds=time.monotonic() - started_at,
+                    usage=usage, cost=cost,
+                )
+
+    @staticmethod
+    def _usage(payload: dict) -> UsageObservation:
+        usage = payload.get("usage")
+        if not isinstance(usage, dict):
+            return UsageObservation()
+        prompt = usage.get("prompt_tokens")
+        completion = usage.get("completion_tokens")
+        return UsageObservation(
+            input_tokens=prompt if isinstance(prompt, int) and not isinstance(prompt, bool) else None,
+            output_tokens=completion if isinstance(completion, int) and not isinstance(completion, bool) else None,
+        )
 
     @staticmethod
     def _raise_status(status: int) -> None:

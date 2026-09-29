@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 import time
 from pathlib import Path
@@ -35,11 +36,16 @@ from backend.src.voice_gateway.metrics import init_metrics
 from backend.src.voice_gateway.pipeline import VoicePipeline
 from backend.src.voice_gateway.knowledge.store import KnowledgeStore
 from backend.src.voice_gateway.knowledge.git_sync import GitSync
+from backend.src.voice_gateway.usage.pricing import PricingError, load_rates
+from backend.src.voice_gateway.usage.recorder import UsageRecorder
+from backend.src.voice_gateway.usage.store import UsageStore
 from backend.src.voice_gateway.stt.base import STTProvider
 from backend.src.voice_gateway.stt.client import OpenAICompatibleSTT
 from backend.src.voice_gateway.tts.base import TTSProvider
 from backend.src.voice_gateway.tts.config import TTSConfig
 from backend.src.voice_gateway.tts.openai_compatible import OpenAICompatibleTTS
+
+logger = logging.getLogger(__name__)
 from backend.src.voice_gateway.alice.api import install_alice_routes
 from backend.src.voice_gateway.alice.auth import AliceAuthenticator
 from backend.src.voice_gateway.alice.config import AliceConfig, AliceConfigError
@@ -100,7 +106,7 @@ class RequestMetricsMiddleware:
             ).inc()
             self.metrics.request_count_by_route.labels(route=route).inc()
 
-def _default_stt_provider() -> STTProvider | None:
+def _default_stt_provider(usage_recorder: UsageRecorder | None = None) -> STTProvider | None:
     """Build the production STTProvider from environment config (ТЗ §20).
 
     Returns ``None`` when STT is not configured (``LLM_BASE_URL`` unset) so
@@ -113,10 +119,10 @@ def _default_stt_provider() -> STTProvider | None:
         config = STTConfig.from_env()
     except STTConfigError:
         return None
-    return OpenAICompatibleSTT(config)
+    return OpenAICompatibleSTT(config, usage_recorder=usage_recorder)
 
 
-def _default_agent_client(root: Path) -> AgentClient | None:
+def _default_agent_client(root: Path, usage_recorder: UsageRecorder | None = None) -> AgentClient | None:
     try:
         config = LLMConfig.from_env()
     except LLMConfigError:
@@ -124,15 +130,17 @@ def _default_agent_client(root: Path) -> AgentClient | None:
     sessions = AgentSessionStore(root / "llm-sessions.sqlite3",
                                  history_turns=config.history_turns,
                                  history_max_chars=config.history_max_chars)
-    return OpenAICompatibleAgentClient(config, system_prompt(), sessions=sessions)
+    return OpenAICompatibleAgentClient(
+        config, system_prompt(), sessions=sessions, usage_recorder=usage_recorder
+    )
 
 
-def _default_tts_provider() -> TTSProvider | None:
+def _default_tts_provider(usage_recorder: UsageRecorder | None = None) -> TTSProvider | None:
     try:
         config = TTSConfig.from_env(os.environ)
     except ValueError:
         return None
-    return OpenAICompatibleTTS(config)
+    return OpenAICompatibleTTS(config, usage_recorder=usage_recorder)
 
 
 def create_app(
@@ -166,8 +174,24 @@ def create_app(
     # isolated registries and concurrent apps never share counters.
     metrics = init_metrics()
 
+    usage_store = UsageStore(root / "usage.sqlite3")
+    # Preserve readiness semantics: a missing archive root must remain
+    # visible as not-ready rather than being created as a side effect.
+    if root.exists():
+        usage_store.initialize()
+    try:
+        usage_rates = load_rates(Path(os.environ.get(
+            "USAGE_PRICING_PATH", "/data/archive/pricing.json"
+        )))
+    except PricingError:
+        logger.warning("usage pricing configuration is invalid; costs are unknown")
+        usage_rates = {"version": 1, "rates": []}
+    usage_recorder = UsageRecorder(
+        usage_store, write_errors=metrics.usage_write_errors, rates=usage_rates
+    )
+
     # Explicit provider injection wins; production providers come from config.
-    stt_provider = stt if stt is not None else _default_stt_provider()
+    stt_provider = stt if stt is not None else _default_stt_provider(usage_recorder)
 
     if agent is not None:
         agent_client = agent
@@ -178,10 +202,10 @@ def create_app(
         hermes_client = hermes
         provider = "injected"
     else:
-        agent_client = _default_agent_client(root)
+        agent_client = _default_agent_client(root, usage_recorder)
         hermes_client = None
         provider = "openai_compatible"
-    tts_provider = tts if tts is not None else _default_tts_provider()
+    tts_provider = tts if tts is not None else _default_tts_provider(usage_recorder)
     hermes_stage = HermesStage(hermes_client) if hermes_client is not None else None
 
     job_database = os.environ.get("VOICE_JOB_DATABASE", str(root / "voice-jobs.sqlite"))
@@ -225,6 +249,8 @@ def create_app(
     app.state.agent_provider = provider
     app.state.tts_provider = tts_provider
     app.state.voice_job_store = job_store
+    app.state.usage_store = usage_store
+    app.state.usage_recorder = usage_recorder
     app.state.voice_job_worker = job_worker
     app.state.knowledge_git_sync = git_sync
     app.state.knowledge_git_task = None

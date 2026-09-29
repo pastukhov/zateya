@@ -10,6 +10,7 @@ class CallContext:
     channel: str
     stage: str
     model: str
+    attempt: str = "initial"
 
 
 @dataclass(frozen=True, slots=True)
