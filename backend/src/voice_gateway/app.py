@@ -299,6 +299,7 @@ def create_app(
         if alice_auth is not None:
             await alice_auth.aclose()
         await job_worker.close()
+        await pipeline.close()
         if agent_client is not None:
             close = getattr(agent_client, "close", None)
             if close is not None:

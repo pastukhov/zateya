@@ -57,6 +57,7 @@ class VoicePipeline:
         self.tts = tts
         self.deadline_seconds = deadline_seconds
         self.usage_recorder = usage_recorder
+        self._cleanup_tasks: set[asyncio.Task] = set()
         # One shared text service behind STT: the recorder keeps its audio
         # stages (PCM → STT → TTS), the text segment delegates to the
         # processor that the Alice channel reuses (plan task 2).
@@ -140,11 +141,12 @@ class VoicePipeline:
                     # from the event loop when that call and its accounting end.
                     deferred_cancel_accounting = True
 
-                    def finish_cancelled(_):
-                        output_part.unlink(missing_ok=True)
-                        asyncio.create_task(self._finish_usage(job, "cancelled"))
-
-                    synthesis.add_done_callback(finish_cancelled)
+                    cleanup = asyncio.create_task(
+                        self._finish_cancelled_synthesis(synthesis, output_part, job),
+                        name=f"cancel-accounting-{job['turn_id']}",
+                    )
+                    self._cleanup_tasks.add(cleanup)
+                    cleanup.add_done_callback(self._cleanup_tasks.discard)
                     raise
                 logger.info(
                     "finished speech synthesis for turn %s in %.2fs",
@@ -231,6 +233,21 @@ class VoicePipeline:
                 job["turn_id"], channel="recorder", outcome=outcome,
                 operation="none", note_saved=False,
             )
+
+    async def _finish_cancelled_synthesis(self, synthesis: asyncio.Task, output: Path,
+                                          job: dict[str, Any]) -> None:
+        try:
+            await asyncio.shield(synthesis)
+        except Exception:
+            pass
+        finally:
+            output.unlink(missing_ok=True)
+        await self._finish_usage(job, "cancelled")
+
+    async def close(self) -> None:
+        """Drain provider accounting tasks created by cancelled turns."""
+        if self._cleanup_tasks:
+            await asyncio.gather(*tuple(self._cleanup_tasks), return_exceptions=True)
 
     @staticmethod
     def _pcm_to_wav(source: Path, target: Path) -> None:
