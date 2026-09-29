@@ -82,6 +82,7 @@ class VoicePipeline:
         input_wav = turn_dir / "input.wav"
         output_part = turn_dir / "reply.wav.part"
         output_wav = turn_dir / "reply.wav"
+        deferred_cancel_accounting = False
         try:
             async with asyncio.timeout(self.deadline_seconds):
                 await asyncio.to_thread(self._pcm_to_wav, Path(job["audio_path"]), input_wav)
@@ -134,12 +135,16 @@ class VoicePipeline:
                 try:
                     await asyncio.shield(synthesis)
                 except asyncio.CancelledError:
-                    # The provider call may already be billable. Wait for its
-                    # accounting record before finalizing the cancelled turn.
-                    try:
-                        await asyncio.shield(synthesis)
-                    finally:
+                    # The provider call may already be billable, while a
+                    # to_thread operation cannot be stopped. Finalize the turn
+                    # from the event loop when that call and its accounting end.
+                    deferred_cancel_accounting = True
+
+                    def finish_cancelled(_):
                         output_part.unlink(missing_ok=True)
+                        asyncio.create_task(self._finish_usage(job, "cancelled"))
+
+                    synthesis.add_done_callback(finish_cancelled)
                     raise
                 logger.info(
                     "finished speech synthesis for turn %s in %.2fs",
@@ -176,7 +181,8 @@ class VoicePipeline:
                 return output_wav
         except asyncio.CancelledError:
             output_part.unlink(missing_ok=True)
-            await self._finish_usage(job, "cancelled")
+            if not deferred_cancel_accounting:
+                await self._finish_usage(job, "cancelled")
             raise
         except TimeoutError:
             output_part.unlink(missing_ok=True)

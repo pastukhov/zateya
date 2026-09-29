@@ -87,16 +87,24 @@ class UsageStore:
                 "INSERT OR IGNORE INTO metadata(key, value) VALUES ('started_at', ?)",
                 (str(time.time()),),
             )
-            unfinished = connection.execute("SELECT * FROM calls WHERE state='started'").fetchall()
-            for row in unfinished:
-                connection.execute(
-                    "UPDATE calls SET state='finished',outcome='unknown',cost_kind='unknown',"
-                    "finished_at=? WHERE call_id=?", (time.time(), row["call_id"])
-                )
-                recovered = connection.execute(
-                    "SELECT * FROM calls WHERE call_id=?", (row["call_id"],)
-                ).fetchone()
-                self._rollup_call(connection, recovered)
+            connection.execute("BEGIN IMMEDIATE")
+            try:
+                unfinished = connection.execute(
+                    "SELECT * FROM calls WHERE state='started'"
+                ).fetchall()
+                for row in unfinished:
+                    connection.execute(
+                        "UPDATE calls SET state='finished',outcome='unknown',cost_kind='unknown',"
+                        "finished_at=? WHERE call_id=?", (time.time(), row["call_id"])
+                    )
+                    recovered = connection.execute(
+                        "SELECT * FROM calls WHERE call_id=?", (row["call_id"],)
+                    ).fetchone()
+                    self._rollup_call(connection, recovered)
+                connection.execute("COMMIT")
+            except Exception:
+                connection.execute("ROLLBACK")
+                raise
 
     def begin_call(self, context: CallContext) -> str:
         call_id = uuid.uuid4().hex
