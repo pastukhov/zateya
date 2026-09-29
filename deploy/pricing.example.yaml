@@ -1,0 +1,39 @@
+# Проверено 2026-09-29. Оценки в RUB; фактическое списание может отличаться.
+# Тарифы и модели можно менять без изменения кода.
+version: 1
+rates:
+  # https://routerai.ru/models/google/gemini-3.5-flash-lite
+  # Без скидки на кэш; цены за 1 миллион токенов.
+  - stage: llm
+    model: google/gemini-3.5-flash-lite
+    currency: RUB
+    unit: input_tokens_1m
+    price: "32"
+  - stage: llm
+    model: google/gemini-3.5-flash-lite
+    currency: RUB
+    unit: output_tokens_1m
+    price: "274"
+
+  # https://routerai.ru/models/openai/whisper-1
+  # За минуту исходного аудио; оценка без округления длительности.
+  - stage: stt
+    model: openai/whisper-1
+    currency: RUB
+    unit: audio_minute
+    price: "0.66"
+
+  # https://routerai.ru/models/google/gemini-3.8-flash-lite-tts
+  # Входные текстовые и выходные аудиотокены, НЕ символы.
+  # Бинарный /audio/speech не возвращает usage: стоимость останется unknown.
+  - stage: tts
+    model: google/gemini-3.8-flash-lite-tts
+    currency: RUB
+    unit: input_tokens_1m
+    price: "54"
+  - stage: tts
+    model: google/gemini-3.8-flash-lite-tts
+    currency: RUB
+    unit: output_tokens_1m
+    price: "658"
+reported_costs: []

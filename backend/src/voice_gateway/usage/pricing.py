@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import json
+import yaml
 import re
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
@@ -21,8 +21,8 @@ def load_rates(path: Path | None) -> dict:
     if path is None or not Path(path).is_file():
         return {"version": 1, "rates": [], "reported_costs": []}
     try:
-        data = json.loads(Path(path).read_text())
-    except (OSError, json.JSONDecodeError) as exc:
+        data = yaml.safe_load(Path(path).read_text())
+    except (OSError, yaml.YAMLError) as exc:
         raise PricingError("invalid pricing file") from exc
     if not isinstance(data, dict) or data.get("version") != 1 or not isinstance(data.get("rates"), list):
         raise PricingError("pricing file must use version 1 and a rates list")

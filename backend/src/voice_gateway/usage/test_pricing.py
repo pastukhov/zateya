@@ -16,6 +16,29 @@ def _rates(*items):
     return {"version": 1, "rates": list(items)}
 
 
+def test_yaml_rates_with_comments_and_decimal_strings(tmp_path):
+    path = tmp_path / "pricing.yaml"
+    path.write_text('''# Published rate
+version: 1
+rates:
+  - stage: stt
+    model: whisper
+    currency: RUB
+    unit: audio_minute
+    price: "0.66"
+reported_costs: []
+''')
+    rates = load_rates(path)
+    assert price_usage("stt", "whisper", UsageObservation(audio_seconds=Decimal("30")), rates).amount == Decimal("0.33")
+
+
+def test_yaml_rejects_unsafe_tags(tmp_path):
+    path = tmp_path / "pricing.yaml"
+    path.write_text('!!python/object:builtins.object {}')
+    with pytest.raises(PricingError):
+        load_rates(path)
+
+
 def _rate(unit, price, *, stage="llm", model="model-a", currency="RUB"):
     return {"stage": stage, "model": model, "currency": currency,
             "unit": unit, "price": price}
@@ -74,7 +97,7 @@ def test_explicit_zero_is_a_known_cost():
 
 @pytest.mark.parametrize("bad", ["-1", "NaN", "Infinity", True])
 def test_invalid_rate_price_is_rejected(tmp_path, bad):
-    path = tmp_path / "pricing.json"
+    path = tmp_path / "pricing.yaml"
     path.write_text(json.dumps(_rates(_rate("input_tokens_1m", bad))))
 
     with pytest.raises(PricingError):
@@ -82,7 +105,7 @@ def test_invalid_rate_price_is_rejected(tmp_path, bad):
 
 
 def test_unknown_unit_is_rejected(tmp_path):
-    path = tmp_path / "pricing.json"
+    path = tmp_path / "pricing.yaml"
     path.write_text(json.dumps(_rates(_rate("request", "1"))))
 
     with pytest.raises(PricingError):
@@ -103,7 +126,7 @@ def test_mixed_currencies_are_unknown():
 
 
 def test_extracts_reported_cost_by_json_paths(tmp_path):
-    path = tmp_path / "pricing.json"
+    path = tmp_path / "pricing.yaml"
     path.write_text(json.dumps({
         "version": 1,
         "rates": [],
@@ -127,7 +150,7 @@ def test_extracts_reported_cost_by_json_paths(tmp_path):
 
 
 def test_extracts_reported_cost_with_fixed_currency(tmp_path):
-    path = tmp_path / "pricing.json"
+    path = tmp_path / "pricing.yaml"
     path.write_text(json.dumps({
         "version": 1,
         "rates": [],
@@ -147,7 +170,7 @@ def test_extracts_reported_cost_with_fixed_currency(tmp_path):
 
 @pytest.mark.parametrize("value", [None, True, -1, "NaN", "Infinity", "oops"])
 def test_invalid_reported_amount_is_unknown(tmp_path, value):
-    path = tmp_path / "pricing.json"
+    path = tmp_path / "pricing.yaml"
     path.write_text(json.dumps({
         "version": 1,
         "rates": [],
@@ -168,7 +191,7 @@ def test_invalid_reported_amount_is_unknown(tmp_path, value):
     {"stage": "llm", "model": "m", "amount_path": "items[0].cost", "currency": "RUB"},
 ])
 def test_invalid_reported_cost_config_is_rejected(tmp_path, entry):
-    path = tmp_path / "pricing.json"
+    path = tmp_path / "pricing.yaml"
     path.write_text(json.dumps({"version": 1, "rates": [], "reported_costs": [entry]}))
 
     with pytest.raises(PricingError):

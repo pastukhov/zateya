@@ -15,7 +15,7 @@ services:
       VOICE_BIND_HOST: ${VOICE_BIND_HOST:-0.0.0.0}
       VOICE_BIND_PORT: ${VOICE_BIND_PORT:-8080}
       ARCHIVE_ROOT: /data/archive
-      USAGE_PRICING_PATH: ${USAGE_PRICING_PATH:-/data/archive/pricing.json}
+      USAGE_PRICING_PATH: ${USAGE_PRICING_PATH:-/data/archive/pricing.yaml}
       VOICE_JOB_DATABASE: /data/archive/voice-jobs.sqlite
       LLM_BASE_URL: ${LLM_BASE_URL:-}
       LLM_API_KEY: ${LLM_API_KEY:-}

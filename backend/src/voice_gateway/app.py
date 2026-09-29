@@ -182,7 +182,7 @@ def create_app(
         usage_store.initialize()
     try:
         usage_rates = load_rates(Path(os.environ.get(
-            "USAGE_PRICING_PATH", "/data/archive/pricing.json"
+            "USAGE_PRICING_PATH", "/data/archive/pricing.yaml"
         )))
     except PricingError:
         logger.warning("usage pricing configuration is invalid; costs are unknown")
