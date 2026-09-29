@@ -168,6 +168,13 @@ class TextTurnProcessor:
         if self.knowledge is not None:
             if self.git_sync is not None:
                 sync_result = await asyncio.to_thread(self.git_sync.run_once)
+                if sync_result["status"] == "busy":
+                    logger.info("Waiting for Obsidian Git lock for text turn %s", request.turn_id)
+                while sync_result["status"] == "busy":
+                    # The background publisher uses the same lock. Contention
+                    # is transient; the enclosing turn deadline bounds waiting.
+                    await asyncio.sleep(0.25)
+                    sync_result = await asyncio.to_thread(self.git_sync.run_once)
                 if sync_result["status"] not in ("idle", "updated", "synced"):
                     logger.warning(
                         "Obsidian refresh blocked before text turn %s: %s",

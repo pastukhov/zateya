@@ -230,3 +230,28 @@ def test_recorder_channel_keeps_existing_history_context(tmp_path):
                            {"role": "assistant", "content": "старый ответ"}] or history == []
 
     asyncio.run(scenario())
+
+@pytest.mark.parametrize('release', [True, False])
+def test_git_busy_waits_within_turn_deadline(tmp_path, release):
+    class BusySync:
+        calls = 0
+        def run_once(self):
+            self.calls += 1
+            return {'status': 'idle' if release and self.calls > 1 else 'busy'}
+    async def scenario():
+        vault = tmp_path / 'vault'
+        vault.mkdir()
+        agent = QueryAgent()
+        sync = BusySync()
+        processor = TextTurnProcessor(agent, knowledge=KnowledgeStore(vault, tmp_path / 'state'),
+                                      git_sync=sync, deadline_seconds=2 if release else 0.05)
+        request = make_request(archive_dir=tmp_path / 'archive')
+        if release:
+            result = await processor.process(request)
+            assert result.reply == 'ответ'
+            assert len(agent.requests) == 1
+        else:
+            with pytest.raises(TextTurnError, match='agent_timeout'):
+                await processor.process(request)
+            assert not agent.requests
+    asyncio.run(scenario())
