@@ -206,6 +206,14 @@ class OpenAICompatibleAgentClient:
             if not isinstance(payload, dict):
                 raise AgentClientError("agent_invalid_response", "LLM returned invalid response JSON")
             usage = self._usage(payload)
+            if self.usage_recorder is not None:
+                amount, currency = self.usage_recorder.reported_cost(context, payload)
+                usage = UsageObservation(
+                    input_tokens=usage.input_tokens,
+                    output_tokens=usage.output_tokens,
+                    reported_amount=amount,
+                    reported_currency=currency,
+                )
             outcome = "success"
             return payload
         except (TimeoutError, httpx.TimeoutException):

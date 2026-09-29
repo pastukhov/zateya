@@ -66,6 +66,46 @@ def test_usage_records_each_physical_llm_attempt_and_not_cached_replay(tmp_path)
     asyncio.run(scenario())
 
 
+def test_usage_records_configured_reported_cost_from_response(tmp_path):
+    async def scenario():
+        async def handler(request):
+            payload = response(json.dumps(VALID, ensure_ascii=False))
+            payload["usage"] = {
+                "prompt_tokens": 100,
+                "completion_tokens": 50,
+                "billing": {"amount": "0.75", "currency": "RUB"},
+            }
+            return httpx.Response(200, json=payload)
+
+        store = UsageStore(tmp_path / "usage.sqlite3")
+        store.initialize()
+        recorder = UsageRecorder(store, rates={
+            "version": 1,
+            "rates": [],
+            "reported_costs": [{
+                "stage": "llm", "model": "small",
+                "amount_path": "usage.billing.amount",
+                "currency_path": "usage.billing.currency",
+            }],
+        })
+        http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        client = OpenAICompatibleAgentClient(
+            make_config(), "rules", client=http, usage_recorder=recorder
+        )
+        try:
+            await client.complete(AgentRequest("r", "device", "words", turn_id="turn-1"))
+        finally:
+            await http.aclose()
+
+        row = store.snapshot()["calls"][0]
+        assert row["reported_amount"] == "0.75"
+        assert row["reported_currency"] == "RUB"
+        assert row["cost_kind"] == "reported"
+        assert row["cost_amount"] == "0.75"
+
+    asyncio.run(scenario())
+
+
 def test_client_sends_openai_chat_completion_and_parses_knowledge_json():
     async def scenario():
         seen = []

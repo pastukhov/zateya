@@ -131,6 +131,13 @@ class OpenAICompatibleSTT(STTProvider):
                 raise STTClientError("stt returned a non-JSON response body") from exc
             if not isinstance(body, dict):
                 raise STTClientError("stt response body is not a JSON object")
+            if self._usage_recorder is not None:
+                amount, currency = self._usage_recorder.reported_cost(actual_context, body)
+                observation = UsageObservation(
+                    audio_seconds=observation.audio_seconds,
+                    reported_amount=amount,
+                    reported_currency=currency,
+                )
             text = body.get("text")
             if not isinstance(text, str) or not text.strip():
                 raise STTClientError("stt response is missing a non-empty 'text' field")

@@ -6,7 +6,7 @@ import logging
 from prometheus_client import Counter
 
 from .models import CallContext, Cost, UsageObservation
-from .pricing import price_usage
+from .pricing import extract_reported_cost, price_usage
 from .store import UsageStore
 
 logger = logging.getLogger(__name__)
@@ -20,6 +20,9 @@ class UsageRecorder:
         self.store = store
         self.write_errors = write_errors
         self.rates = rates or {"version": 1, "rates": []}
+
+    def reported_cost(self, context: CallContext, payload: dict):
+        return extract_reported_cost(context.stage, context.model, payload, self.rates)
 
     def price(self, context: CallContext, usage: UsageObservation) -> Cost:
         return price_usage(context.stage, context.model, usage, self.rates)

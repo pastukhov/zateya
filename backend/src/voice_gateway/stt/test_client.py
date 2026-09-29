@@ -106,6 +106,33 @@ def test_stt_timeout_is_recorded_as_unknown(tmp_path):
     assert store.snapshot()["calls"][0]["outcome"] == "timeout"
 
 
+def test_stt_records_configured_reported_cost_from_json_response(tmp_path):
+    wav = _write_wav(tmp_path)
+    store = UsageStore(tmp_path / "usage.sqlite3")
+    store.initialize()
+    recorder = UsageRecorder(store, rates={
+        "version": 1,
+        "rates": [],
+        "reported_costs": [{
+            "stage": "stt", "model": "whisper-1",
+            "amount_path": "usage.cost", "currency": "USD",
+        }],
+    })
+    response = {"text": "Привет", "language": "ru", "usage": {"cost": "0.01"}}
+    client = OpenAICompatibleSTT(
+        _config(), client=httpx.AsyncClient(transport=httpx.MockTransport(
+            lambda request: httpx.Response(200, json=response)
+        )), usage_recorder=recorder,
+    )
+
+    client.transcribe(wav, context=CallContext("turn-1", "recorder", "stt", "whisper-1"))
+
+    call = store.snapshot()["calls"][0]
+    assert call["reported_amount"] == "0.01"
+    assert call["reported_currency"] == "USD"
+    assert call["cost_kind"] == "reported"
+
+
 def _run(coro):
     return asyncio.run(coro)
 

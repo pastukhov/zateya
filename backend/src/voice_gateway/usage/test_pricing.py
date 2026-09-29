@@ -4,7 +4,12 @@ from decimal import Decimal
 import pytest
 
 from backend.src.voice_gateway.usage.models import UsageObservation
-from backend.src.voice_gateway.usage.pricing import PricingError, load_rates, price_usage
+from backend.src.voice_gateway.usage.pricing import (
+    PricingError,
+    extract_reported_cost,
+    load_rates,
+    price_usage,
+)
 
 
 def _rates(*items):
@@ -95,3 +100,76 @@ def test_mixed_currencies_are_unknown():
     )
 
     assert cost.kind == "unknown"
+
+
+def test_extracts_reported_cost_by_json_paths(tmp_path):
+    path = tmp_path / "pricing.json"
+    path.write_text(json.dumps({
+        "version": 1,
+        "rates": [],
+        "reported_costs": [{
+            "stage": "llm",
+            "model": "model-a",
+            "amount_path": "usage.billing.amount",
+            "currency_path": "usage.billing.currency",
+        }],
+    }))
+    pricing = load_rates(path)
+
+    amount, currency = extract_reported_cost(
+        "llm", "model-a",
+        {"usage": {"billing": {"amount": "1.25", "currency": "RUB"}}},
+        pricing,
+    )
+
+    assert amount == Decimal("1.25")
+    assert currency == "RUB"
+
+
+def test_extracts_reported_cost_with_fixed_currency(tmp_path):
+    path = tmp_path / "pricing.json"
+    path.write_text(json.dumps({
+        "version": 1,
+        "rates": [],
+        "reported_costs": [{
+            "stage": "stt",
+            "model": "model-a",
+            "amount_path": "billing.total",
+            "currency": "USD",
+        }],
+    }))
+    pricing = load_rates(path)
+
+    assert extract_reported_cost(
+        "stt", "model-a", {"billing": {"total": 0}}, pricing
+    ) == (Decimal("0"), "USD")
+
+
+@pytest.mark.parametrize("value", [None, True, -1, "NaN", "Infinity", "oops"])
+def test_invalid_reported_amount_is_unknown(tmp_path, value):
+    path = tmp_path / "pricing.json"
+    path.write_text(json.dumps({
+        "version": 1,
+        "rates": [],
+        "reported_costs": [{
+            "stage": "llm", "model": "model-a",
+            "amount_path": "cost", "currency": "RUB",
+        }],
+    }))
+    pricing = load_rates(path)
+
+    assert extract_reported_cost("llm", "model-a", {"cost": value}, pricing) == (None, None)
+
+
+@pytest.mark.parametrize("entry", [
+    {"stage": "llm", "model": "m", "amount_path": "cost"},
+    {"stage": "llm", "model": "m", "amount_path": "cost", "currency": "RUB",
+     "currency_path": "currency"},
+    {"stage": "llm", "model": "m", "amount_path": "items[0].cost", "currency": "RUB"},
+])
+def test_invalid_reported_cost_config_is_rejected(tmp_path, entry):
+    path = tmp_path / "pricing.json"
+    path.write_text(json.dumps({"version": 1, "rates": [], "reported_costs": [entry]}))
+
+    with pytest.raises(PricingError):
+        load_rates(path)
