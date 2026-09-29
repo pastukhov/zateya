@@ -167,23 +167,23 @@ class VoicePipeline:
                         **metadata,
                     },
                 )
-                self._finish_usage(job, "success")
+                await self._finish_usage(job, "success")
                 return output_wav
         except asyncio.CancelledError:
             output_part.unlink(missing_ok=True)
-            self._finish_usage(job, "cancelled")
+            await self._finish_usage(job, "cancelled")
             raise
         except TimeoutError:
             output_part.unlink(missing_ok=True)
-            self._finish_usage(job, "timeout")
+            await self._finish_usage(job, "timeout")
             raise VoicePipelineError("agent_timeout") from None
         except VoicePipelineError:
             output_part.unlink(missing_ok=True)
-            self._finish_usage(job, "error")
+            await self._finish_usage(job, "error")
             raise
         except TextTurnError as exc:
             output_part.unlink(missing_ok=True)
-            self._finish_usage(job, "timeout" if exc.code == "agent_timeout" else "error")
+            await self._finish_usage(job, "timeout" if exc.code == "agent_timeout" else "error")
             raise VoicePipelineError(exc.code) from None
         except STTClientError as exc:
             logger.warning(
@@ -192,15 +192,15 @@ class VoicePipeline:
                 exc,
             )
             output_part.unlink(missing_ok=True)
-            self._finish_usage(job, "error")
+            await self._finish_usage(job, "error")
             raise VoicePipelineError("stt_failed") from None
         except TTSProviderError:
             output_part.unlink(missing_ok=True)
-            self._finish_usage(job, "error")
+            await self._finish_usage(job, "error")
             raise VoicePipelineError("tts_failed") from None
         except Exception as exc:
             output_part.unlink(missing_ok=True)
-            self._finish_usage(job, "error")
+            await self._finish_usage(job, "error")
             if hasattr(exc, "status") and getattr(exc, "status") in {
                 "hermes_failed", "hermes_invalid_response"
             }:
@@ -214,9 +214,9 @@ class VoicePipeline:
                 raise VoicePipelineError(code) from None
             raise VoicePipelineError("agent_unavailable") from None
 
-    def _finish_usage(self, job: dict[str, Any], outcome: str) -> None:
+    async def _finish_usage(self, job: dict[str, Any], outcome: str) -> None:
         if self.usage_recorder is not None:
-            self.usage_recorder.finish_turn(
+            await self.usage_recorder.finish_turn_async(
                 job["turn_id"], channel="recorder", outcome=outcome,
                 operation="none", note_saved=False,
             )

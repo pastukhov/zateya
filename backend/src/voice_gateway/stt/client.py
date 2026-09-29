@@ -87,7 +87,8 @@ class OpenAICompatibleSTT(STTProvider):
             headers["Authorization"] = f"Bearer {self._config.api_key}"
 
         actual_context = context or CallContext("unknown", "recorder", "stt", self._config.model)
-        call_id = self._usage_recorder.begin_call(actual_context) if self._usage_recorder else None
+        call_id = (await self._usage_recorder.begin_call_async(actual_context)
+                   if self._usage_recorder else None)
         observation = UsageObservation(audio_seconds=self._wav_seconds(wav))
         outcome = "error"
         started_at = time.monotonic()
@@ -108,14 +109,14 @@ class OpenAICompatibleSTT(STTProvider):
         except httpx.TimeoutException as exc:
             outcome = "timeout"
             if self._usage_recorder is not None:
-                self._usage_recorder.finish_call(
+                await self._usage_recorder.finish_call_async(
                     call_id, outcome=outcome, elapsed_seconds=time.monotonic() - started_at,
                     usage=observation, cost=Cost(None, None, "unknown"),
                 )
             raise STTClientError(f"stt request failed: {exc.__class__.__name__}") from exc
         except httpx.HTTPError as exc:
             if self._usage_recorder is not None:
-                self._usage_recorder.finish_call(
+                await self._usage_recorder.finish_call_async(
                     call_id, outcome=outcome, elapsed_seconds=time.monotonic() - started_at,
                     usage=observation, cost=Cost(None, None, "unknown"),
                 )
@@ -143,7 +144,7 @@ class OpenAICompatibleSTT(STTProvider):
             if self._usage_recorder is not None:
                 cost = (self._usage_recorder.price(actual_context, observation)
                         if outcome == "success" else Cost(None, None, "unknown"))
-                self._usage_recorder.finish_call(
+                await self._usage_recorder.finish_call_async(
                     call_id, outcome=outcome, elapsed_seconds=time.monotonic() - started_at,
                     usage=observation, cost=cost,
                 )

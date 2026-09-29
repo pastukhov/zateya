@@ -41,6 +41,7 @@ def test_collector_excludes_incomplete_note_cost_and_counts_unknown_usage(tmp_pa
     store = UsageStore(tmp_path / "usage.sqlite3")
     store.initialize()
     store.begin_call(CallContext("turn-2", "recorder", "tts", "speech-model"))
+    store.initialize()  # restart classifies the unfinished attempt as unknown
     store.finish_turn("turn-2", channel="recorder", outcome="error",
                       operation="capture", note_saved=True)
 

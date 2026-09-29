@@ -176,7 +176,7 @@ class OpenAICompatibleAgentClient:
         context = CallContext(
             request.turn_id or request.request_id, request.channel, "llm", self.config.model, phase
         )
-        call_id = self.usage_recorder.begin_call(context) if self.usage_recorder else None
+        call_id = await self.usage_recorder.begin_call_async(context) if self.usage_recorder else None
         usage = UsageObservation()
         outcome = "error"
         logger.info("LLM request started (request_id=%s, phase=%s)", request_id, phase)
@@ -215,7 +215,7 @@ class OpenAICompatibleAgentClient:
             if self.usage_recorder is not None:
                 cost = (self.usage_recorder.price(context, usage) if outcome == "success"
                         else Cost(None, None, "unknown"))
-                self.usage_recorder.finish_call(
+                await self.usage_recorder.finish_call_async(
                     call_id, outcome=outcome, elapsed_seconds=time.monotonic() - started_at,
                     usage=usage, cost=cost,
                 )

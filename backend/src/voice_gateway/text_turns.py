@@ -140,7 +140,7 @@ class TextTurnProcessor:
             try:
                 async with asyncio.timeout(self.deadline_seconds):
                     result = await self._process(request)
-                    self._finish_usage(request, result=result, outcome="pending")
+                    await self._finish_usage(request, result=result, outcome="pending")
                     return result
             except asyncio.CancelledError:
                 raise
@@ -166,8 +166,8 @@ class TextTurnProcessor:
                 logger.exception("text turn %s failed", request.turn_id)
                 raise TextTurnError("agent_unavailable") from None
 
-    def _finish_usage(self, request: TextTurnRequest, *, result: TextTurnResult | None = None,
-                      outcome: str) -> None:
+    async def _finish_usage(self, request: TextTurnRequest, *,
+                            result: TextTurnResult | None = None, outcome: str) -> None:
         if self.usage_recorder is None:
             return
         receipt = result.receipt if result is not None else None
@@ -177,7 +177,7 @@ class TextTurnProcessor:
             and receipt.get("status") != "needs_review"
             and operation in {"capture", "amend"}
         )
-        self.usage_recorder.finish_turn(
+        await self.usage_recorder.finish_turn_async(
             request.turn_id, channel=request.channel, outcome=outcome,
             operation=operation, note_saved=saved,
         )
@@ -201,17 +201,18 @@ class TextTurnProcessor:
                     # The background publisher uses the same lock. Contention
                     # is transient; the enclosing turn deadline bounds waiting.
                     await asyncio.sleep(0.25)
+                    final_attempt_started = time.monotonic()
                     sync_result = await asyncio.to_thread(self.git_sync.run_once)
                 if lock_was_busy and self.metrics is not None:
-                    self.metrics.git_lock_wait.observe(time.monotonic() - sync_started)
+                    self.metrics.git_lock_wait.observe(final_attempt_started - sync_started)
                 if sync_result["status"] not in ("idle", "updated", "synced"):
-                    self._record_stage(request, "git_refresh", "error", sync_started)
+                    await self._record_stage(request, "git_refresh", "error", sync_started)
                     logger.warning(
                         "Obsidian refresh blocked before text turn %s: %s",
                         request.turn_id, sync_result,
                     )
                     raise TextTurnError("knowledge_sync_failed")
-                self._record_stage(request, "git_refresh", "success", sync_started)
+                await self._record_stage(request, "git_refresh", "success", sync_started)
             # ``job`` mirrors the pipeline's capture() argument; channel and
             # physical client are recorded as origin, context stays the key.
             job = {
@@ -272,9 +273,9 @@ class TextTurnProcessor:
                     request.turn_id, time.monotonic() - publish_started,
                 )
                 response.reply = receipt["reply"]
-                self._record_stage(request, "publish", "success", publish_started)
+                await self._record_stage(request, "publish", "success", publish_started)
             except KnowledgeConflict:
-                self._record_stage(request, "publish", "error", publish_started)
+                await self._record_stage(request, "publish", "error", publish_started)
                 receipt = {"source_id": source_id, "status": "needs_review"}
                 response.reply = ("Исходная запись сохранена. Обновление заметок требует проверки; "
                                   "существующие правки не перезаписаны.")
@@ -309,10 +310,10 @@ class TextTurnProcessor:
             model=metadata["model"],
         )
 
-    def _record_stage(self, request: TextTurnRequest, stage: str, outcome: str,
-                      started: float) -> None:
+    async def _record_stage(self, request: TextTurnRequest, stage: str, outcome: str,
+                            started: float) -> None:
         if self.usage_recorder is not None:
-            self.usage_recorder.record_stage(
+            await self.usage_recorder.record_stage_async(
                 channel=request.channel, stage=stage, outcome=outcome,
                 elapsed_seconds=time.monotonic() - started,
             )

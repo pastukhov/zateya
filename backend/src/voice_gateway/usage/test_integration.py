@@ -28,6 +28,7 @@ def test_restart_and_concurrent_scrape_preserve_cost_without_leaking_content(tmp
     store.finish_turn("alice-query", channel="alice", outcome="success",
                       operation="query", note_saved=False)
     store.begin_call(CallContext("alice-incomplete", "alice", "llm", "chat"))
+    store.initialize()  # restart recovers the unfinished call as unknown
 
     registry = CollectorRegistry()
     registry.register(UsageCollector(store))

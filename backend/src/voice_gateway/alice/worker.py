@@ -78,20 +78,20 @@ class AliceWorker:
         except TextTurnError as exc:
             logger.warning("alice job %s failed: %s", job.job_id, exc.code)
             await asyncio.to_thread(self.store.fail, job.job_id, exc.code)
-            self._finish(job, "timeout" if exc.code == "agent_timeout" else "error")
+            await self._finish(job, "timeout" if exc.code == "agent_timeout" else "error")
             return
         except Exception:
             logger.exception("alice job %s failed unexpectedly", job.job_id)
             await asyncio.to_thread(self.store.fail, job.job_id, "agent_unavailable")
-            self._finish(job, "error")
+            await self._finish(job, "error")
             return
         await asyncio.to_thread(self.store.complete, job.job_id, result)
-        self._finish(job, "success")
+        await self._finish(job, "success")
         logger.info("alice job %s finished", job.job_id)
 
-    def _finish(self, job: AliceJob, outcome: str) -> None:
+    async def _finish(self, job: AliceJob, outcome: str) -> None:
         if self.usage_recorder is not None:
-            self.usage_recorder.finish_turn(
+            await self.usage_recorder.finish_turn_async(
                 job.request.turn_id, channel="alice", outcome=outcome,
                 operation="none", note_saved=False,
             )

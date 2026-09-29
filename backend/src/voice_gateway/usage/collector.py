@@ -19,24 +19,61 @@ class UsageCollector:
 
     def collect(self):
         try:
-            snapshot = self.store.snapshot()
+            snapshot = self.store.metrics_snapshot()
         except Exception:
             # A metrics scrape must never make the service endpoint fail when
             # the archive is temporarily unavailable or is being detached.
             return
-        calls = snapshot["calls"]
-        turns = snapshot["turns"]
-
         started = GaugeMetricFamily(
             "zateya_accounting_started_timestamp_seconds",
             "Unix timestamp at which durable accounting began.",
         )
         started.add_metric([], float(snapshot["accounting_started_at"]))
         yield started
+        metrics = snapshot["metrics"]
+        specs = (
+            ("turns", "zateya_turns_total", "Text turns by terminal outcome.",
+             ["channel", "outcome"]),
+            ("notes", "zateya_notes_total", "Published notes by operation.",
+             ["channel", "operation"]),
+            ("operations", "zateya_operations_total", "Completed turns by knowledge operation.",
+             ["channel", "operation"]),
+            ("provider_calls", "zateya_provider_calls_total", "Provider calls by outcome.",
+             ["channel", "stage", "model", "outcome"]),
+            ("usage_unknown", "zateya_usage_unknown_total", "Calls whose cost cannot be determined.",
+             ["channel", "stage", "model"]),
+            ("usage_tokens", "zateya_usage_tokens_total", "Provider token usage.",
+             ["channel", "stage", "model", "direction"]),
+            ("provider_cost", "zateya_provider_cost_total", "Provider cost by currency and source.",
+             ["channel", "stage", "model", "currency", "cost_kind"]),
+            ("completed_count", "zateya_completed_notes_costed_total",
+             "Saved captures included in cost accounting.",
+             ["channel", "currency", "cost_kind"]),
+            ("completed_cost", "zateya_completed_note_cost_total",
+             "Provider cost of completed saved notes.",
+             ["channel", "currency", "cost_kind"]),
+            ("completed_excluded", "zateya_completed_note_cost_excluded_total",
+             "Saved notes excluded from cost totals.", ["channel", "reason"]),
+        )
+        for key, name, help_text, labels in specs:
+            family = CounterMetricFamily(name, help_text, labels=labels)
+            for label_values, value in sorted(metrics.get(key, [])):
+                family.add_metric(list(label_values), float(value))
+            yield family
 
-        yield from self._turn_metrics(turns, calls)
-        yield from self._provider_metrics(calls)
-        yield self._stage_durations(calls, snapshot["stage_events"])
+        bucket_rows = metrics.get("stage_bucket", [])
+        sums = dict(metrics.get("stage_sum", []))
+        grouped = defaultdict(list)
+        for labels, value in bucket_rows:
+            grouped[labels[:3]].append((labels[3], float(value)))
+        stage_family = HistogramMetricFamily(
+            "zateya_stage_duration_seconds", "Duration of processing stages.",
+            labels=["channel", "stage", "outcome"],
+        )
+        for labels, buckets in sorted(grouped.items()):
+            ordered = sorted(buckets, key=lambda item: float("inf") if item[0] == "+Inf" else float(item[0]))
+            stage_family.add_metric(list(labels), ordered, float(sums.get(labels, 0)))
+        yield stage_family
 
         if self.alice_job_counts is not None:
             jobs = GaugeMetricFamily(

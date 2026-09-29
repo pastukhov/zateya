@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from prometheus_client import Counter
@@ -35,6 +36,9 @@ class UsageRecorder:
             self._failed(exc)
             return None
 
+    async def begin_call_async(self, context: CallContext) -> str | None:
+        return await asyncio.to_thread(self.begin_call, context)
+
     def finish_call(
         self,
         call_id: str | None,
@@ -53,14 +57,23 @@ class UsageRecorder:
         except Exception as exc:
             self._failed(exc)
 
+    async def finish_call_async(self, call_id: str | None, **fields) -> None:
+        await asyncio.to_thread(self.finish_call, call_id, **fields)
+
     def finish_turn(self, turn_id: str, **fields) -> None:
         try:
             self.store.finish_turn(turn_id, **fields)
         except Exception as exc:
             self._failed(exc)
 
+    async def finish_turn_async(self, turn_id: str, **fields) -> None:
+        await asyncio.to_thread(self.finish_turn, turn_id, **fields)
+
     def record_stage(self, **fields) -> None:
         try:
             self.store.record_stage(**fields)
         except Exception as exc:
             self._failed(exc)
+
+    async def record_stage_async(self, **fields) -> None:
+        await asyncio.to_thread(self.record_stage, **fields)
