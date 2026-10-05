@@ -21,6 +21,8 @@ from backend.src.voice_gateway.jobs.api import install_voice_job_routes
 from backend.src.voice_gateway.jobs.auth import parse_device_tokens
 from backend.src.voice_gateway.jobs.store import VoiceJobStore
 from backend.src.voice_gateway.jobs.worker import VoiceJobWorker
+from backend.src.voice_gateway.diagnostics.api import install_diagnostic_routes
+from backend.src.voice_gateway.diagnostics.store import DiagnosticsStore
 from backend.src.voice_gateway.health import check_live, check_ready
 from backend.src.voice_gateway.config import SecurityConfig, STTConfig, STTConfigError
 from backend.src.voice_gateway.logging_config import configure_logging
@@ -257,6 +259,8 @@ def create_app(
     app.state.agent_provider = provider
     app.state.tts_provider = tts_provider
     app.state.voice_job_store = job_store
+    diagnostics_store = DiagnosticsStore(root / "diagnostics.sqlite")
+    app.state.diagnostics_store = diagnostics_store
     app.state.usage_store = usage_store
     app.state.usage_recorder = usage_recorder
     app.state.voice_job_worker = job_worker
@@ -280,6 +284,7 @@ def create_app(
             "updates": git_sync.last_result.get("updates", 0),
         }) if git_sync is not None else None,
     )
+    install_diagnostic_routes(app, diagnostics_store, device_tokens)
 
     @app.on_event("startup")
     async def start_voice_jobs() -> None:

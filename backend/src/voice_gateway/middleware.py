@@ -103,6 +103,7 @@ PUBLIC_PATHS: frozenset[str] = frozenset({
 #: ``jobs.api``. The global API-key check must not require that same bearer
 #: token to equal a second, unrelated secret.
 DEVICE_API_PREFIX = "/api/voice/"
+DEVICE_DIAGNOSTICS_PATH = "/api/devices/diagnostics"
 
 #: Route key used when no FastAPI route matches the request path (404s).
 UNMATCHED_ROUTE = "unknown"
@@ -173,7 +174,8 @@ class AuthMiddleware:
         try:
             path = scope["path"]
             if (self._expected is not None and path not in PUBLIC_PATHS
-                    and not path.startswith(DEVICE_API_PREFIX)):
+                    and not (path.startswith(DEVICE_API_PREFIX)
+                             or path == DEVICE_DIAGNOSTICS_PATH)):
                 provided = _extract_token(headers)
                 if provided is None or not hmac.compare_digest(
                         _token_digest(provided), self._expected):
