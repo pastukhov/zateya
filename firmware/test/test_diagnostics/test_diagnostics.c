@@ -2,6 +2,7 @@
 #include <string.h>
 
 #include "voice_diagnostics.h"
+#include "voice_diag_delivery_policy.h"
 
 static void test_events_wrap_and_keep_last_error(void) {
   voice_diag_reset();
@@ -62,11 +63,29 @@ static void test_restored_error_does_not_add_an_event(void) {
   TEST_ASSERT_EQUAL(VOICE_DIAG_UPLOAD_SOCKET_ERROR, snapshot.last_error_code);
 }
 
+static void test_delivery_has_three_bounded_attempts_without_network_flap_reset(void) {
+  voice_diag_delivery_t delivery = {0};
+  TEST_ASSERT_FALSE(voice_diag_delivery_due(&delivery, 100, false, true));
+  TEST_ASSERT_TRUE(voice_diag_delivery_due(&delivery, 100, true, true));
+  voice_diag_delivery_attempted(&delivery, 100);
+  TEST_ASSERT_FALSE(voice_diag_delivery_due(&delivery, 5099, true, true));
+  TEST_ASSERT_FALSE(voice_diag_delivery_due(&delivery, 5100, false, true));
+  TEST_ASSERT_TRUE(voice_diag_delivery_due(&delivery, 5100, true, true));
+  voice_diag_delivery_attempted(&delivery, 5100);
+  TEST_ASSERT_FALSE(voice_diag_delivery_due(&delivery, 20099, true, true));
+  TEST_ASSERT_TRUE(voice_diag_delivery_due(&delivery, 20100, true, true));
+  voice_diag_delivery_attempted(&delivery, 20100);
+  TEST_ASSERT_FALSE(voice_diag_delivery_due(&delivery, 999999, true, true));
+  voice_diag_delivery_reset(&delivery);
+  TEST_ASSERT_TRUE(voice_diag_delivery_due(&delivery, 999999, true, true));
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_events_wrap_and_keep_last_error);
   RUN_TEST(test_session_counters_do_not_mix);
   RUN_TEST(test_report_is_bounded_and_contains_only_numeric_fields);
   RUN_TEST(test_restored_error_does_not_add_an_event);
+  RUN_TEST(test_delivery_has_three_bounded_attempts_without_network_flap_reset);
   return UNITY_END();
 }

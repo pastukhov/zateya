@@ -48,10 +48,12 @@ void voice_diag_record_capture(uint32_t bytes, uint32_t ring_bytes);
 void voice_diag_record_queue(uint32_t bytes, uint32_t upload_bytes);
 void voice_diag_record_send(uint32_t bytes, uint32_t elapsed_ms);
 void voice_diag_snapshot(voice_diag_snapshot_t *out);
+voice_diag_code_t voice_diag_last_error(void);
 void voice_diag_restore_last_error(voice_diag_code_t code);
 #ifdef ESP_PLATFORM
 void voice_diag_load_last_error(void);
 void voice_diag_persist_last_error(void);
+bool voice_diag_report_json(char *out, size_t capacity);
 #endif
 /* Decimal numeric fields only. Returns false if the buffer cannot hold all events. */
 bool voice_diag_snapshot_json(const voice_diag_snapshot_t *snapshot,

@@ -93,6 +93,13 @@ void voice_diag_snapshot(voice_diag_snapshot_t *out) {
   DIAG_UNLOCK();
 }
 
+voice_diag_code_t voice_diag_last_error(void) {
+  DIAG_LOCK();
+  voice_diag_code_t code = diag.data.last_error_code;
+  DIAG_UNLOCK();
+  return code;
+}
+
 void voice_diag_restore_last_error(voice_diag_code_t code) {
   if (code < VOICE_DIAG_REC_RING_OVERFLOW || code > VOICE_DIAG_TURN_FAILED ||
       code == VOICE_DIAG_UPLOAD_COMPLETED) return;

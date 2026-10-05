@@ -1,7 +1,6 @@
 #include "voice_config_httpd.h"
 #include "voice_mdns.h"
 #include "voice_diagnostics.h"
-#include "voice_gateway_health.h"
 #include "voice_wireguard.h"
 
 #ifdef ESP_PLATFORM
@@ -16,7 +15,6 @@
 #include "esp_log.h"
 #include "esp_netif.h"
 #include "esp_system.h"
-#include "esp_timer.h"
 #include "esp_wifi.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -33,8 +31,6 @@ static _Atomic bool s_scan_running;
 static SemaphoreHandle_t s_scan_mutex;
 static wifi_ap_record_t s_scan_records[24];
 static char s_scan_body[sizeof(s_scan_json)];
-static uint32_t s_diag_boot_id;
-static uint32_t s_diag_sequence;
 
 /* Serve setup on the device AP and the currently connected Wi-Fi subnet. */
 static bool allow_setup_client(httpd_req_t *req) {
@@ -409,26 +405,11 @@ static esp_err_t h_portal_redirect(httpd_req_t *req, httpd_err_code_t error) {
 
 static esp_err_t h_diagnostics_get(httpd_req_t *req) {
   if (!allow_setup_client(req)) return ESP_OK;
-  voice_diag_snapshot_t snapshot;
-  voice_diag_snapshot(&snapshot);
-  char data[4096];
-  if (!voice_diag_snapshot_json(&snapshot, data, sizeof(data))) return ESP_FAIL;
-  wifi_ap_record_t ap = {0};
-  bool wifi_connected = esp_wifi_sta_get_ap_info(&ap) == ESP_OK;
-  char body[4608];
-  int written = snprintf(body, sizeof(body),
-      "{\"boot_id\":%lu,\"sequence\":%lu,\"uptime_ms\":%llu,"
-      "\"reset_reason\":%u,\"firmware_revision\":\"%s %s\","
-      "\"wifi_connected\":%s,\"wg_status\":\"%s\","
-      "\"backend_status\":%d,\"free_heap_bytes\":%lu,"
-      "\"recording\":%s}",
-      (unsigned long)s_diag_boot_id, (unsigned long)++s_diag_sequence,
-      (unsigned long long)(esp_timer_get_time() / 1000),
-      (unsigned)esp_reset_reason(), __DATE__, __TIME__,
-      wifi_connected ? "true" : "false", voice_wireguard_status(),
-      voice_gateway_health_status(), (unsigned long)esp_get_free_heap_size(), data);
-  if (written < 0 || (size_t)written >= sizeof(body)) return ESP_FAIL;
-  return send_json(req, body);
+  char *body = malloc(4608);
+  if (!body) return ESP_ERR_NO_MEM;
+  esp_err_t err = voice_diag_report_json(body, 4608) ? send_json(req, body) : ESP_FAIL;
+  free(body);
+  return err;
 }
 
 static esp_err_t h_config_get(httpd_req_t *req) {
@@ -615,7 +596,6 @@ void voice_config_httpd_start(voice_settings_t *settings) {
   s_scan_mutex = xSemaphoreCreateMutex();
   if (!s_scan_mutex) return;
   s_settings = settings;
-  s_diag_boot_id = esp_random();
   httpd_config_t cfg = HTTPD_DEFAULT_CONFIG();
   cfg.server_port = 80;
   cfg.stack_size = 12288;

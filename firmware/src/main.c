@@ -85,6 +85,7 @@
 #include "voice_turn_http.h"
 #include "voice_gateway_health.h"
 #include "voice_diagnostics.h"
+#include "voice_diag_delivery_esp.h"
 #include "voice_turn_client.h"
 #include "wav_parser.h"
 
@@ -682,6 +683,13 @@ void app_init(void) {
   }
   voice_wireguard_start(&voice_settings.wireguard);
   (void)voice_gateway_health_start(voice_settings.gateway_url);
+  if (voice_diag_delivery_start(voice_settings.gateway_url,
+                                voice_settings.device_id,
+                                voice_settings.device_token)) {
+    voice_diag_snapshot_t previous;
+    voice_diag_snapshot(&previous);
+    if (previous.last_error_code) voice_diag_delivery_request();
+  }
   voice_config_httpd_start(&voice_settings);
   const http_voice_config_t cfg = {
       .url = voice_settings.gateway_url,
@@ -793,6 +801,10 @@ void app_tick(void) {
       button_event_t ev = button_poll(&app.btn, hw_button_raw(), now);
       if (ev == BUTTON_EVENT_PRESSED) {
 #ifdef ESP_PLATFORM
+        if (voice_diag_delivery_busy()) {
+          app.ignore_button_until_release = true;
+          break;
+        }
         if (!board_sticks3_network_ready()) break;
 #endif
         if (recording_start()) enter_state(STATE_RECORDING, NULL);
@@ -1003,10 +1015,14 @@ static void voice_main_loop(void) {
 #ifdef ESP_PLATFORM
     if (app_state() == STATE_ERROR && !error_reported) {
       voice_diag_persist_last_error();
+      voice_diag_delivery_request();
       error_reported = true;
     } else if (app_state() != STATE_ERROR) {
       error_reported = false;
     }
+    voice_diag_delivery_set_idle(
+        (app_state() == STATE_IDLE || app_state() == STATE_ERROR) &&
+        !app.turn_task_active);
 #endif
     screen_processing_phase_t phase = SCREEN_PROCESSING_THINKING;
 #ifdef ESP_PLATFORM

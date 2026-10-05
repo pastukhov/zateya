@@ -11,6 +11,8 @@
 #include "voice_wireguard.h"
 #include "voice_gateway_health.h"
 #include "connectivity_policy.h"
+#include "voice_diag_delivery_esp.h"
+#include "voice_diagnostics.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -67,6 +69,7 @@ static screen_processing_phase_t s_screen_processing_phase = SCREEN_PROCESSING_T
 static bool s_screen_wifi;
 static bool s_screen_setup;
 static const char *s_screen_wg;
+static bool s_screen_diag_busy;
 static int s_screen_backend = -1;
 static bool s_screen_timing_reported;
 static char s_screen_device_id[16];
@@ -340,6 +343,7 @@ void board_sticks3_power_tick(bool busy, uint32_t now_ms, uint32_t timeout_ms) {
       s_wifi_setup.configured,
       s_wifi_connected && voice_wireguard_ready() && voice_gateway_health_status() == 200,
       s_wifi_setup.ap_active);
+  busy |= voice_diag_delivery_busy();
   bool key_pressed = hw_button_raw() || key2;
   if (busy || key_pressed) power_policy_reset(&policy, now_ms);
   if ((uint32_t)(now_ms - last_poll) < 1000) return;
@@ -542,6 +546,7 @@ void board_sticks3_display_update(state_t state, uint32_t now_ms,
   int phase = (int)(now_ms / 180U);
   const char *wg_status = voice_wireguard_status();
   int backend_status = voice_gateway_health_status();
+  bool diag_busy = voice_diag_delivery_busy();
   wifi_mode_t mode = WIFI_MODE_NULL;
   bool setup = esp_wifi_get_mode(&mode) == ESP_OK &&
                (mode == WIFI_MODE_AP || mode == WIFI_MODE_APSTA);
@@ -549,6 +554,7 @@ void board_sticks3_display_update(state_t state, uint32_t now_ms,
       processing_phase == s_screen_processing_phase &&
       s_wifi_connected == s_screen_wifi && wg_status == s_screen_wg &&
       backend_status == s_screen_backend &&
+      diag_busy == s_screen_diag_busy &&
       setup == s_screen_setup) return;
   if (!s_screen) s_screen = heap_caps_malloc(SCREEN_W * SCREEN_H * sizeof(*s_screen), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
   if (!s_screen) s_screen = heap_caps_malloc(SCREEN_W * SCREEN_H * sizeof(*s_screen), MALLOC_CAP_8BIT);
@@ -556,6 +562,15 @@ void board_sticks3_display_update(state_t state, uint32_t now_ms,
   lcd_init();
   screen_ui_view_t view = screen_ui_view_with_connection(state, processing_phase,
       s_wifi_connected, wg_status, voice_wireguard_ready(), backend_status);
+  if (state == STATE_IDLE && diag_busy)
+    view = (screen_ui_view_t){"ОТЧЁТ", "ОТПРАВЛЯЮ\nДИАГНОСТИКУ", 0xF5A8,
+                              SCREEN_ICON_THINKING};
+  char error_hint[48];
+  if (state == STATE_ERROR) {
+    snprintf(error_hint, sizeof(error_hint), "КОД %02u\nНАЖМИТЕ КНОПКУ",
+             (unsigned)voice_diag_last_error());
+    view.hint = error_hint;
+  }
   for (int i = 0; i < SCREEN_W * SCREEN_H; ++i) s_screen[i] = C_BG;
   screen_ui_draw_server_icon(s_screen, SCREEN_W, SCREEN_H, SCREEN_STATUS_SERVER_X,
                              screen_ui_backend_color(backend_status));
@@ -602,6 +617,7 @@ void board_sticks3_display_update(state_t state, uint32_t now_ms,
   s_screen_processing_phase = processing_phase;
   s_screen_wifi = s_wifi_connected;
   s_screen_wg = wg_status;
+  s_screen_diag_busy = diag_busy;
   s_screen_backend = backend_status;
   s_screen_setup = setup;
 }
