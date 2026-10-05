@@ -86,6 +86,7 @@
 #include "voice_gateway_health.h"
 #include "voice_diagnostics.h"
 #include "voice_diag_delivery_esp.h"
+#include "voice_ota.h"
 #include "voice_turn_client.h"
 #include "wav_parser.h"
 
@@ -685,6 +686,8 @@ void app_init(void) {
   }
   voice_wireguard_start(&voice_settings.wireguard);
   (void)voice_gateway_health_start(voice_settings.gateway_url);
+  (void)voice_ota_start(voice_settings.gateway_url,
+                        voice_settings.device_id, voice_settings.device_token);
   if (voice_diag_delivery_start(voice_settings.gateway_url,
                                 voice_settings.device_id,
                                 voice_settings.device_token)) {
@@ -808,6 +811,10 @@ void app_tick(void) {
           break;
         }
         if (!board_sticks3_network_ready()) break;
+        if (!voice_ota_voice_begin()) {
+          app.ignore_button_until_release = true;
+          break;
+        }
 #endif
         if (recording_start()) enter_state(STATE_RECORDING, NULL);
         else enter_state(STATE_ERROR, "voice recording start failed");
@@ -1025,6 +1032,8 @@ static void voice_main_loop(void) {
     voice_diag_delivery_set_idle(
         (app_state() == STATE_IDLE || app_state() == STATE_ERROR) &&
         !app.turn_task_active);
+    if (app_state() == STATE_IDLE && !app.turn_task_active)
+      voice_ota_voice_end();
 #endif
     screen_processing_phase_t phase = SCREEN_PROCESSING_THINKING;
 #ifdef ESP_PLATFORM
@@ -1038,6 +1047,9 @@ static void voice_main_loop(void) {
       timer = screen_ui_recording_timer(app.btn.press_ms, hw_clock_ms(),
                                         MAX_RECORD_SECONDS_DEFAULT);
     board_sticks3_display_update(app_state(), hw_clock_ms(), phase, timer);
+#ifdef ESP_PLATFORM
+    voice_ota_confirm_boot();
+#endif
     board_sticks3_power_tick(
       (app_state() != STATE_IDLE && app_state() != STATE_ERROR) || app.turn_task_active,
       hw_clock_ms(), voice_settings.sleep_timeout_seconds * 1000U);

@@ -175,6 +175,7 @@ class AuthMiddleware:
             path = scope["path"]
             if (self._expected is not None and path not in PUBLIC_PATHS
                     and not (path.startswith(DEVICE_API_PREFIX)
+                             or path.startswith("/api/firmware/")
                              or path == DEVICE_DIAGNOSTICS_PATH)):
                 provided = _extract_token(headers)
                 if provided is None or not hmac.compare_digest(

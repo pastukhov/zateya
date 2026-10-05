@@ -27,7 +27,7 @@ print(uid + ":" + gid)
 uid="${container_user%%:*}"
 gid="${container_user##*:}"
 
-for directory in archive obsidian ssh; do
+for directory in archive obsidian ssh firmware pio firmware-signing; do
   path="data/$directory"
   if [[ -L "$path" ]]; then
     echo "Refusing symlink: $path" >&2
@@ -41,13 +41,17 @@ for directory in archive obsidian ssh; do
 done
 
 # Chown only known data trees, after symlink checks; never delete or replace data.
-chown -R "$uid:$gid" data/archive data/obsidian data/ssh
+chown -R "$uid:$gid" data/archive data/obsidian data/ssh data/firmware data/pio data/firmware-signing
 chmod 700 data/ssh
+chmod 700 data/firmware-signing
 for secret_file in data/ssh/id_ed25519 data/ssh/known_hosts; do
   if [[ -e "$secret_file" ]]; then
     chmod 600 "$secret_file"
   fi
 done
+if [[ -f data/firmware-signing/ota-p256.pem ]]; then
+  chmod 600 data/firmware-signing/ota-p256.pem
+fi
 
 printf 'Prepared data for container UID:GID %s:%s\n' "$uid" "$gid"
 if [[ ! -f data/ssh/id_ed25519 || ! -f data/ssh/known_hosts ]]; then

@@ -28,6 +28,8 @@ Without saved Wi-Fi settings, the device creates the open `Zateya-Setup-XX` netw
 
 Choose Wi-Fi and enter the gateway address and device token. Full setup remains available after the device joins a local network, using its IP address or mDNS name. The page includes a confirmed settings reset.
 
+Experimental pull OTA is prepared in code. Compose can build a signed candidate, and the recorder can check for an explicitly published release. The first OTA-capable firmware and partition table still require a USB installation and hardware validation before publishing a stable release. See the [OTA procedure (Russian)](docs/operations/pull-ota.md).
+
 ## Voice request
 
 The device follows a half-duplex cycle: `READY → LISTENING → THINKING → SPEAKING → READY`. The gateway stores each recording as a job, processes it, and returns WAV audio. Each device uses a distinct bearer token.
@@ -56,7 +58,7 @@ See the [Alice skill setup guide (Russian)](docs/alice-skill.md) for skill creat
 | `backend/` | FastAPI gateway, LLM/STT/TTS clients, archive, Obsidian writer, and Git publisher |
 | `deploy/` | data preparation, systemd unit, and Alice proxy |
 | `docs/` | architecture, protocol, development, device setup, and diagrams |
-| `docker-compose.yml` | backend and optional Alice proxy (`alice` profile) |
+| `docker-compose.yml` | backend, optional Alice proxy (`alice`), and firmware builder (`firmware`) |
 | `.env.example` | environment template without real secrets |
 
 Never commit `.env`, Wi-Fi passwords, device tokens, API keys, or SSH keys. The setup AP is open and intended for nearby provisioning only.

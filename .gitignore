@@ -19,6 +19,7 @@ __pycache__/
 # Editor and downloaded build dependencies
 /.vscode/
 /firmware/managed_components/
+/firmware/.pio/
 
 # Generated firmware test reports
 /firmware/test_results.txt

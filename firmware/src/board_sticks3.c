@@ -13,6 +13,7 @@
 #include "connectivity_policy.h"
 #include "voice_diag_delivery_esp.h"
 #include "voice_diagnostics.h"
+#include "voice_ota.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -56,6 +57,7 @@ static _Atomic bool s_wifi_connected;
 static voice_wifi_profile_t s_wifi_profiles[VOICE_WIFI_PROFILE_COUNT];
 static voice_wifi_selector_t s_wifi_selector;
 static _Atomic bool s_manual_setup;
+static _Atomic bool s_usb_powered;
 static uint32_t s_wifi_started_ms;
 static voice_wifi_setup_t s_wifi_setup;
 static char s_setup_ssid[33];
@@ -70,6 +72,9 @@ static bool s_screen_wifi;
 static bool s_screen_setup;
 static const char *s_screen_wg;
 static bool s_screen_diag_busy;
+static bool s_screen_ota_busy;
+static bool s_screen_ota_pending;
+static unsigned s_screen_ota_percent;
 static int s_screen_backend = -1;
 static bool s_screen_timing_reported;
 static char s_screen_device_id[16];
@@ -344,12 +349,14 @@ void board_sticks3_power_tick(bool busy, uint32_t now_ms, uint32_t timeout_ms) {
       s_wifi_connected && voice_wireguard_ready() && voice_gateway_health_status() == 200,
       s_wifi_setup.ap_active);
   busy |= voice_diag_delivery_busy();
+  busy |= voice_ota_busy();
   bool key_pressed = hw_button_raw() || key2;
   if (busy || key_pressed) power_policy_reset(&policy, now_ms);
   if ((uint32_t)(now_ms - last_poll) < 1000) return;
   last_poll = now_ms;
   uint8_t source = 0xff;
   bool valid = pm_read(0x04, &source) == ESP_OK;
+  s_usb_powered = valid && (source & 1u) != 0;
   source &= 7;
   if (valid && source != last_source) {
     ESP_LOGI(TAG, "Power sources: 0x%02x (bit0=USB, bit1=external, bit2=battery)", source);
@@ -547,6 +554,9 @@ void board_sticks3_display_update(state_t state, uint32_t now_ms,
   const char *wg_status = voice_wireguard_status();
   int backend_status = voice_gateway_health_status();
   bool diag_busy = voice_diag_delivery_busy();
+  bool ota_busy = voice_ota_busy();
+  bool ota_pending = voice_ota_boot_pending();
+  unsigned ota_percent = voice_ota_percent();
   wifi_mode_t mode = WIFI_MODE_NULL;
   bool setup = esp_wifi_get_mode(&mode) == ESP_OK &&
                (mode == WIFI_MODE_AP || mode == WIFI_MODE_APSTA);
@@ -555,6 +565,9 @@ void board_sticks3_display_update(state_t state, uint32_t now_ms,
       s_wifi_connected == s_screen_wifi && wg_status == s_screen_wg &&
       backend_status == s_screen_backend &&
       diag_busy == s_screen_diag_busy &&
+      ota_busy == s_screen_ota_busy &&
+      ota_pending == s_screen_ota_pending &&
+      ota_percent == s_screen_ota_percent &&
       setup == s_screen_setup) return;
   if (!s_screen) s_screen = heap_caps_malloc(SCREEN_W * SCREEN_H * sizeof(*s_screen), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
   if (!s_screen) s_screen = heap_caps_malloc(SCREEN_W * SCREEN_H * sizeof(*s_screen), MALLOC_CAP_8BIT);
@@ -564,6 +577,15 @@ void board_sticks3_display_update(state_t state, uint32_t now_ms,
       s_wifi_connected, wg_status, voice_wireguard_ready(), backend_status);
   if (state == STATE_IDLE && diag_busy)
     view = (screen_ui_view_t){"ОТЧЁТ", "ОТПРАВЛЯЮ\nДИАГНОСТИКУ", 0xF5A8,
+                              SCREEN_ICON_THINKING};
+  char ota_hint[48];
+  if (state == STATE_IDLE && ota_busy) {
+    snprintf(ota_hint, sizeof(ota_hint), "ПРОШИВКА %u%%\nНЕ ВЫКЛЮЧАЙТЕ", ota_percent);
+    view = (screen_ui_view_t){"ОБНОВЛЯЮ", ota_hint, 0x07E0,
+                              SCREEN_ICON_THINKING};
+  }
+  if (state == STATE_IDLE && ota_pending)
+    view = (screen_ui_view_t){"ПРОВЕРЯЮ", "ПОСЛЕ ОБНОВЛЕНИЯ", 0xF5A8,
                               SCREEN_ICON_THINKING};
   char error_hint[48];
   if (state == STATE_ERROR) {
@@ -618,6 +640,9 @@ void board_sticks3_display_update(state_t state, uint32_t now_ms,
   s_screen_wifi = s_wifi_connected;
   s_screen_wg = wg_status;
   s_screen_diag_busy = diag_busy;
+  s_screen_ota_busy = ota_busy;
+  s_screen_ota_pending = ota_pending;
+  s_screen_ota_percent = ota_percent;
   s_screen_backend = backend_status;
   s_screen_setup = setup;
 }
@@ -705,4 +730,19 @@ bool hw_audio_playback_drained(void) {
 
 bool board_sticks3_network_ready(void) {
   return s_wifi_connected && voice_wireguard_ready();
+}
+
+bool board_sticks3_usb_powered(void) { return s_usb_powered; }
+
+bool board_sticks3_local_self_test(void) {
+  ensure_audio();
+  if (!s_lcd_ready || !s_audio_ready ||
+      heap_caps_get_free_size(MALLOC_CAP_8BIT) < 32768 ||
+      audio_capture_start() != ESP_OK) return false;
+  uint8_t samples[256];
+  size_t captured = 0;
+  for (unsigned attempt = 0; attempt < 5 && !captured; ++attempt)
+    captured = audio_capture_read(samples, sizeof(samples), 50);
+  bool stopped = audio_capture_stop() == ESP_OK;
+  return captured > 0 && stopped;
 }

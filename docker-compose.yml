@@ -15,6 +15,7 @@ services:
       VOICE_BIND_HOST: ${VOICE_BIND_HOST:-0.0.0.0}
       VOICE_BIND_PORT: ${VOICE_BIND_PORT:-8080}
       ARCHIVE_ROOT: /data/archive
+      FIRMWARE_RELEASE_ROOT: /data/firmware
       USAGE_PRICING_PATH: ${USAGE_PRICING_PATH:-/data/archive/pricing.yaml}
       VOICE_JOB_DATABASE: /data/archive/voice-jobs.sqlite
       LLM_BASE_URL: ${LLM_BASE_URL:-}
@@ -52,6 +53,7 @@ services:
       ALICE_CONTEXT_DEVICE_ID: ${ALICE_CONTEXT_DEVICE_ID:-}
     volumes:
       - ./data/archive:/data/archive
+      - ./data/firmware:/data/firmware:ro
       - ./data/obsidian:/data/obsidian
       - ./data/ssh:/data/ssh:ro
     healthcheck:
@@ -77,3 +79,22 @@ services:
     volumes:
       - ./deploy/alice.nginx.conf.template:/etc/nginx/templates/default.conf.template:ro
     restart: unless-stopped
+
+  firmware-builder:
+    profiles: [firmware]
+    build:
+      context: .
+      dockerfile: deploy/firmware/Dockerfile
+      args:
+        ZATEYA_UID: ${ZATEYA_UID:-1000}
+        ZATEYA_GID: ${ZATEYA_GID:-1000}
+    image: zateya-firmware-builder:latest
+    user: "${ZATEYA_UID:-1000}:${ZATEYA_GID:-1000}"
+    environment:
+      GIT_REVISION: ${GIT_REVISION:-}
+    volumes:
+      - ./data/firmware:/releases
+      - ./data/pio:/cache
+      - ./data/firmware-signing:/signing:ro
+    command: ["build", "${FIRMWARE_RELEASE_SEQ:-0}"]
+    restart: "no"

@@ -1,6 +1,6 @@
 # .dockerignore — build context is the REPO ROOT (see backend/Dockerfile).
 #
-# Only `backend/` is needed to run the gateway (src + prompts + requirements).
+# The backend image copies `backend/`; the optional firmware builder copies `firmware/`.
 # Everything below is kept OUT of the image: it is either large (venvs, VCS),
 # regenerable (caches), or must never leak into the image (local env /
 # secrets, ТЗ §36: «Secrets не коммитить»). No secret VALUES are written
@@ -26,6 +26,8 @@ secrets/
 *.pyc
 *.pyo
 **/.pytest_cache
+/firmware/.pio/
+/firmware/sdkconfig.sticks3
 .mypy_cache
 .ruff_cache
 .coverage

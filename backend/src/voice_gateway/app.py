@@ -23,6 +23,7 @@ from backend.src.voice_gateway.jobs.store import VoiceJobStore
 from backend.src.voice_gateway.jobs.worker import VoiceJobWorker
 from backend.src.voice_gateway.diagnostics.api import install_diagnostic_routes
 from backend.src.voice_gateway.diagnostics.store import DiagnosticsStore
+from backend.src.voice_gateway.firmware_updates.api import install_firmware_routes
 from backend.src.voice_gateway.health import check_live, check_ready
 from backend.src.voice_gateway.config import SecurityConfig, STTConfig, STTConfigError
 from backend.src.voice_gateway.logging_config import configure_logging
@@ -285,6 +286,10 @@ def create_app(
         }) if git_sync is not None else None,
     )
     install_diagnostic_routes(app, diagnostics_store, device_tokens)
+    install_firmware_routes(
+        app, Path(os.environ.get("FIRMWARE_RELEASE_ROOT", "/data/firmware")),
+        device_tokens,
+    )
 
     @app.on_event("startup")
     async def start_voice_jobs() -> None:
