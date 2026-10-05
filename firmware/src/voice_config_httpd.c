@@ -1,5 +1,8 @@
 #include "voice_config_httpd.h"
 #include "voice_mdns.h"
+#include "voice_diagnostics.h"
+#include "voice_gateway_health.h"
+#include "voice_wireguard.h"
 
 #ifdef ESP_PLATFORM
 #include <stdio.h>
@@ -13,6 +16,7 @@
 #include "esp_log.h"
 #include "esp_netif.h"
 #include "esp_system.h"
+#include "esp_timer.h"
 #include "esp_wifi.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -29,6 +33,8 @@ static _Atomic bool s_scan_running;
 static SemaphoreHandle_t s_scan_mutex;
 static wifi_ap_record_t s_scan_records[24];
 static char s_scan_body[sizeof(s_scan_json)];
+static uint32_t s_diag_boot_id;
+static uint32_t s_diag_sequence;
 
 /* Serve setup on the device AP and the currently connected Wi-Fi subnet. */
 static bool allow_setup_client(httpd_req_t *req) {
@@ -164,6 +170,12 @@ static const char k_html[] =
   "<div class='card'>\n"
   "<b>Состояние</b>\n"
   "<div id='status' class='muted' style='margin-top:6px'>Загрузка…</div>\n"
+  "</div>\n"
+  "<div class='card'>\n"
+  "<b>Диагностика</b>\n"
+  "<p class='muted'>Счётчики последней записи и коды ошибок. Отчёт не содержит речь, сети, адреса или ключи.</p>\n"
+  "<div class='row'><button type='button' onclick='loadDiag()'>Обновить</button><button type='button' onclick='downloadDiag()'>Скачать отчёт</button></div>\n"
+  "<pre id='diagnostics' class='muted' style='white-space:pre-wrap;overflow-wrap:anywhere'></pre>\n"
   "</div>\n"
   "<script>const $=x=>document.getElementById(x);let savedToken=false,savedGateway=false;let savedWifi=[],wifiProfiles=[],visibleWifi=[],scanState='loading',editingWifi=-1,wifiLoaded=false;\n"
   "function selectTab(name){\n"
@@ -333,6 +345,8 @@ static const char k_html[] =
   "    $('info').textContent='Сохранено. Перезагрузка…';\n"
   "  }catch(e){saving=false;$('save-settings').disabled=false;$('info').textContent='Не удалось сохранить настройки. Проверьте заполненные поля и повторите.';}\n"
   "}\n"
+  "async function loadDiag(){try{const r=await fetch('/api/diagnostics',{cache:'no-store'});if(!r.ok)throw Error();const j=await r.json();$('diagnostics').textContent=JSON.stringify(j,null,2);return j;}catch(e){$('diagnostics').textContent='Не удалось получить отчёт';return null;}}\n"
+  "async function downloadDiag(){const j=await loadDiag();if(!j)return;const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify(j,null,2)],{type:'application/json'}));a.download='zateya-diagnostics.json';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);}\n"
   "async function refreshWg(){try{const j=await(await fetch('/config')).json();$('wg-status').textContent='WireGuard: '+wgStatusText(j.wg_status);$('status').textContent=j.wifi_connected?'Wi‑Fi подключён · '+(j.active_ssid||'')+' · '+j.ip:'Точка доступа для настройки · '+j.ap_ip;}catch(e){}}load();scanWifi();setInterval(refreshWg,3000);</script>\n"
   "</body>\n"
   "</html>\n";
@@ -391,6 +405,30 @@ static esp_err_t h_portal_redirect(httpd_req_t *req, httpd_err_code_t error) {
   return httpd_resp_send(req,
       "<html lang='ru'><body><a href='/'>Открыть настройки Затея · StickS3</a></body></html>",
       HTTPD_RESP_USE_STRLEN);
+}
+
+static esp_err_t h_diagnostics_get(httpd_req_t *req) {
+  if (!allow_setup_client(req)) return ESP_OK;
+  voice_diag_snapshot_t snapshot;
+  voice_diag_snapshot(&snapshot);
+  char data[4096];
+  if (!voice_diag_snapshot_json(&snapshot, data, sizeof(data))) return ESP_FAIL;
+  wifi_ap_record_t ap = {0};
+  bool wifi_connected = esp_wifi_sta_get_ap_info(&ap) == ESP_OK;
+  char body[4608];
+  int written = snprintf(body, sizeof(body),
+      "{\"boot_id\":%lu,\"sequence\":%lu,\"uptime_ms\":%llu,"
+      "\"reset_reason\":%u,\"firmware_revision\":\"%s %s\","
+      "\"wifi_connected\":%s,\"wg_status\":\"%s\","
+      "\"backend_status\":%d,\"free_heap_bytes\":%lu,"
+      "\"recording\":%s}",
+      (unsigned long)s_diag_boot_id, (unsigned long)++s_diag_sequence,
+      (unsigned long long)(esp_timer_get_time() / 1000),
+      (unsigned)esp_reset_reason(), __DATE__, __TIME__,
+      wifi_connected ? "true" : "false", voice_wireguard_status(),
+      voice_gateway_health_status(), (unsigned long)esp_get_free_heap_size(), data);
+  if (written < 0 || (size_t)written >= sizeof(body)) return ESP_FAIL;
+  return send_json(req, body);
 }
 
 static esp_err_t h_config_get(httpd_req_t *req) {
@@ -577,6 +615,7 @@ void voice_config_httpd_start(voice_settings_t *settings) {
   s_scan_mutex = xSemaphoreCreateMutex();
   if (!s_scan_mutex) return;
   s_settings = settings;
+  s_diag_boot_id = esp_random();
   httpd_config_t cfg = HTTPD_DEFAULT_CONFIG();
   cfg.server_port = 80;
   cfg.stack_size = 12288;
@@ -586,9 +625,11 @@ void voice_config_httpd_start(voice_settings_t *settings) {
   static const httpd_uri_t post_cfg = {.uri = "/config", .method = HTTP_POST, .handler = h_config_post};
   static const httpd_uri_t scan = {.uri = "/wifi_scan", .method = HTTP_GET, .handler = h_wifi_scan};
   static const httpd_uri_t reset_cfg = {.uri = "/config/reset", .method = HTTP_POST, .handler = h_config_reset};
+  static const httpd_uri_t diagnostics = {.uri = "/api/diagnostics", .method = HTTP_GET, .handler = h_diagnostics_get};
   httpd_register_uri_handler(s_server, &reset_cfg);
   httpd_register_uri_handler(s_server, &root); httpd_register_uri_handler(s_server, &get_cfg);
   httpd_register_uri_handler(s_server, &post_cfg); httpd_register_uri_handler(s_server, &scan);
+  httpd_register_uri_handler(s_server, &diagnostics);
   httpd_register_err_handler(s_server, HTTPD_404_NOT_FOUND, h_portal_redirect);
   wifi_mode_t mode = WIFI_MODE_NULL;
   if (esp_wifi_get_mode(&mode) == ESP_OK && mode == WIFI_MODE_APSTA)

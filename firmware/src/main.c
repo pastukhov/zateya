@@ -84,6 +84,7 @@
 #include "voice_settings.h"
 #include "voice_turn_http.h"
 #include "voice_gateway_health.h"
+#include "voice_diagnostics.h"
 #include "voice_turn_client.h"
 #include "wav_parser.h"
 
@@ -220,16 +221,26 @@ static void upload_recording(app_t *a) {
   uint8_t chunk[1024];
   http_session_init(&a->session);
   bool open = http_session_open(&a->session);
-  if (!open) a->turn_upload_failed = true;
+  if (!open) {
+    a->turn_upload_failed = true;
+    voice_diag_event(VOICE_DIAG_UPLOAD_SOCKET_ERROR,
+                     (uint32_t)(esp_timer_get_time() / 1000), 0, 0);
+  }
   while (open) {
     if (a->turn_upload_failed) break;
     size_t count = xStreamBufferReceive(a->turn_upload_stream, chunk,
                                         sizeof(chunk), pdMS_TO_TICKS(100));
     if (count) {
+      uint32_t started = (uint32_t)(esp_timer_get_time() / 1000);
       if (http_session_write(&a->session, chunk, count) != count) {
         a->turn_upload_failed = true;
+        voice_diag_event(VOICE_DIAG_UPLOAD_SOCKET_ERROR,
+                         (uint32_t)(esp_timer_get_time() / 1000),
+                         (uint32_t)count, (uint32_t)(esp_timer_get_time() / 1000) - started);
         break;
       }
+      voice_diag_record_send((uint32_t)count,
+                             (uint32_t)(esp_timer_get_time() / 1000) - started);
     }
     if (a->turn_upload_finished &&
         xStreamBufferBytesAvailable(a->turn_upload_stream) == 0) break;
@@ -238,7 +249,11 @@ static void upload_recording(app_t *a) {
     if (!http_session_close(&a->session)) {
       http_session_abort(&a->session);
       a->turn_upload_failed = true;
+      voice_diag_event(VOICE_DIAG_UPLOAD_SOCKET_ERROR,
+                       (uint32_t)(esp_timer_get_time() / 1000), 0, 0);
     } else if (http_voice_client_status(&voice_client) == 202) {
+      voice_diag_event(VOICE_DIAG_UPLOAD_COMPLETED,
+                       (uint32_t)(esp_timer_get_time() / 1000), 202, 0);
       const char *turn_id = http_voice_client_turn_id(&voice_client);
       if (turn_id && turn_id[0] && !turn_save_id(a, turn_id))
         a->turn_storage_failed = true;
@@ -353,6 +368,7 @@ static bool recording_start(void) {
   ring_buffer_reset(&app.playback_rb);
 #ifdef ESP_PLATFORM
   {
+    voice_diag_begin_recording(hw_clock_ms());
     if (!start_turn_worker(true)) return false;
     hw_audio_capture_start();
     return true;
@@ -360,6 +376,7 @@ static bool recording_start(void) {
 #else
   http_session_init(&app.session);
   if (!http_session_open(&app.session)) return false;
+  voice_diag_begin_recording(hw_clock_ms());
   hw_audio_capture_start();
   return true;
 #endif
@@ -392,7 +409,9 @@ static void recording_capture(void) {
   uint8_t chunk[256];
   size_t n;
   while ((n = hw_audio_capture_read(chunk, sizeof(chunk))) > 0) {
-    ring_buffer_push(&app.rb, chunk, n);
+    size_t accepted = ring_buffer_push(&app.rb, chunk, n);
+    voice_diag_record_capture((uint32_t)accepted,
+                              (uint32_t)ring_buffer_count(&app.rb));
 #ifndef ESP_PLATFORM
     ring_buffer_push(&app.playback_rb, chunk, n);
 #endif
@@ -424,8 +443,13 @@ static void recording_drain(void) {
     {
       if (xStreamBufferSend(app.turn_upload_stream, chunk, n, 0) != n) {
         app.turn_upload_failed = true;
+        voice_diag_event(VOICE_DIAG_UPLOAD_QUEUE_ERROR, hw_clock_ms(),
+                         (uint32_t)n,
+                         (uint32_t)xStreamBufferSpacesAvailable(app.turn_upload_stream));
         return;
       }
+      voice_diag_record_queue((uint32_t)n,
+                              (uint32_t)xStreamBufferBytesAvailable(app.turn_upload_stream));
     }
 #else
     (void)http_session_write(&app.session, chunk, n);
@@ -443,6 +467,9 @@ static void recording_drain(void) {
  *   5. recovery back to IDLE happens in the ERROR state (no reboot).
  */
 static void on_ring_buffer_overflow(void) {
+  voice_diag_event(VOICE_DIAG_REC_RING_OVERFLOW, hw_clock_ms(),
+                   (uint32_t)ring_buffer_count(&app.rb),
+                   (uint32_t)ring_buffer_capacity(&app.rb));
   hw_audio_capture_stop();
 #ifdef ESP_PLATFORM
   {
@@ -598,6 +625,7 @@ static bool playback_finished(void) {
 #endif
 
 void app_init(void) {
+  voice_diag_reset();
   state_machine_init(&app.sm);
   /* MAX_RECORD_SECONDS is the configurable cap from spec section 7;
    * button_driver auto-fires MAX_RECORD_TIMEOUT, which the RECORDING tick
@@ -617,6 +645,7 @@ void app_init(void) {
   http_session_init(&app.session);
 #ifdef ESP_PLATFORM
   (void)voice_settings_load(&voice_settings);
+  voice_diag_load_last_error();
   uint8_t sta_mac[6];
   ESP_ERROR_CHECK(esp_read_mac(sta_mac, ESP_MAC_WIFI_STA));
   voice_settings_set_device_id_from_mac(&voice_settings, sta_mac);
@@ -786,6 +815,7 @@ void app_tick(void) {
 #ifdef ESP_PLATFORM
       if (app.turn_result == VOICE_TURN_FAILED && !app.turn_task_active) {
         hw_audio_capture_stop();
+        voice_diag_event(VOICE_DIAG_TURN_FAILED, now, 0, 0);
         enter_state(STATE_ERROR, "voice upload failed");
         break;
       }
@@ -967,8 +997,17 @@ void app_tick(void) {
 static void voice_main_loop(void) {
   board_sticks3_log_memory();
   app_init();
+  bool error_reported = false;
   for (;;) {
     app_tick();
+#ifdef ESP_PLATFORM
+    if (app_state() == STATE_ERROR && !error_reported) {
+      voice_diag_persist_last_error();
+      error_reported = true;
+    } else if (app_state() != STATE_ERROR) {
+      error_reported = false;
+    }
+#endif
     screen_processing_phase_t phase = SCREEN_PROCESSING_THINKING;
 #ifdef ESP_PLATFORM
     if (app.turn_client.status == VOICE_TURN_STATUS_TRANSCRIBING)
