@@ -10,6 +10,7 @@
 #include "voice_wifi_setup.h"
 #include "voice_wireguard.h"
 #include "voice_gateway_health.h"
+#include "connectivity_policy.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -335,6 +336,10 @@ void board_sticks3_power_tick(bool busy, uint32_t now_ms, uint32_t timeout_ms) {
   }
   s_manual_setup = voice_wifi_portal_tick(&portal, key2, busy, now_ms);
   busy |= s_manual_setup || voice_wifi_search_grace(s_wifi_connected, s_wifi_started_ms, now_ms);
+  busy |= connectivity_sleep_hold(s_wifi_started_ms, now_ms,
+      s_wifi_setup.configured,
+      s_wifi_connected && voice_wireguard_ready() && voice_gateway_health_status() == 200,
+      s_wifi_setup.ap_active);
   bool key_pressed = hw_button_raw() || key2;
   if (busy || key_pressed) power_policy_reset(&policy, now_ms);
   if ((uint32_t)(now_ms - last_poll) < 1000) return;
@@ -462,12 +467,7 @@ static void screen_wifi_icon(bool connected) {
 }
 
 static void screen_wireguard_icon(const char *status, int phase) {
-  uint16_t color = C_MUTED;
-  if (strcmp(status, "connected") == 0) color = C_CONNECTED;
-  else if (strcmp(status, "error") == 0 || strcmp(status, "subnet_conflict") == 0)
-    color = 0xF800;
-  else if (strcmp(status, "disabled") != 0 && strcmp(status, "paused_setup") != 0)
-    color = (phase / 3) % 2 ? 0xFD20 : C_MUTED;
+  uint16_t color = screen_ui_wireguard_color(status, s_wifi_connected, phase);
   screen_font_draw_centered(s_screen, SCREEN_W, SCREEN_H, SCREEN_STATUS_WG_X, 13,
                             SCREEN_FONT_SMALL, "WG", color);
 }
@@ -554,9 +554,8 @@ void board_sticks3_display_update(state_t state, uint32_t now_ms,
   if (!s_screen) s_screen = heap_caps_malloc(SCREEN_W * SCREEN_H * sizeof(*s_screen), MALLOC_CAP_8BIT);
   if (!s_screen) return;
   lcd_init();
-  screen_ui_view_t view = screen_ui_view_with_network(state, processing_phase,
-                                                        s_wifi_connected, voice_wireguard_ready(),
-                                                        backend_status);
+  screen_ui_view_t view = screen_ui_view_with_connection(state, processing_phase,
+      s_wifi_connected, wg_status, voice_wireguard_ready(), backend_status);
   for (int i = 0; i < SCREEN_W * SCREEN_H; ++i) s_screen[i] = C_BG;
   screen_ui_draw_server_icon(s_screen, SCREEN_W, SCREEN_H, SCREEN_STATUS_SERVER_X,
                              screen_ui_backend_color(backend_status));
