@@ -15,7 +15,7 @@ uint16_t screen_ui_wireguard_color(const char *status, bool wifi_connected,
   if (strcmp(status, "connected") == 0) return 0x07E0;
   if (strcmp(status, "error") == 0 || strcmp(status, "subnet_conflict") == 0)
     return 0xF800;
-  if (strcmp(status, "time") == 0 || strcmp(status, "connecting") == 0)
+  if (strcmp(status, "waiting_time") == 0 || strcmp(status, "connecting") == 0)
     return (phase / 3) % 2 ? 0xFD20 : 0x74B3;
   return 0x74B3;
 }
@@ -106,7 +106,7 @@ screen_ui_view_t screen_ui_view_with_connection(state_t state,
                                                 bool vpn_ready,
                                                 int backend_status) {
   if (state == STATE_IDLE && wifi_connected && !vpn_ready && wg_status) {
-    if (strcmp(wg_status, "time") == 0)
+    if (strcmp(wg_status, "waiting_time") == 0)
       return (screen_ui_view_t){"VPN", "СИНХРОНИЗАЦИЯ\nВРЕМЕНИ", 0xF5A8, SCREEN_ICON_THINKING};
     if (strcmp(wg_status, "connecting") == 0)
       return (screen_ui_view_t){"VPN", "ПОДКЛЮЧАЮ VPN", 0xF5A8, SCREEN_ICON_THINKING};

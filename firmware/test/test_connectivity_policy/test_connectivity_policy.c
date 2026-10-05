@@ -13,19 +13,19 @@ static void test_connection_hold_is_bounded_and_wrap_safe(void) {
 }
 
 static void test_wireguard_icon_waits_for_wifi(void) {
-  TEST_ASSERT_EQUAL_HEX16(0x74B3, screen_ui_wireguard_color("wifi", false, 4));
+  TEST_ASSERT_EQUAL_HEX16(0x74B3, screen_ui_wireguard_color("waiting_wifi", false, 4));
   TEST_ASSERT_EQUAL_HEX16(0x74B3, screen_ui_wireguard_color("connecting", false, 4));
   TEST_ASSERT_EQUAL_HEX16(0x74B3, screen_ui_wireguard_color("connected", false, 4));
   TEST_ASSERT_EQUAL_HEX16(0x74B3, screen_ui_wireguard_color("disabled", true, 4));
-  TEST_ASSERT_EQUAL_HEX16(0xFD20, screen_ui_wireguard_color("time", true, 4));
-  TEST_ASSERT_EQUAL_HEX16(0x74B3, screen_ui_wireguard_color("time", true, 0));
+  TEST_ASSERT_EQUAL_HEX16(0xFD20, screen_ui_wireguard_color("waiting_time", true, 4));
+  TEST_ASSERT_EQUAL_HEX16(0x74B3, screen_ui_wireguard_color("waiting_time", true, 0));
   TEST_ASSERT_EQUAL_HEX16(0x07E0, screen_ui_wireguard_color("connected", true, 4));
   TEST_ASSERT_EQUAL_HEX16(0xF800, screen_ui_wireguard_color("error", true, 4));
 }
 
 static void test_vpn_wait_has_specific_screen_copy(void) {
   screen_ui_view_t view = screen_ui_view_with_connection(STATE_IDLE,
-      SCREEN_PROCESSING_THINKING, true, "time", false, 0);
+      SCREEN_PROCESSING_THINKING, true, "waiting_time", false, 0);
   TEST_ASSERT_EQUAL_STRING("СИНХРОНИЗАЦИЯ\nВРЕМЕНИ", view.hint);
   view = screen_ui_view_with_connection(STATE_IDLE,
       SCREEN_PROCESSING_THINKING, true, "connecting", false, 0);
