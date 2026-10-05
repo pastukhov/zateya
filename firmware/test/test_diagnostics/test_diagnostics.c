@@ -80,6 +80,18 @@ static void test_delivery_has_three_bounded_attempts_without_network_flap_reset(
   TEST_ASSERT_TRUE(voice_diag_delivery_due(&delivery, 999999, true, true));
 }
 
+static void test_generic_error_does_not_mask_a_specific_current_failure(void) {
+  voice_diag_reset();
+  voice_diag_restore_last_error(VOICE_DIAG_UPLOAD_SOCKET_ERROR);
+  voice_diag_begin_recording(100);
+  voice_diag_ensure_error(200);
+  TEST_ASSERT_EQUAL(VOICE_DIAG_TURN_FAILED, voice_diag_last_error());
+  voice_diag_begin_recording(300);
+  voice_diag_event(VOICE_DIAG_REC_RING_OVERFLOW, 400, 32768, 32768);
+  voice_diag_ensure_error(401);
+  TEST_ASSERT_EQUAL(VOICE_DIAG_REC_RING_OVERFLOW, voice_diag_last_error());
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_events_wrap_and_keep_last_error);
@@ -87,5 +99,6 @@ int main(void) {
   RUN_TEST(test_report_is_bounded_and_contains_only_numeric_fields);
   RUN_TEST(test_restored_error_does_not_add_an_event);
   RUN_TEST(test_delivery_has_three_bounded_attempts_without_network_flap_reset);
+  RUN_TEST(test_generic_error_does_not_mask_a_specific_current_failure);
   return UNITY_END();
 }

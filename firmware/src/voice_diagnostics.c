@@ -17,6 +17,7 @@ static portMUX_TYPE diag_lock = portMUX_INITIALIZER_UNLOCKED;
 static struct {
   voice_diag_snapshot_t data;
   uint32_t event_head;
+  bool session_error_set;
 } diag;
 
 static void add_event(voice_diag_code_t code, uint32_t uptime_ms,
@@ -29,9 +30,14 @@ static void add_event(voice_diag_code_t code, uint32_t uptime_ms,
     diag.data.event_count++;
   }
   diag.data.events[index] = (voice_diag_event_t){uptime_ms, code, arg0, arg1};
-  if (code >= VOICE_DIAG_REC_RING_OVERFLOW && code <= VOICE_DIAG_TURN_RECOVERY_TIMEOUT)
+  if (code >= VOICE_DIAG_REC_RING_OVERFLOW && code <= VOICE_DIAG_TURN_RECOVERY_TIMEOUT) {
     diag.data.last_error_code = code;
-  if (code == VOICE_DIAG_TURN_FAILED) diag.data.last_error_code = code;
+    diag.session_error_set = true;
+  }
+  if (code == VOICE_DIAG_TURN_FAILED) {
+    diag.data.last_error_code = code;
+    diag.session_error_set = true;
+  }
 }
 
 void voice_diag_reset(void) {
@@ -56,7 +62,21 @@ void voice_diag_begin_recording(uint32_t uptime_ms) {
   diag.data.ring_high_water_bytes = 0;
   diag.data.upload_high_water_bytes = 0;
   diag.data.write_max_ms = 0;
+  diag.session_error_set = false;
   add_event(VOICE_DIAG_RECORDING_STARTED, uptime_ms, diag.data.recording_id, 0);
+  DIAG_UNLOCK();
+}
+
+void voice_diag_ensure_error(uint32_t uptime_ms) {
+  DIAG_LOCK();
+  if (!diag.session_error_set)
+    add_event(VOICE_DIAG_TURN_FAILED, uptime_ms, 0, 0);
+  DIAG_UNLOCK();
+}
+
+void voice_diag_clear_current_error(void) {
+  DIAG_LOCK();
+  diag.session_error_set = false;
   DIAG_UNLOCK();
 }
 

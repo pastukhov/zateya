@@ -342,6 +342,7 @@ static void enter_state(state_t next, const char* error_what) {
     return; /* illegal transition: leave state, report if we can */
   }
   if (next == STATE_ERROR) {
+    voice_diag_ensure_error(hw_clock_ms());
     app.error_ack_ready = false;
     app.error_ack_pressed = false;
     if (error_what) {
@@ -349,6 +350,7 @@ static void enter_state(state_t next, const char* error_what) {
     }
   }
   if (next == STATE_IDLE) {
+    voice_diag_clear_current_error();
     button_reset(&app.btn); /* don't let a stale hold re-trigger */
   }
 }

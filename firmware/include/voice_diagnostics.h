@@ -44,6 +44,8 @@ void voice_diag_reset(void);
 void voice_diag_event(voice_diag_code_t code, uint32_t uptime_ms,
                       uint32_t arg0, uint32_t arg1);
 void voice_diag_begin_recording(uint32_t uptime_ms);
+void voice_diag_ensure_error(uint32_t uptime_ms);
+void voice_diag_clear_current_error(void);
 void voice_diag_record_capture(uint32_t bytes, uint32_t ring_bytes);
 void voice_diag_record_queue(uint32_t bytes, uint32_t upload_bytes);
 void voice_diag_record_send(uint32_t bytes, uint32_t elapsed_ms);
