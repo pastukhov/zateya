@@ -60,6 +60,12 @@ void worker(void *) {
  config.pcan_gain_control.offset=80;config.pcan_gain_control.gain_bits=21;
  config.log_scale.enable_log=1;config.log_scale.scale_shift=6;
  if(!FrontendPopulateState(&config,&frontend,16000)) {ESP_LOGE("wake","Frontend failed");vTaskDelete(nullptr);return;}
+ // Exercise every operator/state path before allowing OTA confirmation.
+ memset(input->data.int8,-128,input->bytes);
+ for(unsigned i=0;i<8;i++) {
+  if(interpreter.Invoke()!=kTfLiteOk){ESP_LOGE("wake","Inference self-test failed");vTaskDelete(nullptr);return;}
+ }
+ if(interpreter.Reset()!=kTfLiteOk){ESP_LOGE("wake","Model reset self-test failed");vTaskDelete(nullptr);return;}
  voice_wake_score_t score={};unsigned active_epoch=0,stride=0;unsigned max_us=0;
  ready.store(true);ESP_LOGI("wake","Model ready: 60840 bytes, arena=%u, input=1x3x40",(unsigned)interpreter.arena_used_bytes());
  Frame frame;

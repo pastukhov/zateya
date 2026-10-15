@@ -42,6 +42,8 @@ static const char *TAG = "voice_ota";
 static atomic_int activity = 1;
 static atomic_uint progress_percent;
 static atomic_bool boot_confirmed;
+static atomic_bool application_ready = true;
+void voice_ota_set_application_ready(bool ready) { atomic_store(&application_ready, ready); }
 static atomic_bool updates_disabled;
 static char gateway_base[192];
 static char device_id[32];
@@ -119,7 +121,7 @@ void voice_ota_confirm_boot(void) {
   }
   if (pending) {
     /* Check that the main loop has continued after initialization. */
-    if (main_loop_ticks < 3) return;
+    if (main_loop_ticks < 3 || !atomic_load(&application_ready)) return;
     int64_t now = esp_timer_get_time();
     if (last_self_test_us && now - last_self_test_us < 1000000LL) return;
     last_self_test_us = now;

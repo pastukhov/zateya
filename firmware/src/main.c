@@ -1175,14 +1175,15 @@ static void voice_main_loop(void) {
                                         MAX_RECORD_SECONDS_DEFAULT);
     board_sticks3_display_update(app_state(), hw_clock_ms(), phase, timer);
 #ifdef ESP_PLATFORM
-    voice_ota_confirm_boot();
-    if(!wake_start_attempted && !voice_ota_boot_pending() && !voice_ota_busy() &&
+    if(!wake_start_attempted && !voice_ota_busy() &&
        app_state()==STATE_IDLE && !app.turn_task_active &&
-       voice_settings.wake_enabled && board_sticks3_usb_powered()) {
+       voice_settings.wake_enabled && board_sticks3_local_self_test()) {
       wake_start_attempted=true;
       wake_preroll=heap_caps_malloc(WAKE_PREROLL_BYTES,MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT);
       if(wake_preroll)(void)voice_wake_detector_start();
     }
+    voice_ota_set_application_ready(!voice_settings.wake_enabled || voice_wake_detector_ready());
+    voice_ota_confirm_boot();
 #endif
     board_sticks3_power_tick(
       (app_state() != STATE_IDLE && app_state() != STATE_ERROR) || app.turn_task_active,

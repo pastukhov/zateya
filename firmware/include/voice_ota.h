@@ -12,5 +12,6 @@ unsigned voice_ota_percent(void);
 bool voice_ota_start(const char *gateway, const char *device_id,
                      const char *device_token);
 void voice_ota_confirm_boot(void);
+void voice_ota_set_application_ready(bool ready);
 
 #endif
