@@ -1,6 +1,8 @@
 # Gateway and optional Alice ingress. Persistent data stays under ./data.
 services:
   backend:
+    # Reap orphan Git/SSH children; Python must not serve as container init.
+    init: true
     build:
       context: .
       dockerfile: backend/Dockerfile
