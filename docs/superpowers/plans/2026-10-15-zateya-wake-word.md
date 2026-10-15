@@ -30,11 +30,11 @@ Interface: voice_wake_init, voice_wake_activate, voice_wake_cue_done,
 voice_wake_tick; explicit OFF/ARMED/CUE/SETTLE/WAIT_SPEECH/RECORDING/DONE states.
 Inputs: eligibility, monotonic uint32 milliseconds, speech flag, button finish,
 maximum recording duration. Outputs: start cue, start record, finish, cancel.
-- [ ] Add failing tests for eligibility, cue/echo isolation, 3 s silence,
+- [x] Add failing tests for eligibility, cue/echo isolation, 3 s silence,
   8 s no-speech, manual finish, max duration, timer wrap and power loss.
-- [ ] Run `pio test -e native -f test_voice_wake_policy`: expect failure.
-- [ ] Implement policy without ESP dependencies; timers start after cue settling.
-- [ ] Run targeted and full native tests, commit and push.
+- [x] Run `pio test -e native -f test_voice_wake_policy`: expect failure.
+- [x] Implement policy without ESP dependencies; timers start after cue settling.
+- [x] Run targeted and full native tests, commit and push.
 
 ### Task 2: Local voice asset and playback
 Files: deploy/firmware/prepare-listening-cue.py,
