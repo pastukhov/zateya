@@ -53,7 +53,7 @@ voice_listening_cue_start/tick/cancel consumes a caller-owned PCM buffer.
 - [x] Download to PSRAM after connection; check versions at most once per minute
   while idle, verify complete content before atomic replacement. Retain prior
   valid cache on failure. Never free or replace a buffer while playback owns it.
-- [ ] Gate wake activation on cue availability; keep button usable during cache
+- [x] Gate wake activation on cue availability; keep button usable during cache
   loading/failure. No partition changes or persistent device cache in this version.
 - [x] Pump bounded chunks and wait for speaker drain; no network at activation.
 - [x] Test backend, cache and playback, build target, commit and push.
@@ -63,10 +63,10 @@ Files: firmware/src/voice_wake_detector.cpp, firmware/include/voice_wake_detecto
 firmware/src/idf_component.yml, firmware/src/CMakeLists.txt,
 firmware/assets/wake-model metadata and model, firmware/src/voice_vad.c.
 Interface: detector_init/reset/feed16k/deinit, vad_feed16k/reset.
-- [ ] Obtain exported TFLite and manifest for user job 1279; inspect license,
+- [x] Obtain exported TFLite and manifest for user job 1279; inspect license,
   operators, shapes and state contract; record SHA-256 and dependency versions.
 - [ ] Validate incompatible/missing models fail closed without disabling button.
-- [ ] Integrate compatible frontend, streaming inference and WebRTC VAD.
+- [x] Integrate compatible frontend, streaming inference and WebRTC VAD.
 - [ ] Run positive/negative fixtures; measure RAM, inference time, image size.
 - [ ] Commit and push only verified adapter; no fabricated model parameters.
 
@@ -75,7 +75,7 @@ Files: firmware/src/main.c, board_sticks3.c, audio_sticks3.c,
 voice_settings*, voice_config_httpd.c, screen_ui*, diagnostics schema/tests.
 - [ ] Test one-reader ownership and button/wake arbitration, max-duration,
   cue failure/echo, repeated events and power changes.
-- [ ] Route idle frames to detector, cue frames to discard, recording frames
+- [x] Route idle frames to detector, cue frames to discard, recording frames
   to upload/VAD; defer upload until speech, using bounded pre-roll.
 - [ ] Add persisted enable/pause controls, reset defaults, screen indication
   and non-sensitive diagnostics; update strict backend schema first.
@@ -107,3 +107,19 @@ and voice-change matrix remain to verify. Model job 1279 is 10% per user; tasks
 3–5 requiring actual recognition remain pending. See operations/listening-cue.md.
 Ruling: do not ship a fake detector or add new inference dependencies before
 obtaining the actual model operator/state contract. Button behavior stays active.
+
+Model received 2026-10-15 as root `затея.zip`; SHA-256 and tensor/operator
+contract recorded in firmware/assets/wake/PROVENANCE.md. Implementation e73a185:
+worker inference, WebRTC VAD, single-reader integration, UI and settings. Native
+100 and browser 24 tests pass; target builds. Fresh review found no important
+issues. OTA candidate 9 published; physical results follow in operations/wake-word.md.
+Ruling: idle I2S remains in the existing main loop; only inference runs in a
+separate worker. This preserves one reader and avoids moving existing recording
+ownership. Epochs isolate stale queued frames/detections across transitions.
+
+
+OTA checkpoint: №9 automatically rolled back to №8 after audio DMA allocation
+failed. PSRAM allocation and boot ordering fixed in f6f412c and 48d5f63.
+№10 was not published; №11 installed and confirmed only after audio and model
+self-tests. USB confirms model ready, backend 200 and cue cached. Real spoken
+activation and the full acceptance matrix remain pending; see operations/wake-word.md.
