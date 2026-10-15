@@ -19,6 +19,7 @@ static i2s_chan_handle_t s_tx;
 static i2s_chan_handle_t s_rx;
 static esp_codec_dev_handle_t s_mic;
 static esp_codec_dev_handle_t s_spk;
+static const audio_codec_if_t *s_codec;
 static audio_capture_state_t s_capture_state = AUDIO_CAPTURE_STATE_STOPPED;
 static audio_playback_state_t s_playback_state = AUDIO_PLAYBACK_STATE_STOPPED;
 static int s_play_rate = 24000;
@@ -34,6 +35,18 @@ static esp_codec_dev_sample_info_t speaker_format(void) {
     return (esp_codec_dev_sample_info_t){
         .sample_rate = s_play_rate, .channel = 1, .bits_per_sample = 16
     };
+}
+
+/* ES8311 BOTH mode unmutes its DAC even when only the microphone is opened.
+ * Keep the shared output muted during capture, idle and the OTA microphone test.
+ * The speaker handle is closed here, so its public set_out_mute API is unavailable.
+ */
+static int open_microphone(void) {
+    esp_codec_dev_sample_info_t fs = mic_format();
+    int ret = esp_codec_dev_open(s_mic, &fs);
+    if (ret == ESP_CODEC_DEV_OK)
+        ret = s_codec->mute(s_codec, true);
+    return ret;
 }
 
 esp_err_t audio_capture_init(const audio_capture_config_t *config) {
@@ -90,6 +103,7 @@ esp_err_t audio_capture_init(const audio_capture_config_t *config) {
     };
     const audio_codec_if_t *codec = es8311_codec_new(&codec_cfg);
     if (!codec) { err = ESP_FAIL; goto fail; }
+    s_codec = codec;
     s_mic = esp_codec_dev_new(&(esp_codec_dev_cfg_t){
         .dev_type = ESP_CODEC_DEV_TYPE_IN, .codec_if = codec, .data_if = data
     });
@@ -97,8 +111,7 @@ esp_err_t audio_capture_init(const audio_capture_config_t *config) {
         .dev_type = ESP_CODEC_DEV_TYPE_OUT, .codec_if = codec, .data_if = data
     });
     if (!s_mic || !s_spk) { err = ESP_FAIL; goto fail; }
-    esp_codec_dev_sample_info_t fs = mic_format();
-    if (esp_codec_dev_open(s_mic, &fs) != ESP_CODEC_DEV_OK) {
+    if (open_microphone() != ESP_CODEC_DEV_OK) {
         err = ESP_FAIL; goto fail;
     }
     esp_codec_dev_set_in_gain(s_mic, 30.0f);
@@ -163,16 +176,14 @@ esp_err_t audio_playback_start(void) {
     int ret = esp_codec_dev_open(s_spk, &fs);
     if (ret != ESP_CODEC_DEV_OK) {
         ESP_LOGE(TAG, "speaker open at %d Hz failed: %d", s_play_rate, ret);
-        fs = mic_format();
-        esp_codec_dev_open(s_mic, &fs);
+        (void)open_microphone();
         return ESP_FAIL;
     }
     ret = esp_codec_dev_set_out_vol(s_spk, 80);
     if (ret != ESP_CODEC_DEV_OK) {
         ESP_LOGE(TAG, "speaker volume failed: %d", ret);
         esp_codec_dev_close(s_spk);
-        fs = mic_format();
-        esp_codec_dev_open(s_mic, &fs);
+        (void)open_microphone();
         return ESP_FAIL;
     }
     s_play_until_us = esp_timer_get_time();
@@ -207,8 +218,7 @@ audio_playback_state_t audio_playback_get_state(void) { return s_playback_state;
 esp_err_t audio_playback_stop(void) {
     if (s_playback_state != AUDIO_PLAYBACK_STATE_STARTED) return ESP_OK;
     esp_codec_dev_close(s_spk);
-    esp_codec_dev_sample_info_t fs = mic_format();
-    int ret = esp_codec_dev_open(s_mic, &fs);
+    int ret = open_microphone();
     s_playback_state = AUDIO_PLAYBACK_STATE_STOPPED;
     s_play_until_us = 0;
     if (ret != ESP_CODEC_DEV_OK) {
