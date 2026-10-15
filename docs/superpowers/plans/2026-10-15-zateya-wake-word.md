@@ -43,20 +43,20 @@ firmware/include/voice_listening_cue.h, firmware/src/voice_listening_cue.c,
 new device cue cache module and tests, Compose persistent data configuration.
 Interface: authenticated version manifest and PCM resource; firmware
 voice_listening_cue_start/tick/cancel consumes a caller-owned PCM buffer.
-- [ ] Test PCM format, duration limit 5 s, truncation, empty input and hash.
-- [ ] Generate «Слушаю» using current server TTS configuration; cache persistently
+- [x] Test PCM format, duration limit 5 s, truncation, empty input and hash.
+- [x] Generate «Слушаю» using current server TTS configuration; cache persistently
   by text/model/voice/synthesis settings/format. Never expose secrets in metadata.
-- [ ] Generate once per version in background with single-flight; test restart
+- [x] Generate once per version in background with single-flight; test restart
   reuse, config changes, concurrent requests and provider failures.
-- [ ] Serve manifest and bounded audio with existing device authentication;
+- [x] Serve manifest and bounded audio with existing device authentication;
   test unauthorized requests, missing cue and version consistency.
-- [ ] Download to PSRAM after connection; check versions at most once per minute
+- [x] Download to PSRAM after connection; check versions at most once per minute
   while idle, verify complete content before atomic replacement. Retain prior
   valid cache on failure. Never free or replace a buffer while playback owns it.
 - [ ] Gate wake activation on cue availability; keep button usable during cache
   loading/failure. No partition changes or persistent device cache in this version.
-- [ ] Pump bounded chunks and wait for speaker drain; no network at activation.
-- [ ] Test backend, cache and playback, build target, commit and push.
+- [x] Pump bounded chunks and wait for speaker drain; no network at activation.
+- [x] Test backend, cache and playback, build target, commit and push.
 
 ### Task 3: Model and VAD adapters
 Files: firmware/src/voice_wake_detector.cpp, firmware/include/voice_wake_detector.h,
@@ -98,3 +98,12 @@ on the server. Embedded cue packaging was dropped before deployment. Generated
 sample and generic playback tests are preparation only; download/cache integration
 is still pending. «Слушаю» remains the activation cue; this does not add a new
 spoken «Готова» notification.
+
+Implementation checkpoint (2026-10-15): server cache/API `2f65cd8`, device
+PSRAM download/player `92d4a12`. Backend deployed, OTA 8 installed/confirmed,
+real device cached 53760 bytes. 516 backend + 97 native + 3 converter tests pass.
+Fresh reviewer found no critical/important issues. Worker hardware cancellation
+and voice-change matrix remain to verify. Model job 1279 is 10% per user; tasks
+3–5 requiring actual recognition remain pending. See operations/listening-cue.md.
+Ruling: do not ship a fake detector or add new inference dependencies before
+obtaining the actual model operator/state contract. Button behavior stays active.
