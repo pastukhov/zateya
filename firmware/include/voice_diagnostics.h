@@ -40,6 +40,7 @@ typedef struct {
 } voice_diag_snapshot_t;
 
 /* No allocation, flash writes, networking, free-form text, or secrets. */
+const char *voice_diag_error_hint(voice_diag_code_t code);
 void voice_diag_reset(void);
 void voice_diag_event(voice_diag_code_t code, uint32_t uptime_ms,
                       uint32_t arg0, uint32_t arg1);

@@ -602,12 +602,8 @@ void board_sticks3_display_update(state_t state, uint32_t now_ms,
   if (state == STATE_IDLE && ota_pending)
     view = (screen_ui_view_t){"ПРОВЕРЯЮ", "ПОСЛЕ ОБНОВЛЕНИЯ", 0xF5A8,
                               SCREEN_ICON_THINKING};
-  char error_hint[48];
-  if (state == STATE_ERROR) {
-    snprintf(error_hint, sizeof(error_hint), "КОД %02u\nНАЖМИТЕ КНОПКУ",
-             (unsigned)voice_diag_last_error());
-    view.hint = error_hint;
-  }
+  if (state == STATE_ERROR)
+    view.hint = voice_diag_error_hint(voice_diag_last_error());
   for (int i = 0; i < SCREEN_W * SCREEN_H; ++i) s_screen[i] = C_BG;
   screen_ui_draw_server_icon(s_screen, SCREEN_W, SCREEN_H, SCREEN_STATUS_SERVER_X,
                              screen_ui_backend_color(backend_status));

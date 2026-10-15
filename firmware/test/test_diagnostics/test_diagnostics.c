@@ -92,6 +92,11 @@ static void test_generic_error_does_not_mask_a_specific_current_failure(void) {
   TEST_ASSERT_EQUAL(VOICE_DIAG_REC_RING_OVERFLOW, voice_diag_last_error());
 }
 
+static void test_readable_error_hints(void) {
+  TEST_ASSERT_EQUAL_STRING("СБОЙ ОБРАБОТКИ\nЗАПИСИ", voice_diag_error_hint(VOICE_DIAG_TURN_FAILED));
+  TEST_ASSERT_EQUAL_STRING("СБОЙ ОТПРАВКИ\nЗАПИСИ", voice_diag_error_hint(VOICE_DIAG_UPLOAD_SOCKET_ERROR));
+  TEST_ASSERT_EQUAL_STRING("ПОВТОРИТЕ\nЗАПИСЬ", voice_diag_error_hint((voice_diag_code_t)255));
+}
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_events_wrap_and_keep_last_error);
@@ -100,5 +105,6 @@ int main(void) {
   RUN_TEST(test_restored_error_does_not_add_an_event);
   RUN_TEST(test_delivery_has_three_bounded_attempts_without_network_flap_reset);
   RUN_TEST(test_generic_error_does_not_mask_a_specific_current_failure);
+  RUN_TEST(test_readable_error_hints);
   return UNITY_END();
 }

@@ -156,3 +156,16 @@ bool voice_diag_snapshot_json(const voice_diag_snapshot_t *s,
   n = snprintf(out + used, capacity - used, "]}");
   return n == 2 && (size_t)n < capacity - used;
 }
+
+const char *voice_diag_error_hint(voice_diag_code_t code) {
+  switch(code) {
+    case VOICE_DIAG_REC_RING_OVERFLOW: return "БУФЕР ЗАПИСИ\nПЕРЕПОЛНЕН";
+    case VOICE_DIAG_UPLOAD_QUEUE_ERROR: return "СБОЙ ОЧЕРЕДИ\nОТПРАВКИ";
+    case VOICE_DIAG_UPLOAD_SOCKET_ERROR: return "СБОЙ ОТПРАВКИ\nЗАПИСИ";
+    case VOICE_DIAG_WG_TIME_WAIT: return "НЕТ ВРЕМЕНИ\nДЛЯ VPN";
+    case VOICE_DIAG_WG_HANDSHAKE_TIMEOUT: return "VPN НЕ\nПОДКЛЮЧИЛСЯ";
+    case VOICE_DIAG_TURN_RECOVERY_TIMEOUT: return "ДОЛГО НЕТ\nОТВЕТА СЕРВЕРА";
+    case VOICE_DIAG_TURN_FAILED: return "СБОЙ ОБРАБОТКИ\nЗАПИСИ";
+    default: return "ПОВТОРИТЕ\nЗАПИСЬ";
+  }
+}

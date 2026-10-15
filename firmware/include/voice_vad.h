@@ -4,7 +4,8 @@
 #include <stdint.h>
 #include <stddef.h>
 bool voice_vad_reset(void);
-/* Any 10 ms frame with speech sets true; failure fails closed. */
+/* Require 200 ms consecutive speech after reset; then report raw VAD
+ * activity for pause detection. Failure fails closed. */
 bool voice_vad_feed(const uint8_t *pcm,size_t bytes);
 bool voice_vad_ready(void);
 #endif
