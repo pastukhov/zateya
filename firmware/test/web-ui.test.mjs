@@ -283,3 +283,16 @@ test('changing server requires entering a token instead of reusing the stored on
   assert.equal(page.requested.some(r=>r.options?.method==='POST'),false);
   assert.match(page.elements.info.textContent,/токен/i);
 });
+
+test('wake settings load, validate and submit without exposing secrets', async()=>{
+ const page=await openSetupPage({wake_enabled:false,wake_pause_seconds:7});
+ const {elements,context,requested}=page;
+ assert.equal(elements['wake-enabled'].checked,false);
+ assert.equal(elements['wake-pause'].value,'7');
+ addOpenNetwork(page);elements.url.value='http://gateway.local';elements.token.value='new-token';
+ elements['wake-pause'].value='11';await context.saveCfg();
+ assert.equal(requested.some(r=>r.options?.method==='POST'),false);
+ elements['wake-enabled'].checked=true;elements['wake-pause'].value='3';await context.saveCfg();
+ const body=requested.find(r=>r.options?.method==='POST').options.body;
+ assert.equal(body.get('wake_enabled'),'1');assert.equal(body.get('wake_pause_seconds'),'3');
+});

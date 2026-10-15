@@ -85,6 +85,14 @@
 #include "voice_turn_http.h"
 #include "voice_gateway_health.h"
 #include "voice_cue_cache.h"
+#include "voice_wake_detector.h"
+#include "voice_wake_policy.h"
+#include "voice_listening_cue.h"
+#include "voice_vad.h"
+#include "voice_wake_ui.h"
+#ifdef ESP_PLATFORM
+#include "esp_wifi.h"
+#endif
 #include "voice_diagnostics.h"
 #include "voice_diag_delivery_esp.h"
 #include "voice_ota.h"
@@ -173,6 +181,28 @@ typedef struct {
 static app_t app;
 static http_voice_client_t voice_client;
 static voice_settings_t voice_settings;
+#ifdef ESP_PLATFORM
+static voice_wake_t wake;
+static voice_listening_cue_t wake_cue;
+static bool wake_listening, wake_active, wake_recording, wake_lease, wake_speech;
+static unsigned wake_ui;
+static uint8_t wake_preroll[9600];
+static size_t wake_pre_used, wake_pre_head;
+unsigned app_wake_status(void) { return wake_ui; }
+static void wake_stop(void) {
+  bool owned_gate=wake_active;
+  if(wake_cue.status==CUE_BUSY)voice_listening_cue_cancel(&wake_cue);
+  if(wake_lease){voice_cue_cache_release();wake_lease=false;}
+  if(wake_listening || wake_active)hw_audio_capture_stop();
+  wake_listening=false;wake_active=false;wake_ui=0;
+  if(owned_gate)voice_ota_voice_end();
+  voice_wake_detector_reset();
+  voice_wake_init(&wake,voice_settings.wake_pause_ms,MAX_RECORD_SECONDS_DEFAULT*1000U);
+}
+#else
+unsigned app_wake_status(void) { return 0; }
+#endif
+
 
 #ifdef ESP_PLATFORM
 static voice_turn_io_result_t turn_lookup(void *ctx, const char *request_id,
@@ -343,6 +373,9 @@ static void enter_state(state_t next, const char* error_what) {
   if (!state_machine_step(&app.sm, next)) {
     return; /* illegal transition: leave state, report if we can */
   }
+#ifdef ESP_PLATFORM
+  if(next==STATE_ERROR || next==STATE_IDLE)wake_recording=false;
+#endif
   if (next == STATE_ERROR) {
     voice_diag_ensure_error(hw_clock_ms());
     app.error_ack_ready = false;
@@ -387,6 +420,76 @@ static bool recording_start(void) {
 #endif
 }
 
+#ifdef ESP_PLATFORM
+static bool wake_eligible(void) {
+  wifi_mode_t mode=WIFI_MODE_NULL;
+  return voice_settings.wake_enabled && board_sticks3_usb_powered() &&
+    esp_wifi_get_mode(&mode)==ESP_OK && mode==WIFI_MODE_STA &&
+    board_sticks3_network_ready() && voice_gateway_health_status()==200 &&
+    !voice_ota_busy() && !voice_ota_boot_pending() && !app.turn_task_active &&
+    !voice_diag_delivery_busy() && !voice_config_httpd_wifi_scanning() &&
+    voice_cue_cache_ready() && voice_wake_detector_ready();
+}
+static void wake_pre_append(const uint8_t *pcm,size_t bytes) {
+  for(size_t i=0;i<bytes;i++) {
+    wake_preroll[wake_pre_head]=pcm[i];wake_pre_head=(wake_pre_head+1)%sizeof(wake_preroll);
+    if(wake_pre_used<sizeof(wake_preroll))wake_pre_used++;
+  }
+}
+static void wake_idle_tick(uint32_t now, bool pressed) {
+  bool eligible=wake_eligible();
+  if(!eligible || pressed) {
+    if(wake_active || wake_listening)wake_stop();
+    return;
+  }
+  if(!wake_active) {
+    if(!wake_listening){voice_wake_detector_reset();hw_audio_capture_start();wake_listening=true;}
+    wake_ui=1;
+    uint8_t chunk[320];
+    for(unsigned i=0;i<16;i++) {
+      size_t n=hw_audio_capture_read(chunk,sizeof(chunk));if(!n)break;
+      voice_wake_detector_feed(chunk,n);
+    }
+    if(!voice_wake_detector_detected() || !voice_ota_voice_begin())return;
+    size_t size=0;const uint8_t *pcm=voice_cue_cache_acquire(&size);
+    if(!pcm){voice_ota_voice_end();return;}
+    wake_lease=true;wake_active=true;wake_listening=false;wake_ui=2;
+    voice_wake_detector_reset();
+    voice_wake_init(&wake,voice_settings.wake_pause_ms,MAX_RECORD_SECONDS_DEFAULT*1000U);
+    (void)voice_wake_activate(&wake,true,now);
+    if(!voice_listening_cue_start(&wake_cue,pcm,size,now))wake_stop();
+    return;
+  }
+  if(wake.state==WAKE_CUE) {
+    voice_cue_status_t status=voice_listening_cue_tick(&wake_cue,now);
+    if(status==CUE_BUSY)return;
+    if(wake_lease){voice_cue_cache_release();wake_lease=false;}
+    if(status!=CUE_DONE || !voice_vad_reset()){wake_stop();return;}
+    voice_wake_cue_done(&wake,now,true);
+    hw_audio_capture_start();wake_pre_used=0;wake_pre_head=0;wake_ui=3;
+  }
+  bool speech=false;uint8_t chunk[320];
+  for(unsigned i=0;i<16;i++) {
+    size_t n=hw_audio_capture_read(chunk,sizeof(chunk));if(!n)break;
+    if(wake.state==WAKE_SETTLE && (uint32_t)(now-wake.cue_end_ms)<150)continue;
+    wake_pre_append(chunk,n);
+    speech=voice_vad_feed(chunk,n)||speech;
+  }
+  if(!voice_vad_ready()){wake_stop();return;}
+  voice_wake_event_t event=voice_wake_tick(&wake,eligible,now,speech,false);
+  if(event==WAKE_CANCEL){wake_stop();return;}
+  if(event==WAKE_START_RECORD) {
+    if(!recording_start()){wake_stop();enter_state(STATE_ERROR,"wake recording failed");return;}
+    size_t first=(wake_pre_head+sizeof(wake_preroll)-wake_pre_used)%sizeof(wake_preroll);
+    size_t part=sizeof(wake_preroll)-first;if(part>wake_pre_used)part=wake_pre_used;
+    ring_buffer_push(&app.rb,wake_preroll+first,part);
+    ring_buffer_push(&app.rb,wake_preroll,wake_pre_used-part);
+    wake_active=false;wake_recording=true;wake_ui=0;app.btn.press_ms=now;
+    enter_state(STATE_RECORDING,NULL);ESP_LOGI("wake","Dictation started after speech");
+  }
+}
+#endif
+
 /*
  * Spec section 10 step 2: close the HTTP session gracefully when the
  * connection still allows it; fall back to abort when a graceful close
@@ -414,6 +517,9 @@ static void recording_capture(void) {
   uint8_t chunk[256];
   size_t n;
   while ((n = hw_audio_capture_read(chunk, sizeof(chunk))) > 0) {
+#ifdef ESP_PLATFORM
+    if(wake_recording)wake_speech=voice_vad_feed(chunk,n)||wake_speech;
+#endif
     size_t accepted = ring_buffer_push(&app.rb, chunk, n);
     voice_diag_record_capture((uint32_t)accepted,
                               (uint32_t)ring_buffer_count(&app.rb));
@@ -687,6 +793,7 @@ void app_init(void) {
   }
   voice_wireguard_start(&voice_settings.wireguard);
   (void)voice_gateway_health_start(voice_settings.gateway_url);
+  (void)voice_wake_detector_start();
   (void)voice_cue_cache_start(voice_settings.gateway_url,
                              voice_settings.device_id, voice_settings.device_token);
   (void)voice_ota_start(voice_settings.gateway_url,
@@ -807,6 +914,9 @@ void app_tick(void) {
         break;
       }
       button_event_t ev = button_poll(&app.btn, hw_button_raw(), now);
+#ifdef ESP_PLATFORM
+      wake_idle_tick(now,ev==BUTTON_EVENT_PRESSED);
+#endif
       if (ev == BUTTON_EVENT_PRESSED) {
 #ifdef ESP_PLATFORM
         if (voice_diag_delivery_busy()) {
@@ -844,11 +954,21 @@ void app_tick(void) {
         break;
       }
 #endif
+#ifdef ESP_PLATFORM
+      wake_speech=false;
+#endif
       recording_capture();
       recording_drain();
       button_event_t ev = button_poll(&app.btn, hw_button_raw(), now);
-      if (ev == BUTTON_EVENT_RELEASED ||
-          ev == BUTTON_EVENT_MAX_RECORD_TIMEOUT) {
+      bool finished = ev == BUTTON_EVENT_RELEASED || ev == BUTTON_EVENT_MAX_RECORD_TIMEOUT;
+#ifdef ESP_PLATFORM
+      if(wake_recording) {
+        if(!voice_vad_ready()){hw_audio_capture_stop();enter_state(STATE_ERROR,"voice activity detection failed");break;}
+        finished=voice_wake_tick(&wake,true,now,wake_speech,ev==BUTTON_EVENT_PRESSED)==WAKE_FINISH;
+        if(finished){wake_recording=false;app.ignore_button_until_release=hw_button_raw();}
+      }
+#endif
+      if (finished) {
         /*
          * Normal finish (release, or the MAX_RECORD_SECONDS auto-finish
          * from spec section 7: the button driver fires
@@ -1032,11 +1152,11 @@ static void voice_main_loop(void) {
     } else if (app_state() != STATE_ERROR) {
       error_reported = false;
     }
-    voice_cue_cache_set_idle(app_state() == STATE_IDLE && !app.turn_task_active);
+    voice_cue_cache_set_idle(app_state() == STATE_IDLE && !app.turn_task_active && !wake_active);
     voice_diag_delivery_set_idle(
         (app_state() == STATE_IDLE || app_state() == STATE_ERROR) &&
-        !app.turn_task_active);
-    if (app_state() == STATE_IDLE && !app.turn_task_active)
+        !app.turn_task_active && !wake_active);
+    if (app_state() == STATE_IDLE && !app.turn_task_active && !wake_active)
       voice_ota_voice_end();
 #endif
     screen_processing_phase_t phase = SCREEN_PROCESSING_THINKING;

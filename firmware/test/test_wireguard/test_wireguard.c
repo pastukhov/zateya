@@ -129,8 +129,21 @@ static void test_public_status_contains_presence_flags_only(void) {
   TEST_ASSERT_FALSE(voice_config_public_status(&settings, json, 8));
 }
 
+static void test_wake_settings(void) {
+ TEST_ASSERT_TRUE(form("wake_enabled=0&wake_pause_seconds=5"));
+ TEST_ASSERT_FALSE(settings.wake_enabled);
+ TEST_ASSERT_EQUAL(5000, settings.wake_pause_ms);
+ TEST_ASSERT_FALSE(form("wake_enabled=2"));
+ TEST_ASSERT_FALSE(form("wake_pause_seconds=0"));
+ TEST_ASSERT_FALSE(form("wake_pause_seconds=11"));
+ voice_settings_factory_defaults(&settings);
+ TEST_ASSERT_TRUE(settings.wake_enabled);
+ TEST_ASSERT_EQUAL(3000,settings.wake_pause_ms);
+}
+
 int main(void) {
   UNITY_BEGIN();
+  RUN_TEST(test_wake_settings);
   RUN_TEST(test_public_status_contains_presence_flags_only);
   RUN_TEST(test_hidden_fields_preserve_saved_values);
   RUN_TEST(test_cannot_redirect_a_saved_token_to_another_server);

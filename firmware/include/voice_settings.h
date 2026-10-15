@@ -25,6 +25,8 @@ typedef struct {
   char device_id[64];
   char device_token[192];
   uint32_t sleep_timeout_seconds;
+  bool wake_enabled;
+  uint32_t wake_pause_ms;
   char request_id[37];
   char turn_id[37];
 } voice_settings_t;

@@ -3,7 +3,7 @@
 
 FILE(GLOB_RECURSE app_sources ${CMAKE_SOURCE_DIR}/src/*.*)
 
-idf_component_register(SRCS ${app_sources} REQUIRES espressif__mdns esp_codec_dev esphome__wireguard app_update json mbedtls)
+idf_component_register(SRCS ${app_sources} REQUIRES espressif__mdns esp_codec_dev esphome__wireguard app_update json mbedtls espressif__esp-tflite-micro esphome__esp-micro-speech-features webrtc_vad)
 
 # Upstream defaults to one AllowedIPs slot, consumed by its own-address /32.
 # Reserve another slot for our configured VPN subnet or full-tunnel route.

@@ -45,6 +45,8 @@ static void defaults(voice_settings_t *s) {
   copy_field(s->wireguard.netmask, sizeof(s->wireguard.netmask), "255.255.255.0");
   copy_field(s->wireguard.ntp_server, sizeof(s->wireguard.ntp_server), "pool.ntp.org");
   s->sleep_timeout_seconds = VOICE_SLEEP_DEFAULT_SECONDS;
+  s->wake_enabled = true;
+  s->wake_pause_ms = 3000;
 }
 
 void voice_settings_factory_defaults(voice_settings_t *s) {
@@ -143,6 +145,12 @@ esp_err_t voice_settings_load(voice_settings_t *s) {
   s->wireguard.enabled = enabled != 0;
   (void)nvs_get_u16(h, "wg_port", &s->wireguard.port);
   (void)nvs_get_u16(h, "wg_keepalive", &s->wireguard.keepalive);
+  uint8_t wake_enabled = 1;
+  (void)nvs_get_u8(h, "wake_enabled", &wake_enabled);
+  s->wake_enabled = wake_enabled != 0;
+  uint32_t pause;
+  if(nvs_get_u32(h,"wake_pause_ms",&pause)==ESP_OK && pause>=1000 && pause<=10000)
+    s->wake_pause_ms=pause;
   uint32_t sleep_seconds;
   if (nvs_get_u32(h, "sleep_seconds", &sleep_seconds) == ESP_OK &&
       sleep_seconds >= VOICE_SLEEP_MIN_SECONDS && sleep_seconds <= VOICE_SLEEP_MAX_SECONDS)
@@ -182,6 +190,8 @@ static esp_err_t save_unlocked(const voice_settings_t *s) {
     if (err != ESP_OK) break;
   }
   if (err == ESP_OK) err = nvs_set_u32(h, "sleep_seconds", s->sleep_timeout_seconds);
+  if (err == ESP_OK) err = nvs_set_u8(h,"wake_enabled",s->wake_enabled);
+  if (err == ESP_OK) err = nvs_set_u32(h,"wake_pause_ms",s->wake_pause_ms);
   if (err == ESP_OK) err = nvs_set_u8(h, "wg_enabled", s->wireguard.enabled);
   if (err == ESP_OK) {
     esp_err_t obsolete = nvs_erase_key(h, "wg_full_tunnel");

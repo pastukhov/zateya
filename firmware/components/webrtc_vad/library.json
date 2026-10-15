@@ -1,0 +1,1 @@
+{"name":"webrtc_vad","version":"2.0.10","build":{"srcDir":"webrtc/common_audio","includeDir":".","flags":"-DWEBRTC_POSIX"}}

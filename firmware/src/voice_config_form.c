@@ -50,7 +50,18 @@ bool voice_config_parse_form(char *body, voice_settings_t *next) {
       if (!decode_form_component(cursor, (size_t)(equals - cursor), key, sizeof(key)) ||
           !decode_form_component(equals + 1, (size_t)(pair_end - equals - 1), value, sizeof(value))) return false;
       char *dst = NULL; size_t cap = 0;
-      if (strcmp(key, "sleep_timeout_seconds") == 0) {
+      if (strcmp(key,"wake_enabled")==0) {
+        if(strcmp(value,"0") && strcmp(value,"1"))return false;
+        next->wake_enabled=value[0]=='1';
+      }
+      else if(strcmp(key,"wake_pause_seconds")==0) {
+        if(!value[0] || strlen(value)>2)return false;
+        unsigned pause=0;
+        for(const char *p=value;*p;p++){if(*p<'0'||*p>'9')return false;pause=pause*10+(*p-'0');}
+        if(pause<1||pause>10)return false;
+        next->wake_pause_ms=pause*1000;
+      }
+      else if (strcmp(key, "sleep_timeout_seconds") == 0) {
         if (!voice_settings_parse_sleep_timeout(value, &next->sleep_timeout_seconds)) return false;
       }
       else if (strncmp(key, "wifi", 4) == 0) {

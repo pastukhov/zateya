@@ -1,3 +1,4 @@
+#include "voice_wake_ui.h"
 #include "hardware.h"
 #include "board_sticks3.h"
 #include "audio_capture.h"
@@ -563,6 +564,8 @@ void board_sticks3_display_update(state_t state, uint32_t now_ms,
   bool diag_busy = voice_diag_delivery_busy();
   bool ota_busy = voice_ota_busy();
   bool ota_pending = voice_ota_boot_pending();
+  unsigned wake_status=app_wake_status();
+  static unsigned previous_wake_status;
   unsigned ota_percent = voice_ota_percent();
   wifi_mode_t mode = WIFI_MODE_NULL;
   bool setup = esp_wifi_get_mode(&mode) == ESP_OK &&
@@ -575,13 +578,18 @@ void board_sticks3_display_update(state_t state, uint32_t now_ms,
       ota_busy == s_screen_ota_busy &&
       ota_pending == s_screen_ota_pending &&
       ota_percent == s_screen_ota_percent &&
-      setup == s_screen_setup) return;
+      setup == s_screen_setup && wake_status==previous_wake_status) return;
+  previous_wake_status=wake_status;
   if (!s_screen) s_screen = heap_caps_malloc(SCREEN_W * SCREEN_H * sizeof(*s_screen), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
   if (!s_screen) s_screen = heap_caps_malloc(SCREEN_W * SCREEN_H * sizeof(*s_screen), MALLOC_CAP_8BIT);
   if (!s_screen) return;
   lcd_init();
   screen_ui_view_t view = screen_ui_view_with_connection(state, processing_phase,
       s_wifi_connected, wg_status, voice_wireguard_ready(), backend_status);
+  if(state==STATE_IDLE && wake_status==1)
+    view.hint="СКАЖИТЕ ЗАТЕЯ\nИЛИ КНОПКА";
+  if(state==STATE_IDLE && wake_status>=2)
+    view=(screen_ui_view_t){"СЛУШАЮ",wake_status==2 ? "ДОЖДИТЕСЬ РЕПЛИКИ" : "ГОВОРИТЕ",0x07E0,SCREEN_ICON_THINKING};
   if (state == STATE_IDLE && diag_busy)
     view = (screen_ui_view_t){"ОТЧЁТ", "ОТПРАВЛЯЮ\nДИАГНОСТИКУ", 0xF5A8,
                               SCREEN_ICON_THINKING};
