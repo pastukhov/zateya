@@ -69,12 +69,20 @@ void worker(void *) {
  voice_wake_score_t score={};unsigned active_epoch=0,stride=0;unsigned max_us=0;
  ready.store(true);ESP_LOGI("wake","Model ready: 60840 bytes, arena=%u, input=1x3x40",(unsigned)interpreter.arena_used_bytes());
  Frame frame;
+ unsigned frames=0, invocations=0, probability_max=0, average_max=0, peak=0;
+ int64_t report_us=esp_timer_get_time();
  for(;;) {
   if(xQueueReceive(queue,&frame,portMAX_DELAY)!=pdTRUE)continue;
   if(frame.epoch!=epoch.load())continue;
   if(frame.epoch!=active_epoch) {
+   ESP_LOGI("wake","Stream reset: epoch=%u",frame.epoch);
    active_epoch=frame.epoch;stride=0;voice_wake_score_reset(&score);FrontendReset(&frontend);
    if(interpreter.Reset()!=kTfLiteOk)break;
+  }
+  ++frames;
+  for(int16_t sample:frame.samples) {
+   unsigned amplitude=sample<0?-(int)sample:sample;
+   peak=std::max(peak,amplitude);
   }
   size_t offset=0;
   while(offset<160) {
@@ -91,12 +99,24 @@ void worker(void *) {
    stride=0;int64_t start=esp_timer_get_time();
    if(interpreter.Invoke()!=kTfLiteOk){ready.store(false);break;}
    max_us=std::max(max_us,(unsigned)(esp_timer_get_time()-start));
-   if(voice_wake_score_feed(&score,output->data.uint8[0])) {
+   ++invocations;
+   probability_max=std::max(probability_max,(unsigned)output->data.uint8[0]);
+   bool detected=voice_wake_score_feed(&score,output->data.uint8[0]);
+   unsigned sum=0;for(uint8_t value:score.values)sum+=value;
+   average_max=std::max(average_max,sum/5);
+   if(detected) {
     if(active_epoch==epoch.load())detection_epoch.store(active_epoch);
     ESP_LOGI("wake","Detected Zateya; inference max=%u us",max_us);voice_wake_score_reset(&score);
    }
   }
   if(!ready.load())break;
+  int64_t current_us=esp_timer_get_time();
+  if(current_us-report_us>=2000000) {
+   ESP_LOGI("wake","Window ms=%u frames=%u invokes=%u peak=%u probability_max=%u average_max=%u warmup=%u inference_max_us=%u queue=%u",
+    (unsigned)((current_us-report_us)/1000),frames,invocations,peak,
+    probability_max,average_max,score.warmup,max_us,(unsigned)uxQueueMessagesWaiting(queue));
+   report_us=current_us;frames=invocations=peak=probability_max=average_max=max_us=0;
+  }
  }
  ready.store(false);ESP_LOGE("wake","Inference stopped; button remains available");vTaskDelete(nullptr);
 }
