@@ -46,6 +46,7 @@ from backend.src.voice_gateway.usage.collector import UsageCollector
 from backend.src.voice_gateway.stt.base import STTProvider
 from backend.src.voice_gateway.stt.client import OpenAICompatibleSTT
 from backend.src.voice_gateway.tts.base import TTSProvider
+from backend.src.voice_gateway.cues.cache import CueCache, install_cue_routes
 from backend.src.voice_gateway.tts.config import TTSConfig
 from backend.src.voice_gateway.tts.openai_compatible import OpenAICompatibleTTS
 
@@ -259,6 +260,17 @@ def create_app(
     app.state.agent_client = agent_client
     app.state.agent_provider = provider
     app.state.tts_provider = tts_provider
+    cue_cache = None
+    if tts is None and tts_provider is not None:
+        try:
+            cue_config = TTSConfig.from_env(os.environ)
+        except ValueError:
+            pass
+        else:
+            cue_cache = CueCache(root / "device-cues", tts_provider, cue_config)
+    app.state.cue_cache = cue_cache
+    app.state.cue_task = None
+    install_cue_routes(app, cue_cache, device_tokens)
     app.state.voice_job_store = job_store
     diagnostics_store = DiagnosticsStore(root / "diagnostics.sqlite")
     app.state.diagnostics_store = diagnostics_store
@@ -293,6 +305,8 @@ def create_app(
 
     @app.on_event("startup")
     async def start_voice_jobs() -> None:
+        if cue_cache is not None:
+            app.state.cue_task = asyncio.create_task(cue_cache.run(), name="device-cue")
         await job_worker.start()
         if alice_worker is not None:
             await alice_worker.start()
@@ -301,6 +315,9 @@ def create_app(
 
     @app.on_event("shutdown")
     async def close_agent_client() -> None:
+        if app.state.cue_task is not None:
+            app.state.cue_task.cancel()
+            await asyncio.gather(app.state.cue_task, return_exceptions=True)
         if app.state.knowledge_git_task is not None:
             app.state.knowledge_git_task.cancel()
             await asyncio.gather(app.state.knowledge_git_task, return_exceptions=True)
