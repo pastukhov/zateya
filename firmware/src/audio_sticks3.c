@@ -42,6 +42,7 @@ static esp_codec_dev_sample_info_t speaker_format(void) {
  * The speaker handle is closed here, so its public set_out_mute API is unavailable.
  */
 static int open_microphone(void) {
+    if (board_sticks3_speaker_enable(false) != ESP_OK) return ESP_CODEC_DEV_DRV_ERR;
     esp_codec_dev_sample_info_t fs = mic_format();
     int ret = esp_codec_dev_open(s_mic, &fs);
     if (ret == ESP_CODEC_DEV_OK)
@@ -148,6 +149,7 @@ size_t audio_capture_read(uint8_t *data, size_t size, uint32_t timeout_ms) {
 audio_capture_state_t audio_capture_get_state(void) { return s_capture_state; }
 
 esp_err_t audio_capture_deinit(void) {
+    (void)board_sticks3_speaker_enable(false);
     s_capture_state = AUDIO_CAPTURE_STATE_STOPPED;
     if (s_mic) { esp_codec_dev_close(s_mic); esp_codec_dev_delete(s_mic); s_mic = NULL; }
     if (s_spk) { esp_codec_dev_close(s_spk); esp_codec_dev_delete(s_spk); s_spk = NULL; }
@@ -186,6 +188,11 @@ esp_err_t audio_playback_start(void) {
         (void)open_microphone();
         return ESP_FAIL;
     }
+    if (board_sticks3_speaker_enable(true) != ESP_OK) {
+        esp_codec_dev_close(s_spk);
+        (void)open_microphone();
+        return ESP_FAIL;
+    }
     s_play_until_us = esp_timer_get_time();
     s_playback_state = AUDIO_PLAYBACK_STATE_STARTED;
     ESP_LOGI(TAG, "speaker ready: %d Hz, volume 80", s_play_rate);
@@ -217,6 +224,7 @@ audio_playback_state_t audio_playback_get_state(void) { return s_playback_state;
 
 esp_err_t audio_playback_stop(void) {
     if (s_playback_state != AUDIO_PLAYBACK_STATE_STARTED) return ESP_OK;
+    if (board_sticks3_speaker_enable(false) != ESP_OK) return ESP_FAIL;
     esp_codec_dev_close(s_spk);
     int ret = open_microphone();
     s_playback_state = AUDIO_PLAYBACK_STATE_STOPPED;

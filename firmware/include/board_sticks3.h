@@ -46,6 +46,7 @@ ES8311 audio codec pins specified task
 #ifdef ESP_PLATFORM
 #include "driver/i2c_master.h"
 i2c_master_bus_handle_t board_sticks3_i2c_bus(void);
+esp_err_t board_sticks3_speaker_enable(bool enabled);
 #endif
 void board_sticks3_power_tick(bool busy, uint32_t now_ms, uint32_t timeout_ms);
 

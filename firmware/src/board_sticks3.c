@@ -238,6 +238,13 @@ static esp_err_t pm_update(uint8_t reg, uint8_t mask, uint8_t value) {
   return err == ESP_OK ? pm_write(reg, (old & ~mask) | (value & mask)) : err;
 }
 
+esp_err_t board_sticks3_speaker_enable(bool enabled) {
+  /* M5PM1 GPIO3 controls AW8737; GPIO2 keeps the audio rail powered. */
+  esp_err_t err = pm_update(0x11, 0x08, enabled ? 0x08 : 0);
+  if (err == ESP_OK) ESP_LOGI(TAG, "Speaker amplifier %s", enabled ? "on" : "off");
+  return err;
+}
+
 i2c_master_bus_handle_t board_sticks3_i2c_bus(void) {
   if (!s_power_bus) {
     i2c_master_bus_config_t bc = {.i2c_port = I2C_NUM_0,
@@ -262,7 +269,7 @@ static void init_m5pm1(void) {
   if (err == ESP_OK) err = pm_update(0x16, 0xf0, 0); /* GPIO2/3 normal GPIO. */
   if (err == ESP_OK) err = pm_update(0x13, 0x0c, 0); /* Push-pull. */
   if (err == ESP_OK) err = pm_update(0x10, 0x0c, 0x0c);
-  if (err == ESP_OK) err = pm_update(0x11, 0x0c, 0x0c);
+  if (err == ESP_OK) err = pm_update(0x11, 0x0c, 0x04);
   if (err == ESP_OK) ESP_LOGI(TAG, "M5PM1 rails enabled; green LED off");
   else ESP_LOGE(TAG, "M5PM1 setup failed: %s", esp_err_to_name(err));
 }
@@ -404,7 +411,7 @@ void board_sticks3_power_tick(bool busy, uint32_t now_ms, uint32_t timeout_ms) {
   err = pm_update(0x11, 0x0c, 0);
   if (err != ESP_OK) {
     ESP_LOGE(TAG, "Sleep rail shutdown failed: %s", esp_err_to_name(err));
-    (void)pm_update(0x11, 0x0c, 0x0c);
+    (void)pm_update(0x11, 0x0c, 0x04);
     power_policy_reset(&policy, now_ms);
     return;
   }
