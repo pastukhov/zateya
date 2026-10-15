@@ -3,7 +3,7 @@
 > **For agentic workers:** Use superpowers:executing-plans task-by-task. Track checks below.
 
 **Goal:** Local «Затея» activation on external power, local «Слушаю», silence endpoint.
-**Architecture:** One I2S reader feeds either detector or recording/VAD; pure policy owns timers; local cue is an embedded PCM asset. Existing button and backend remain compatible.
+**Architecture:** One I2S reader feeds either detector or recording/VAD; pure policy owns timers; local cue is downloaded from a persistent server cache into device PSRAM. Existing button and backend remain compatible.
 **Tech Stack:** ESP-IDF, C/C++, microWakeWord/TFLite Micro, WebRTC VAD, Python asset tooling.
 **Spec:** ../specs/2026-10-15-zateya-wake-word-design.md
 
@@ -13,8 +13,8 @@
 - Cue «Слушаю» uses configured TTS voice, local PCM16 mono 24000 Hz; 150 ms echo discard.
 - Playback/processing/setup/OTA inhibit detection; existing button behavior unchanged.
 - Existing maximum recording limit applies independently of button duration.
-- Model and cue are part of signed image, maximum OTA slot 0x300000 bytes.
-- No idle audio transmission, persisted audio, secrets in assets or logs.
+- Model is part of signed image, maximum OTA slot 0x300000 bytes; cue updates independently.
+- No idle microphone audio transmission or persistence; no secrets in assets or logs.
 
 ## Review focus
 - Power loss during cue cancels safely; ongoing recording can finish (task 1).
@@ -36,18 +36,27 @@ maximum recording duration. Outputs: start cue, start record, finish, cancel.
 - [x] Implement policy without ESP dependencies; timers start after cue settling.
 - [x] Run targeted and full native tests, commit and push.
 
-### Task 2: Local voice asset and playback
-Files: deploy/firmware/prepare-listening-cue.py,
-firmware/assets/listening.pcm, firmware/assets/listening.json,
+### Task 2: Server-generated cue, device cache and playback
+Files: backend/src/voice_gateway/tts and authenticated device API/tests,
+deploy/firmware/prepare-listening-cue.py, deploy/firmware/test_listening_cue.py,
 firmware/include/voice_listening_cue.h, firmware/src/voice_listening_cue.c,
-firmware/src/CMakeLists.txt, deploy/firmware/test_listening_cue.py.
-Interface: prepare(input WAV, output PCM + public metadata); firmware
-voice_listening_cue_start/tick/cancel, with explicit DONE/ERROR/BUSY status.
+new device cue cache module and tests, Compose persistent data configuration.
+Interface: authenticated version manifest and PCM resource; firmware
+voice_listening_cue_start/tick/cancel consumes a caller-owned PCM buffer.
 - [ ] Test PCM format, duration limit 5 s, truncation, empty input and hash.
-- [ ] Implement deterministic conversion; synthesize «Слушаю» once using
-  current server TTS configuration, never logging credentials.
-- [ ] Embed PCM via ESP-IDF; pump bounded chunks and wait for speaker drain.
-- [ ] Test asset and build target; preserve button behavior, commit and push.
+- [ ] Generate «Слушаю» using current server TTS configuration; cache persistently
+  by text/model/voice/synthesis settings/format. Never expose secrets in metadata.
+- [ ] Generate once per version in background with single-flight; test restart
+  reuse, config changes, concurrent requests and provider failures.
+- [ ] Serve manifest and bounded audio with existing device authentication;
+  test unauthorized requests, missing cue and version consistency.
+- [ ] Download to PSRAM after connection; check versions at most once per minute
+  while idle, verify complete content before atomic replacement. Retain prior
+  valid cache on failure. Never free or replace a buffer while playback owns it.
+- [ ] Gate wake activation on cue availability; keep button usable during cache
+  loading/failure. No partition changes or persistent device cache in this version.
+- [ ] Pump bounded chunks and wait for speaker drain; no network at activation.
+- [ ] Test backend, cache and playback, build target, commit and push.
 
 ### Task 3: Model and VAD adapters
 Files: firmware/src/voice_wake_detector.cpp, firmware/include/voice_wake_detector.h,
@@ -83,3 +92,9 @@ voice_settings*, voice_config_httpd.c, screen_ui*, diagnostics schema/tests.
 User explicitly requested implementation in the current session. Proceed inline
 with independent policy and cue tasks; model-dependent integration waits for
 actual export. Task 1279 requires authentication; model not yet available here.
+
+2026-10-15: User requested independent cue delivery because TTS voice is configured
+on the server. Embedded cue packaging was dropped before deployment. Generated
+sample and generic playback tests are preparation only; download/cache integration
+is still pending. «Слушаю» remains the activation cue; this does not add a new
+spoken «Готова» notification.
