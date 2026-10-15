@@ -28,7 +28,7 @@ Without saved Wi-Fi settings, the device creates the open `Zateya-Setup-XX` netw
 
 Choose Wi-Fi and enter the gateway address and device token. Full setup remains available after the device joins a local network, using its IP address or mDNS name. The page includes a confirmed settings reset.
 
-Experimental pull OTA is prepared in code. Compose can build a signed candidate, and the recorder can check for an explicitly published release. The first OTA-capable firmware and partition table still require a USB installation and hardware validation before publishing a stable release. See the [OTA procedure (Russian)](docs/operations/pull-ota.md).
+Pull OTA has been verified on StickS3: the recorder checks for a signed release at boot and installs it while USB-powered. An image that fails to confirm boot is rolled back automatically. Initial OTA partition installation requires USB; subsequent releases are published explicitly. See the [OTA procedure (Russian)](docs/operations/pull-ota.md) and [hardware report (Russian)](docs/operations/ota-check-2026-10-15.md).
 
 ## Voice request
 
