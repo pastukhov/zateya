@@ -84,6 +84,7 @@
 #include "voice_settings.h"
 #include "voice_turn_http.h"
 #include "voice_gateway_health.h"
+#include "voice_cue_cache.h"
 #include "voice_diagnostics.h"
 #include "voice_diag_delivery_esp.h"
 #include "voice_ota.h"
@@ -686,6 +687,8 @@ void app_init(void) {
   }
   voice_wireguard_start(&voice_settings.wireguard);
   (void)voice_gateway_health_start(voice_settings.gateway_url);
+  (void)voice_cue_cache_start(voice_settings.gateway_url,
+                             voice_settings.device_id, voice_settings.device_token);
   (void)voice_ota_start(voice_settings.gateway_url,
                         voice_settings.device_id, voice_settings.device_token);
   if (voice_diag_delivery_start(voice_settings.gateway_url,
@@ -1029,6 +1032,7 @@ static void voice_main_loop(void) {
     } else if (app_state() != STATE_ERROR) {
       error_reported = false;
     }
+    voice_cue_cache_set_idle(app_state() == STATE_IDLE && !app.turn_task_active);
     voice_diag_delivery_set_idle(
         (app_state() == STATE_IDLE || app_state() == STATE_ERROR) &&
         !app.turn_task_active);
