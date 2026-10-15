@@ -92,6 +92,7 @@
 #include "voice_wake_ui.h"
 #ifdef ESP_PLATFORM
 #include "esp_wifi.h"
+#include "esp_heap_caps.h"
 #endif
 #include "voice_diagnostics.h"
 #include "voice_diag_delivery_esp.h"
@@ -186,7 +187,9 @@ static voice_wake_t wake;
 static voice_listening_cue_t wake_cue;
 static bool wake_listening, wake_active, wake_recording, wake_lease, wake_speech;
 static unsigned wake_ui;
-static uint8_t wake_preroll[9600];
+#define WAKE_PREROLL_BYTES 9600
+static uint8_t *wake_preroll;
+static bool wake_start_attempted;
 static size_t wake_pre_used, wake_pre_head;
 unsigned app_wake_status(void) { return wake_ui; }
 static void wake_stop(void) {
@@ -423,7 +426,7 @@ static bool recording_start(void) {
 #ifdef ESP_PLATFORM
 static bool wake_eligible(void) {
   wifi_mode_t mode=WIFI_MODE_NULL;
-  return voice_settings.wake_enabled && board_sticks3_usb_powered() &&
+  return voice_settings.wake_enabled && wake_preroll && board_sticks3_usb_powered() &&
     esp_wifi_get_mode(&mode)==ESP_OK && mode==WIFI_MODE_STA &&
     board_sticks3_network_ready() && voice_gateway_health_status()==200 &&
     !voice_ota_busy() && !voice_ota_boot_pending() && !app.turn_task_active &&
@@ -432,8 +435,8 @@ static bool wake_eligible(void) {
 }
 static void wake_pre_append(const uint8_t *pcm,size_t bytes) {
   for(size_t i=0;i<bytes;i++) {
-    wake_preroll[wake_pre_head]=pcm[i];wake_pre_head=(wake_pre_head+1)%sizeof(wake_preroll);
-    if(wake_pre_used<sizeof(wake_preroll))wake_pre_used++;
+    wake_preroll[wake_pre_head]=pcm[i];wake_pre_head=(wake_pre_head+1)%WAKE_PREROLL_BYTES;
+    if(wake_pre_used<WAKE_PREROLL_BYTES)wake_pre_used++;
   }
 }
 static void wake_idle_tick(uint32_t now, bool pressed) {
@@ -480,8 +483,8 @@ static void wake_idle_tick(uint32_t now, bool pressed) {
   if(event==WAKE_CANCEL){wake_stop();return;}
   if(event==WAKE_START_RECORD) {
     if(!recording_start()){wake_stop();enter_state(STATE_ERROR,"wake recording failed");return;}
-    size_t first=(wake_pre_head+sizeof(wake_preroll)-wake_pre_used)%sizeof(wake_preroll);
-    size_t part=sizeof(wake_preroll)-first;if(part>wake_pre_used)part=wake_pre_used;
+    size_t first=(wake_pre_head+WAKE_PREROLL_BYTES-wake_pre_used)%WAKE_PREROLL_BYTES;
+    size_t part=WAKE_PREROLL_BYTES-first;if(part>wake_pre_used)part=wake_pre_used;
     ring_buffer_push(&app.rb,wake_preroll+first,part);
     ring_buffer_push(&app.rb,wake_preroll,wake_pre_used-part);
     wake_active=false;wake_recording=true;wake_ui=0;app.btn.press_ms=now;
@@ -793,7 +796,7 @@ void app_init(void) {
   }
   voice_wireguard_start(&voice_settings.wireguard);
   (void)voice_gateway_health_start(voice_settings.gateway_url);
-  (void)voice_wake_detector_start();
+
   (void)voice_cue_cache_start(voice_settings.gateway_url,
                              voice_settings.device_id, voice_settings.device_token);
   (void)voice_ota_start(voice_settings.gateway_url,
@@ -1173,6 +1176,13 @@ static void voice_main_loop(void) {
     board_sticks3_display_update(app_state(), hw_clock_ms(), phase, timer);
 #ifdef ESP_PLATFORM
     voice_ota_confirm_boot();
+    if(!wake_start_attempted && !voice_ota_boot_pending() && !voice_ota_busy() &&
+       app_state()==STATE_IDLE && !app.turn_task_active &&
+       voice_settings.wake_enabled && board_sticks3_usb_powered()) {
+      wake_start_attempted=true;
+      wake_preroll=heap_caps_malloc(WAKE_PREROLL_BYTES,MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT);
+      if(wake_preroll)(void)voice_wake_detector_start();
+    }
 #endif
     board_sticks3_power_tick(
       (app_state() != STATE_IDLE && app_state() != STATE_ERROR) || app.turn_task_active,

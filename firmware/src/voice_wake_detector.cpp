@@ -21,6 +21,8 @@
 namespace {
 struct Frame { unsigned epoch; int16_t samples[160]; };
 QueueHandle_t queue;
+StaticQueue_t queue_control;
+uint8_t *queue_storage;
 std::atomic<bool> ready{false};
 std::atomic<unsigned> epoch{1}, detection_epoch{0};
 uint8_t pending[320]; size_t pending_size;
@@ -34,7 +36,7 @@ void worker(void *) {
  ops.AddFullyConnected()==kTfLiteOk && ops.AddLogistic()==kTfLiteOk && ops.AddQuantize()==kTfLiteOk;
  const tflite::Model *model=tflite::GetModel(zateya_model);
  uint8_t *arena=(uint8_t*)heap_caps_aligned_alloc(16,32000,MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT);
- uint8_t *vars=(uint8_t*)heap_caps_aligned_alloc(16,4096,MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT);
+ uint8_t *vars=(uint8_t*)heap_caps_aligned_alloc(16,4096,MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT);
  if(!ok || model->version()!=TFLITE_SCHEMA_VERSION || !arena || !vars) {
   free(arena);free(vars);ESP_LOGE("wake","Model allocation/schema failed");vTaskDelete(nullptr);return;
  }
@@ -95,9 +97,12 @@ void worker(void *) {
 }
 bool voice_wake_detector_start(void) {
  if(queue)return false;
- queue=xQueueCreate(32,sizeof(Frame));if(!queue)return false;
+ queue_storage=(uint8_t*)heap_caps_malloc(32*sizeof(Frame),MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT);
+ if(!queue_storage)return false;
+ queue=xQueueCreateStatic(32,sizeof(Frame),queue_storage,&queue_control);
+ if(!queue){free(queue_storage);queue_storage=nullptr;return false;}
  if(xTaskCreate(worker,"wake_inference",12288,nullptr,3,nullptr)==pdPASS)return true;
- vQueueDelete(queue);queue=nullptr;return false;
+ vQueueDelete(queue);queue=nullptr;free(queue_storage);queue_storage=nullptr;return false;
 }
 bool voice_wake_detector_ready(void){return ready.load();}
 void voice_wake_detector_reset(void){pending_size=0;epoch.fetch_add(1);detection_epoch.store(0);if(queue)xQueueReset(queue);}
