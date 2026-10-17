@@ -4,6 +4,7 @@
 #include "audio_capture.h"
 #include "audio_playback.h"
 #include "screen_ui.h"
+#include "power_status.h"
 #include "screen_brightness.h"
 #include "driver/ledc.h"
 #include "screen_font.h"
@@ -59,6 +60,8 @@ static voice_wifi_profile_t s_wifi_profiles[VOICE_WIFI_PROFILE_COUNT];
 static voice_wifi_selector_t s_wifi_selector;
 static _Atomic bool s_manual_setup;
 static _Atomic bool s_usb_powered;
+static int s_battery_percent = -1;
+static bool s_battery_charging;
 static uint32_t s_wifi_started_ms;
 static voice_wifi_setup_t s_wifi_setup;
 static char s_setup_ssid[33];
@@ -364,6 +367,22 @@ void board_sticks3_power_tick(bool busy, uint32_t now_ms, uint32_t timeout_ms) {
   uint8_t source = 0xff;
   bool valid = pm_read(0x04, &source) == ESP_OK;
   s_usb_powered = valid && (source & 1u) != 0;
+  uint8_t voltage_bytes[2], gpio_input = 0xff, voltage_reg = 0x22;
+  bool voltage_valid = s_pm1 && i2c_master_transmit_receive(s_pm1,
+      &voltage_reg, 1, voltage_bytes, 2, 200) == ESP_OK;
+  unsigned mv = voltage_valid ? voltage_bytes[0] | ((unsigned)voltage_bytes[1] << 8) : 0;
+  static unsigned filtered_mv;
+  if (power_battery_percent(mv) >= 0)
+    filtered_mv = filtered_mv ? (3 * filtered_mv + mv + 2) / 4 : mv;
+  else filtered_mv = 0;
+  int percent = power_battery_percent(filtered_mv);
+  bool charge_valid = valid && pm_read(0x12, &gpio_input) == ESP_OK;
+  bool charging = power_battery_charging(charge_valid, source, gpio_input);
+  if (percent != s_battery_percent || charging != s_battery_charging)
+    ESP_LOGI(TAG, "Battery: %u mV, estimate=%d%%, USB=%d, charging=%d",
+             mv, percent, (int)s_usb_powered, charging);
+  s_battery_percent = percent;
+  s_battery_charging = charging;
   source &= 7;
   if (valid && source != last_source) {
     ESP_LOGI(TAG, "Power sources: 0x%02x (bit0=USB, bit1=external, bit2=battery)", source);
@@ -602,6 +621,8 @@ void board_sticks3_display_update(state_t state, uint32_t now_ms,
   screen_ui_draw_server_icon(s_screen, SCREEN_W, SCREEN_H, SCREEN_STATUS_SERVER_X,
                              screen_ui_backend_color(backend_status));
   screen_wifi_icon(s_wifi_connected);
+  screen_ui_draw_power(s_screen, SCREEN_W, SCREEN_H, s_battery_percent,
+                       s_usb_powered, s_battery_charging);
   screen_rect(10, 32, 115, 1, C_LINE);
   if (setup && (state == STATE_IDLE || state == STATE_BOOT)) {
     screen_ui_draw_setup(s_screen, SCREEN_W, SCREEN_H, s_setup_ssid);

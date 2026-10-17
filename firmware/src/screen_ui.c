@@ -130,3 +130,30 @@ bool screen_ui_draw_setup(uint16_t *pixels, int width, int height, const char *s
   }
   return true;
 }
+
+/* Fixed header layout for the 135px StickS3 display; all icons share y=12..26. */
+bool screen_ui_draw_power(uint16_t *pixels, int width, int height,
+                          int percent, bool usb, bool charging) {
+  if (!pixels || width < 135 || height < 27) return false;
+  uint16_t dim = 0x74B3, green = 0x07E0;
+  uint16_t usb_color = usb ? green : dim;
+  /* USB fork: stem, two branches, arrow, circle and square endpoints. */
+  const char *glyph[] = {
+    "...#...", "..###..", "...#...", "...#...", "##.#...",
+    "##.#.##", ".#.#.##", "..###.#", "...###.", "...#...",
+    "...#...", "..###..", "..###..", "...#..."};
+  for (int y=0;y<14;y++) for(int x=0;x<7;x++)
+    if(glyph[y][x]=='#') pixels[(12+y)*width+61+x]=usb_color;
+  if (charging) {
+    for (int y=0;y<14;y++) {
+      int x = y<7 ? 79-y/2 : 82-(y-7)/2;
+      for(int dx=0;dx<2;dx++) pixels[(12+y)*width+x+dx]=green;
+    }
+    for(int x=76;x<=82;x++) pixels[19*width+x]=green;
+  }
+  char text[6];
+  if (percent < 0 || percent > 100) snprintf(text,sizeof(text),"--%%");
+  else snprintf(text,sizeof(text),"%d%%",percent);
+  return screen_font_draw_centered(pixels,width,height,109,14,SCREEN_FONT_SMALL,
+      text, percent<0 ? dim : percent<=15 ? 0xF800 : 0xFFFF);
+}

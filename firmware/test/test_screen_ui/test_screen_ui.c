@@ -141,7 +141,7 @@ void test_server_icon_is_centered_and_shows_health_by_color(void) {
   TEST_ASSERT_NOT_EQUAL(ready, pending);
   TEST_ASSERT_NOT_EQUAL(ready, failed);
   TEST_ASSERT_EQUAL(failed, screen_ui_backend_color(0));
-  TEST_ASSERT_EQUAL(48, SCREEN_STATUS_WIFI_X - SCREEN_STATUS_SERVER_X);
+  TEST_ASSERT_EQUAL(26, SCREEN_STATUS_WIFI_X - SCREEN_STATUS_SERVER_X);
   TEST_ASSERT_TRUE(screen_ui_draw_server_icon(pixels, 135, 40,
                                               SCREEN_STATUS_SERVER_X, ready));
   int left = 135, right = -1, top = 40, bottom = -1;
