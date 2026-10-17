@@ -37,8 +37,8 @@ typedef struct {
   screen_recording_warning_t warning;
 } screen_recording_timer_t;
 
-#define SCREEN_STATUS_SERVER_X 17
-#define SCREEN_STATUS_WIFI_X 43
+#define SCREEN_STATUS_SERVER_X 18
+#define SCREEN_STATUS_WIFI_X 50
 
 /* -1: pending; 0: unreachable; positive: /health/ready HTTP result. */
 uint16_t screen_ui_backend_color(int http_status);

@@ -143,17 +143,17 @@ bool screen_ui_draw_power(uint16_t *pixels, int width, int height,
     "...#...", "..###..", "..###..", "...#..."};
   if (usb && !charging)
     for (int y=0;y<14;y++) for(int x=0;x<7;x++)
-      if(glyph[y][x]=='#') pixels[(12+y)*width+76+x]=green;
+      if(glyph[y][x]=='#') pixels[(12+y)*width+74+x]=green;
   if (charging) {
     for (int y=0;y<14;y++) {
-      int x = y<7 ? 79-y/2 : 82-(y-7)/2;
+      int x = y<7 ? 77-y/2 : 80-(y-7)/2;
       for(int dx=0;dx<2;dx++) pixels[(12+y)*width+x+dx]=green;
     }
-    for(int x=76;x<=82;x++) pixels[19*width+x]=green;
+    for(int x=74;x<=80;x++) pixels[19*width+x]=green;
   }
   char text[6];
   if (percent < 0 || percent > 100) snprintf(text,sizeof(text),"--%%");
   else snprintf(text,sizeof(text),"%d%%",percent);
-  return screen_font_draw_centered(pixels,width,height,109,14,SCREEN_FONT_SMALL,
+  return screen_font_draw_centered(pixels,width,height,109,13,SCREEN_FONT_SMALL,
       text, percent<0 ? dim : percent<=15 ? 0xF800 : 0xFFFF);
 }
