@@ -136,14 +136,14 @@ bool screen_ui_draw_power(uint16_t *pixels, int width, int height,
                           int percent, bool usb, bool charging) {
   if (!pixels || width < 135 || height < 27) return false;
   uint16_t dim = 0x74B3, green = 0x07E0;
-  uint16_t usb_color = usb ? green : dim;
   /* USB fork: stem, two branches, arrow, circle and square endpoints. */
   const char *glyph[] = {
     "...#...", "..###..", "...#...", "...#...", "##.#...",
     "##.#.##", ".#.#.##", "..###.#", "...###.", "...#...",
     "...#...", "..###..", "..###..", "...#..."};
-  for (int y=0;y<14;y++) for(int x=0;x<7;x++)
-    if(glyph[y][x]=='#') pixels[(12+y)*width+61+x]=usb_color;
+  if (usb && !charging)
+    for (int y=0;y<14;y++) for(int x=0;x<7;x++)
+      if(glyph[y][x]=='#') pixels[(12+y)*width+76+x]=green;
   if (charging) {
     for (int y=0;y<14;y++) {
       int x = y<7 ? 79-y/2 : 82-(y-7)/2;
