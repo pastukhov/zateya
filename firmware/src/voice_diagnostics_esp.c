@@ -3,10 +3,10 @@
 #ifdef ESP_PLATFORM
 #include "esp_log.h"
 #include "esp_system.h"
+#include "esp_random.h"
 #include "esp_timer.h"
 #include "esp_wifi.h"
 #include "nvs.h"
-#include "voice_wireguard.h"
 #include "voice_gateway_health.h"
 #include <stdio.h>
 
@@ -41,13 +41,13 @@ bool voice_diag_report_json(char *out, size_t capacity) {
   int written = snprintf(out, capacity,
       "{\"boot_id\":%lu,\"sequence\":%lu,\"uptime_ms\":%llu,"
       "\"reset_reason\":%u,\"firmware_revision\":\"%s %s\","
-      "\"wifi_connected\":%s,\"wg_status\":\"%s\","
+      "\"wifi_connected\":%s,"
       "\"backend_status\":%d,\"free_heap_bytes\":%lu,"
       "\"recording\":%s}",
       (unsigned long)boot_id, (unsigned long)next_sequence,
       (unsigned long long)(esp_timer_get_time() / 1000),
       (unsigned)esp_reset_reason(), __DATE__, __TIME__,
-      wifi_connected ? "true" : "false", voice_wireguard_status(),
+      wifi_connected ? "true" : "false",
       voice_gateway_health_status(), (unsigned long)esp_get_free_heap_size(), data);
   return written > 0 && (size_t)written < capacity;
 }

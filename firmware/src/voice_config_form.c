@@ -32,7 +32,7 @@ static bool update_form_field(char *dst, size_t cap, const char *value) {
 
 bool voice_config_parse_form(char *body, voice_settings_t *next) {
   if (!body || !next) return false;
-  bool clear_psk = false, token_given = false;
+  bool token_given = false;
   char old_gateway[sizeof(next->gateway_url)];
   memcpy(old_gateway, next->gateway_url, sizeof(old_gateway));
   char old_ssids[VOICE_WIFI_PROFILE_COUNT][33];
@@ -89,26 +89,7 @@ bool voice_config_parse_form(char *body, voice_settings_t *next) {
       }
       else if (strcmp(key, "gateway_url") == 0) { dst = next->gateway_url; cap = sizeof(next->gateway_url); }
       else if (strcmp(key, "device_token") == 0) { dst = next->device_token; cap = sizeof(next->device_token); }
-      else if (strcmp(key, "wg_enabled") == 0 ||
-               strcmp(key, "wg_clear_psk") == 0) {
-        if (strcmp(value, "0") != 0 && strcmp(value, "1") != 0) return false;
-        if (strcmp(key, "wg_enabled") == 0) next->wireguard.enabled = value[0] == '1';
-        else clear_psk = value[0] == '1';
-      }
-      else if (strcmp(key, "wg_port") == 0) {
-        if (value[0] && !voice_wireguard_parse_u16(value, &next->wireguard.port)) return false;
-      }
-      else if (strcmp(key, "wg_keepalive") == 0) {
-        if (value[0] && !voice_wireguard_parse_u16(value, &next->wireguard.keepalive)) return false;
-      }
-      else if (strcmp(key, "wg_address") == 0) { dst = next->wireguard.address; cap = sizeof(next->wireguard.address); }
-      else if (strcmp(key, "wg_netmask") == 0) { dst = next->wireguard.netmask; cap = sizeof(next->wireguard.netmask); }
-      else if (strcmp(key, "wg_endpoint") == 0) { dst = next->wireguard.endpoint; cap = sizeof(next->wireguard.endpoint); }
-      else if (strcmp(key, "wg_public_key") == 0) { dst = next->wireguard.public_key; cap = sizeof(next->wireguard.public_key); }
-      else if (strcmp(key, "wg_private_key") == 0) { dst = next->wireguard.private_key; cap = sizeof(next->wireguard.private_key); }
-      else if (strcmp(key, "wg_preshared_key") == 0) { dst = next->wireguard.preshared_key; cap = sizeof(next->wireguard.preshared_key); }
-      else if (strcmp(key, "wg_ntp_server") == 0) { dst = next->wireguard.ntp_server; cap = sizeof(next->wireguard.ntp_server); }
-      // All server/VPN text inputs are write-only: empty means unchanged.
+      // All server text inputs are write-only: empty means unchanged.
       if (strcmp(key, "device_token") == 0 && value[0]) token_given = true;
       if (dst && value[0] && !update_form_field(dst, cap, value)) return false;
     }
@@ -120,7 +101,5 @@ bool voice_config_parse_form(char *body, voice_settings_t *next) {
   }
   // Do not let an unauthenticated destination edit forward a saved bearer token.
   if (strcmp(old_gateway, next->gateway_url) != 0 && !token_given) return false;
-  if (clear_psk) next->wireguard.preshared_key[0] = '\0';
   return voice_settings_valid(next);
 }
-

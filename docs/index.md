@@ -14,7 +14,7 @@
 - [Быстрый старт и обзор](../README.md)
 - [Подключение Wi-Fi, gateway и прошивка StickS3](flash-sticks3.md)
 - [Сохранённые Wi-Fi сети и подключение по QR](wifi-profiles-sticks3.md)
-- [WireGuard и режим настройки](wireguard-sticks3.md)
+- [HTTPS и защита устройства](device-security.md)
 - [LLM Wiki, Ramble your idea, then build и Git-синхронизация](voice-knowledge.md)
 - [Защита устройства и действия при потере](device-security.md)
 - [Формат HTTP-запросов устройства](protocol.md)

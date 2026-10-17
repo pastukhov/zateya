@@ -9,17 +9,6 @@ uint16_t screen_ui_backend_color(int http_status) {
   return http_status == 200 ? 0x07E0 : 0xF800;
 }
 
-uint16_t screen_ui_wireguard_color(const char *status, bool wifi_connected,
-                                   int phase) {
-  if (!wifi_connected || !status) return 0x74B3;
-  if (strcmp(status, "connected") == 0) return 0x07E0;
-  if (strcmp(status, "error") == 0 || strcmp(status, "subnet_conflict") == 0)
-    return 0xF800;
-  if (strcmp(status, "waiting_time") == 0 || strcmp(status, "connecting") == 0)
-    return (phase / 3) % 2 ? 0xFD20 : 0x74B3;
-  return 0x74B3;
-}
-
 bool screen_ui_draw_server_icon(uint16_t *pixels, int width, int height,
                                 int center_x, uint16_t color) {
   if (!pixels || center_x < 8 || center_x + 8 >= width || height <= 26)
@@ -82,13 +71,11 @@ screen_ui_view_t screen_ui_view(state_t state) {
 
 
 screen_ui_view_t screen_ui_view_with_network(state_t state, screen_processing_phase_t phase,
-                                             bool wifi_connected, bool vpn_ready,
+                                             bool wifi_connected,
                                              int backend_status) {
   if (state == STATE_IDLE) {
     if (!wifi_connected)
       return (screen_ui_view_t){"СЕТЬ", "ОЖИДАЮ WI-FI", 0xF5A8, SCREEN_ICON_THINKING};
-    if (!vpn_ready)
-      return (screen_ui_view_t){"VPN", "ОЖИДАЮ VPN", 0xF5A8, SCREEN_ICON_THINKING};
     if (backend_status != 200) {
       const char *hint = backend_status < 0 ? "ПРОВЕРЯЮ" :
                          backend_status == 0 ? "НЕТ СВЯЗИ" :
@@ -99,21 +86,7 @@ screen_ui_view_t screen_ui_view_with_network(state_t state, screen_processing_ph
   return screen_ui_view_with_phase(state, phase);
 }
 
-screen_ui_view_t screen_ui_view_with_connection(state_t state,
-                                                screen_processing_phase_t phase,
-                                                bool wifi_connected,
-                                                const char *wg_status,
-                                                bool vpn_ready,
-                                                int backend_status) {
-  if (state == STATE_IDLE && wifi_connected && !vpn_ready && wg_status) {
-    if (strcmp(wg_status, "waiting_time") == 0)
-      return (screen_ui_view_t){"VPN", "СИНХРОНИЗАЦИЯ\nВРЕМЕНИ", 0xF5A8, SCREEN_ICON_THINKING};
-    if (strcmp(wg_status, "connecting") == 0)
-      return (screen_ui_view_t){"VPN", "ПОДКЛЮЧАЮ VPN", 0xF5A8, SCREEN_ICON_THINKING};
-  }
-  return screen_ui_view_with_network(state, phase, wifi_connected, vpn_ready,
-                                     backend_status);
-}
+
 
 
 // Fixed version 3: 29 modules plus a four-module quiet zone, at 3 px/module.

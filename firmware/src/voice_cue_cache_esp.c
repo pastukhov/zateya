@@ -16,7 +16,7 @@
 #include "mbedtls/sha256.h"
 #include "voice_gateway_health.h"
 #include "voice_ota.h"
-#include "voice_wireguard.h"
+#include "voice_tls.h"
 
 static char base[192],device[32],auth[200],current_sha[65];
 static SemaphoreHandle_t mutex;
@@ -30,9 +30,9 @@ static bool allowed(void) {
 static int fetch(const char *path,uint8_t *out,size_t cap) {
  char url[320];int n=snprintf(url,sizeof(url),"%s%s",base,path);
  if(n<0 || n>=sizeof(url) || !allowed())return -1;
- esp_http_client_config_t config={.url=url,.if_name=voice_wireguard_interface(),
+ esp_http_client_config_t config={.url=url,
    .timeout_ms=1500,.disable_auto_redirect=true};
- esp_http_client_handle_t c=esp_http_client_init(&config);if(!c)return -1;
+ esp_http_client_handle_t c=voice_tls_client_init(&config);if(!c)return -1;
  esp_http_client_set_header(c,"X-Device-Id",device);
  esp_http_client_set_header(c,"Authorization",auth);
  int result=-1;size_t used=0;int64_t start=esp_timer_get_time();

@@ -18,15 +18,20 @@ def test_proxy_boundary(tmp_path):
     assert template.exists(), 'Alice proxy config is missing'
     name = 'alice-test-' + uuid.uuid4().hex[:10]
     mock = tmp_path / 'mock.py'
-    mock.write_text('''from http.server import BaseHTTPRequestHandler, HTTPServer
+    mock.write_text('''from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 class Handler(BaseHTTPRequestHandler):
+ def do_GET(self):
+  if self.path == '/api/voice/auth':
+   valid = self.headers.get('Authorization') == 'Bearer test-marker' and self.headers.get('X-Device-Id') == 'test'
+   self.send_response(204 if valid else 401); self.end_headers(); return
+  self.send_response(200); self.end_headers(); self.wfile.write(b'ok')
  def do_POST(self):
   body = self.rfile.read(int(self.headers.get('Content-Length', 0)))
   result = json.dumps(dict(path=self.path, auth=self.headers.get('Authorization'), body=body.decode())).encode()
   self.send_response(200); self.end_headers(); self.wfile.write(result)
  def log_message(self, *args): pass
-HTTPServer(('0.0.0.0', 8080), Handler).serve_forever()
+ThreadingHTTPServer(('0.0.0.0', 8080), Handler).serve_forever()
 ''')
     docker('network', 'create', name)
     try:
@@ -39,9 +44,9 @@ HTTPServer(('0.0.0.0', 8080), Handler).serve_forever()
                'nginx:stable-alpine')
         port = docker('port', name+'-proxy', '8080/tcp').rsplit(':', 1)[1]
         base = f'http://127.0.0.1:{port}'
-        def request(path, method='GET', body=None):
+        def request(path, method='GET', body=None, token='test-marker', device='test'):
             req = urllib.request.Request(base+path, data=body, method=method,
-                                         headers={'Authorization': 'Bearer test-marker',
+                                         headers={'Authorization': 'Bearer '+token, 'X-Device-Id': device,
                                                   'Content-Type': 'application/json'})
             try:
                 with urllib.request.urlopen(req, timeout=3) as response:
@@ -56,7 +61,7 @@ HTTPServer(('0.0.0.0', 8080), Handler).serve_forever()
                 pass
             time.sleep(.1)
         for path in ['/', '/docs', '/metrics', '/health/live', '/data/foo',
-                     '/api/voice/turns', '/api/alice/webhook/extra']:
+                     '/api/voice/auth', '/_device_auth', '/api/alice/webhook/extra']:
             assert request(path)[0] == 404, path
         assert request('/api/alice/webhook')[0] == 405
         payload = '{"request":{"original_utterance":"тест"}}'.encode()
@@ -65,6 +70,18 @@ HTTPServer(('0.0.0.0', 8080), Handler).serve_forever()
         assert json.loads(body) == dict(path='/api/alice/webhook',
                                         auth='Bearer test-marker', body=payload.decode())
         assert request('/api/alice/webhook', 'POST', b'x'*65537)[0] == 413
+        assert request('/api/voice/turns')[0] == 405
+        assert request('/health/ready')[0] == 200
+        for path in ['/api/firmware/manifest', '/api/voice/turns/'+str(uuid.uuid4()),
+                     '/api/device/cues/listening', '/api/firmware/images/'+'a'*64+'.bin']:
+            assert request(path)[0] == 200, path
+            assert request(path, token='wrong')[0] == 401, path
+            assert request(path, device='other')[0] == 401, path
+        assert request('/api/voice/turns', 'POST', b'pcm', token='wrong')[0] == 401
+        for _ in range(8):
+            assert request('/api/voice/turns', 'POST', b'', token='attacker')[0] in (401, 429)
+        assert request('/api/voice/turns', 'POST', b'pcm')[0] == 200
+        assert request('/api/devices/diagnostics', 'POST', b'x'*16385)[0] == 413
         logs = docker('logs', name+'-proxy')
         assert 'test-marker' not in logs
         assert 'original_utterance' not in logs

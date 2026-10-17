@@ -7,7 +7,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "board_sticks3.h"
-#include "voice_wireguard.h"
+#include "voice_tls.h"
 
 #include <stdatomic.h>
 #include <stdio.h>
@@ -26,10 +26,10 @@ static void health_task(void *arg) {
     }
     esp_http_client_config_t config = {
       .url = s_health_url,
-      .if_name = voice_wireguard_interface(),
+
       .timeout_ms = 2500,
     };
-    esp_http_client_handle_t client = esp_http_client_init(&config);
+    esp_http_client_handle_t client = voice_tls_client_init(&config);
     int status = 0;
     if (client) {
       if (esp_http_client_perform(client) == ESP_OK)
@@ -50,7 +50,7 @@ bool voice_gateway_health_start(const char *gateway_base) {
   int written = snprintf(s_health_url, sizeof(s_health_url), "%.*s/health/ready",
                          (int)length, gateway_base);
   if (written <= 0 || (size_t)written >= sizeof(s_health_url)) return false;
-  return xTaskCreate(health_task, "gateway_health", 4096, NULL, 3, NULL) == pdPASS;
+  return xTaskCreate(health_task, "gateway_health", 8192, NULL, 3, NULL) == pdPASS;
 }
 
 int voice_gateway_health_status(void) {

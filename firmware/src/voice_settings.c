@@ -21,7 +21,7 @@ static bool reset_pending;
 #define VOICE_WIFI_PASSWORD ""
 #endif
 #ifndef VOICE_GATEWAY_URL
-#define VOICE_GATEWAY_URL "http://192.168.1.10:8000"
+#define VOICE_GATEWAY_URL "https://zateya.atitlan.keenetic.link"
 #endif
 #ifndef VOICE_DEVICE_TOKEN
 #define VOICE_DEVICE_TOKEN ""
@@ -40,10 +40,6 @@ static void defaults(voice_settings_t *s) {
   copy_field(s->wifi[0].password, sizeof(s->wifi[0].password), VOICE_WIFI_PASSWORD);
   copy_field(s->gateway_url, sizeof(s->gateway_url), VOICE_GATEWAY_URL);
   copy_field(s->device_token, sizeof(s->device_token), VOICE_DEVICE_TOKEN);
-  s->wireguard.port = 51820;
-  s->wireguard.keepalive = 25;
-  copy_field(s->wireguard.netmask, sizeof(s->wireguard.netmask), "255.255.255.0");
-  copy_field(s->wireguard.ntp_server, sizeof(s->wireguard.ntp_server), "pool.ntp.org");
   s->sleep_timeout_seconds = VOICE_SLEEP_DEFAULT_SECONDS;
   s->wake_enabled = true;
   s->wake_pause_ms = 3000;
@@ -72,11 +68,10 @@ bool voice_settings_parse_sleep_timeout(const char *value, uint32_t *seconds) {
 }
 
 bool voice_settings_valid(const voice_settings_t *s) {
-  if (!s || !voice_wireguard_valid(&s->wireguard) || !voice_wifi_profiles_valid(s->wifi) || !s->device_id[0]) return false;
+  if (!s || !voice_wifi_profiles_valid(s->wifi) || !s->device_id[0]) return false;
   const char *url = s->gateway_url;
   const char *host = NULL;
-  if (strncmp(url, "http://", 7) == 0) host = url + 7;
-  else if (strncmp(url, "https://", 8) == 0) host = url + 8;
+  if (strncmp(url, "https://", 8) == 0) host = url + 8;
   if (!host || !host[0]) return false;
   {
     if (!s->device_token[0]) return false;
@@ -113,13 +108,6 @@ esp_err_t voice_settings_load(voice_settings_t *s) {
   if (err == ESP_ERR_NVS_NOT_FOUND) return ESP_OK;
   if (err != ESP_OK) return err;
   field_t fields[] = {
-    {"wg_address", s->wireguard.address, sizeof(s->wireguard.address)},
-    {"wg_netmask", s->wireguard.netmask, sizeof(s->wireguard.netmask)},
-    {"wg_private_key", s->wireguard.private_key, sizeof(s->wireguard.private_key)},
-    {"wg_public_key", s->wireguard.public_key, sizeof(s->wireguard.public_key)},
-    {"wg_psk", s->wireguard.preshared_key, sizeof(s->wireguard.preshared_key)},
-    {"wg_endpoint", s->wireguard.endpoint, sizeof(s->wireguard.endpoint)},
-    {"wg_ntp_server", s->wireguard.ntp_server, sizeof(s->wireguard.ntp_server)},
     {"wifi_ssid", s->wifi[0].ssid, sizeof(s->wifi[0].ssid)},
     {"wifi_password", s->wifi[0].password, sizeof(s->wifi[0].password)},
     {"wifi1_ssid", s->wifi[1].ssid, sizeof(s->wifi[1].ssid)},
@@ -140,11 +128,6 @@ esp_err_t voice_settings_load(voice_settings_t *s) {
     size_t len = fields[i].cap;
     (void)nvs_get_str(h, fields[i].key, fields[i].value, &len);
   }
-  uint8_t enabled = 0;
-  (void)nvs_get_u8(h, "wg_enabled", &enabled);
-  s->wireguard.enabled = enabled != 0;
-  (void)nvs_get_u16(h, "wg_port", &s->wireguard.port);
-  (void)nvs_get_u16(h, "wg_keepalive", &s->wireguard.keepalive);
   uint8_t wake_enabled = 1;
   (void)nvs_get_u8(h, "wake_enabled", &wake_enabled);
   s->wake_enabled = wake_enabled != 0;
@@ -165,13 +148,6 @@ static esp_err_t save_unlocked(const voice_settings_t *s) {
   esp_err_t err = nvs_open("hermes", NVS_READWRITE, &h);
   if (err != ESP_OK) return err;
   const struct { const char *key; const char *value; } fields[] = {
-    {"wg_address", s->wireguard.address},
-    {"wg_netmask", s->wireguard.netmask},
-    {"wg_private_key", s->wireguard.private_key},
-    {"wg_public_key", s->wireguard.public_key},
-    {"wg_psk", s->wireguard.preshared_key},
-    {"wg_endpoint", s->wireguard.endpoint},
-    {"wg_ntp_server", s->wireguard.ntp_server},
     {"wifi_ssid", s->wifi[0].ssid}, {"wifi_password", s->wifi[0].password},
     {"wifi1_ssid", s->wifi[1].ssid},
     {"wifi1_password", s->wifi[1].password},
@@ -192,13 +168,6 @@ static esp_err_t save_unlocked(const voice_settings_t *s) {
   if (err == ESP_OK) err = nvs_set_u32(h, "sleep_seconds", s->sleep_timeout_seconds);
   if (err == ESP_OK) err = nvs_set_u8(h,"wake_enabled",s->wake_enabled);
   if (err == ESP_OK) err = nvs_set_u32(h,"wake_pause_ms",s->wake_pause_ms);
-  if (err == ESP_OK) err = nvs_set_u8(h, "wg_enabled", s->wireguard.enabled);
-  if (err == ESP_OK) {
-    esp_err_t obsolete = nvs_erase_key(h, "wg_full_tunnel");
-    if (obsolete != ESP_OK && obsolete != ESP_ERR_NVS_NOT_FOUND) err = obsolete;
-  }
-  if (err == ESP_OK) err = nvs_set_u16(h, "wg_port", s->wireguard.port);
-  if (err == ESP_OK) err = nvs_set_u16(h, "wg_keepalive", s->wireguard.keepalive);
   if (err == ESP_OK) err = nvs_commit(h);
   nvs_close(h);
   return err;

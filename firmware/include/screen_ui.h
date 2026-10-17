@@ -37,14 +37,11 @@ typedef struct {
   screen_recording_warning_t warning;
 } screen_recording_timer_t;
 
-#define SCREEN_STATUS_SERVER_X 23
-#define SCREEN_STATUS_WIFI_X 67
-#define SCREEN_STATUS_WG_X 111
+#define SCREEN_STATUS_SERVER_X 43
+#define SCREEN_STATUS_WIFI_X 91
 
 /* -1: pending; 0: unreachable; positive: /health/ready HTTP result. */
 uint16_t screen_ui_backend_color(int http_status);
-uint16_t screen_ui_wireguard_color(const char *status, bool wifi_connected,
-                                   int phase);
 bool screen_ui_draw_server_icon(uint16_t *pixels, int width, int height,
                                 int center_x, uint16_t color);
 
@@ -56,14 +53,8 @@ bool screen_ui_draw_setup(uint16_t *pixels, int width, int height, const char *s
 
 screen_ui_view_t screen_ui_view(state_t state);
 screen_ui_view_t screen_ui_view_with_network(state_t state, screen_processing_phase_t phase,
-                                             bool wifi_connected, bool vpn_ready,
+                                             bool wifi_connected,
                                              int backend_status);
-screen_ui_view_t screen_ui_view_with_connection(state_t state,
-                                                screen_processing_phase_t phase,
-                                                bool wifi_connected,
-                                                const char *wg_status,
-                                                bool vpn_ready,
-                                                int backend_status);
 screen_ui_view_t screen_ui_view_with_phase(state_t state,
                                            screen_processing_phase_t phase);
 

@@ -1,34 +1,153 @@
-# HTTPS terminates on Keenetic. Only the Alice POST endpoint is public.
+# Public HTTPS terminates at KeenDNS; backend stays on the Docker network.
+# Credential buckets isolate the device from anonymous traffic; no trust in forwarded IPs.
+# Headers are held only in nginx memory and never written to the access log.
+map $http_authorization $recorder_budget {
+    "" anonymous;
+    default $http_authorization;
+}
+limit_req_zone $server_name zone=readiness:1m rate=10r/s;
 limit_req_zone $server_name zone=alice_ingress:1m rate=10r/s;
-log_format alice_safe '$status $request_method $request_time';
+limit_req_zone $recorder_budget zone=recorder_reads:1m rate=15r/s;
+limit_req_zone $recorder_budget zone=recorder_uploads:1m rate=6r/m;
+limit_conn_zone $recorder_budget zone=recorder_connections:1m;
+limit_conn_zone $recorder_budget zone=upload_connections:1m;
+log_format ingress_safe '$status $request_method $request_time';
 server {
     listen 8080;
     server_name _;
     server_tokens off;
-    access_log /dev/stdout alice_safe;
-    # Request parsing errors may contain raw headers; suppress these logs.
+    access_log /dev/stdout ingress_safe;
     error_log /dev/stderr crit;
     client_max_body_size 64k;
-    client_body_timeout 3s;
-    client_header_timeout 3s;
-    send_timeout 3s;
+    client_body_timeout 15s;
+    client_header_timeout 5s;
+    send_timeout 30s;
     resolver 127.0.0.11 valid=10s ipv6=off;
     resolver_timeout 1s;
-    location = /api/alice/webhook {
-        if ($request_method != POST) { return 405; }
-        limit_req zone=alice_ingress burst=30 nodelay;
-        limit_req_status 429;
-        set $alice_backend backend:${VOICE_BIND_PORT};
-        proxy_pass http://$alice_backend;
-        proxy_connect_timeout 1s;
-        proxy_read_timeout 3s;
-        proxy_send_timeout 3s;
+    limit_req_status 429;
+    limit_conn_status 429;
+    location = /_device_auth {
+        internal;
+        set $auth_backend backend:${VOICE_BIND_PORT};
+        proxy_pass http://$auth_backend/api/voice/auth;
+        proxy_method GET;
+        proxy_pass_request_body off;
+        proxy_set_header Content-Length "";
         proxy_set_header Authorization $http_authorization;
+        proxy_set_header X-Device-Id $http_x_device_id;
+        proxy_connect_timeout 3s;
+        proxy_read_timeout 3s;
+    }
+    location = /health/ready {
+        if ($request_method != GET) { return 405; }
+        limit_req zone=readiness burst=20 nodelay;
+        set $gateway backend:${VOICE_BIND_PORT};
+        proxy_pass http://$gateway;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+        proxy_set_header Authorization $http_authorization;
+        proxy_set_header X-Device-Id $http_x_device_id;
         proxy_set_header Host $host;
-        # Do not forward untrusted client-supplied source addresses.
         proxy_set_header X-Forwarded-For "";
         proxy_set_header X-Real-IP "";
         proxy_set_header Forwarded "";
+        proxy_connect_timeout 3s;
+        proxy_read_timeout 30s;
+        proxy_send_timeout 15s;
+    }
+    location = /api/alice/webhook {
+        if ($request_method != POST) { return 405; }
+        limit_req zone=alice_ingress burst=30 nodelay;
+        set $gateway backend:${VOICE_BIND_PORT};
+        proxy_pass http://$gateway;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+        proxy_set_header Authorization $http_authorization;
+        proxy_set_header X-Device-Id $http_x_device_id;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For "";
+        proxy_set_header X-Real-IP "";
+        proxy_set_header Forwarded "";
+        proxy_connect_timeout 3s;
+        proxy_read_timeout 3s;
+        proxy_send_timeout 3s;
+    }
+    location = /api/voice/turns {
+        if ($request_method != POST) { return 405; }
+        auth_request /_device_auth;
+        client_max_body_size 19200000;
+        limit_req zone=recorder_uploads burst=3 nodelay;
+        limit_conn upload_connections 1;
+        proxy_request_buffering off;
+        set $gateway backend:${VOICE_BIND_PORT};
+        proxy_pass http://$gateway;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+        proxy_set_header Authorization $http_authorization;
+        proxy_set_header X-Device-Id $http_x_device_id;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For "";
+        proxy_set_header X-Real-IP "";
+        proxy_set_header Forwarded "";
+        proxy_connect_timeout 3s;
+        proxy_read_timeout 30s;
+        proxy_send_timeout 15s;
+    }
+    location ~ "^/api/(voice/(requests/[0-9a-f-]{36}|turns/[0-9a-f-]{36}(/audio)?)|firmware/(manifest|images/[0-9a-f]{64}\.bin)|device/cues/(listening|audio/[0-9a-f]{64}\.pcm))$" {
+        if ($request_method != GET) { return 405; }
+        auth_request /_device_auth;
+        limit_req zone=recorder_reads burst=20 nodelay;
+        limit_conn recorder_connections 4;
+        set $gateway backend:${VOICE_BIND_PORT};
+        proxy_pass http://$gateway;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+        proxy_set_header Authorization $http_authorization;
+        proxy_set_header X-Device-Id $http_x_device_id;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For "";
+        proxy_set_header X-Real-IP "";
+        proxy_set_header Forwarded "";
+        proxy_connect_timeout 3s;
+        proxy_read_timeout 30s;
+        proxy_send_timeout 15s;
+    }
+    location ~ "^/api/voice/turns/[0-9a-f-]{36}/cancel$" {
+        if ($request_method != POST) { return 405; }
+        auth_request /_device_auth;
+        limit_req zone=recorder_reads burst=10 nodelay;
+        set $gateway backend:${VOICE_BIND_PORT};
+        proxy_pass http://$gateway;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+        proxy_set_header Authorization $http_authorization;
+        proxy_set_header X-Device-Id $http_x_device_id;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For "";
+        proxy_set_header X-Real-IP "";
+        proxy_set_header Forwarded "";
+        proxy_connect_timeout 3s;
+        proxy_read_timeout 30s;
+        proxy_send_timeout 15s;
+    }
+    location = /api/devices/diagnostics {
+        if ($request_method != POST) { return 405; }
+        auth_request /_device_auth;
+        client_max_body_size 16k;
+        limit_req zone=recorder_uploads burst=3 nodelay;
+        set $gateway backend:${VOICE_BIND_PORT};
+        proxy_pass http://$gateway;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+        proxy_set_header Authorization $http_authorization;
+        proxy_set_header X-Device-Id $http_x_device_id;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For "";
+        proxy_set_header X-Real-IP "";
+        proxy_set_header Forwarded "";
+        proxy_connect_timeout 3s;
+        proxy_read_timeout 30s;
+        proxy_send_timeout 15s;
     }
     location / { return 404; }
 }

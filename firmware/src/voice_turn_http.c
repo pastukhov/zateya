@@ -3,7 +3,7 @@
 #ifdef ESP_PLATFORM
 
 #include "esp_http_client.h"
-#include "voice_wireguard.h"
+#include "voice_tls.h"
 #include "esp_timer.h"
 #include "esp_log.h"
 #include "freertos/task.h"
@@ -48,16 +48,16 @@ static esp_http_client_handle_t open_request(voice_turn_http_t *http,
                                               const char *method,
                                               const char *path,
                                               int *status) {
-  if (!voice_wireguard_ready()) return NULL;
+  if (!voice_tls_ready()) return NULL;
   char url[256];
   if (!make_url(http, path, url, sizeof(url))) return NULL;
   http->response_content_type[0] = '\0';
   esp_http_client_config_t config = {
-    .url = url, .if_name = voice_wireguard_interface(),
+    .url = url,
     .timeout_ms = TURN_HTTP_TIMEOUT_MS,
     .event_handler = response_event, .user_data = http,
   };
-  esp_http_client_handle_t client = esp_http_client_init(&config);
+  esp_http_client_handle_t client = voice_tls_client_init(&config);
   if (!client) return NULL;
   esp_http_client_set_method(client, strcmp(method, "POST") == 0
                                         ? HTTP_METHOD_POST : HTTP_METHOD_GET);

@@ -43,6 +43,9 @@ def test_duplicate_upload_is_idempotent_and_owner_is_enforced(tmp_path):
                 "X-Device-Id": "mic-a",
                 "Authorization": "Bearer device-secret",
             }
+            assert (await client.get("/api/voice/auth")).status_code == 401
+            assert (await client.get("/api/voice/auth",headers=headers)).status_code == 204
+            assert (await client.get("/api/voice/auth",headers={**headers,"X-Device-Id":"other"})).status_code == 401
             audio = b"\x00\x00" * 100
             first = await client.post("/api/voice/turns", content=audio, headers=headers)
             duplicate = await client.post("/api/voice/turns", content=audio, headers=headers)

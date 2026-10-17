@@ -3,6 +3,8 @@ services:
   backend:
     # Reap orphan Git/SSH children; Python must not serve as container init.
     init: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
     build:
       context: .
       dockerfile: backend/Dockerfile

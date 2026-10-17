@@ -10,7 +10,7 @@ void setUp(void) {
   voice_settings_load(&settings);
   strcpy(settings.device_token, "test-token");
   strcpy(settings.device_id, "test-device");
-  strcpy(settings.gateway_url, "http://gateway.test");
+  strcpy(settings.gateway_url, "https://gateway.test");
   strcpy(settings.wifi[0].ssid, "Home");
   strcpy(settings.wifi[0].password, "home-password");
   strcpy(settings.wifi[2].ssid, "Work");
@@ -109,14 +109,6 @@ static void test_factory_reset_clears_all_credentials_and_restores_defaults(void
   TEST_ASSERT_EQUAL_STRING("", settings.device_token);
   TEST_ASSERT_EQUAL_STRING("", settings.request_id);
   TEST_ASSERT_EQUAL_STRING("", settings.turn_id);
-  TEST_ASSERT_EQUAL_STRING("", settings.wireguard.private_key);
-  TEST_ASSERT_EQUAL_STRING("", settings.wireguard.public_key);
-  TEST_ASSERT_EQUAL_STRING("", settings.wireguard.preshared_key);
-  TEST_ASSERT_EQUAL_STRING("", settings.wireguard.endpoint);
-  TEST_ASSERT_EQUAL_STRING("", settings.wireguard.address);
-  TEST_ASSERT_FALSE(settings.wireguard.enabled);
-  TEST_ASSERT_EQUAL(51820, settings.wireguard.port);
-  TEST_ASSERT_EQUAL(25, settings.wireguard.keepalive);
   TEST_ASSERT_EQUAL(30, settings.sleep_timeout_seconds);
   TEST_ASSERT_EQUAL(-1, voice_wifi_first_profile(settings.wifi));
   TEST_ASSERT_FALSE(voice_settings_valid(&settings));

@@ -60,6 +60,7 @@
  *     release, so the recording auto-finishes and the session closes.
  */
 
+#include "voice_tls.h"
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -401,7 +402,7 @@ static void enter_state(state_t next, const char* error_what) {
  */
 static bool recording_start(void) {
 #ifdef ESP_PLATFORM
-  if (!voice_wireguard_ready() || !app.turn_http_ready) return false;
+  if (!voice_tls_ready() || !app.turn_http_ready) return false;
   if (app.turn_task_active) return false;
   if (!begin_turn_request()) return false;
 #endif
@@ -794,7 +795,7 @@ void app_init(void) {
   } else {
     (void)board_sticks3_wifi_start_ap();
   }
-  voice_wireguard_start(&voice_settings.wireguard);
+  voice_tls_start();
   (void)voice_gateway_health_start(voice_settings.gateway_url);
 
   (void)voice_cue_cache_start(voice_settings.gateway_url,

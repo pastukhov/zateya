@@ -20,7 +20,7 @@ For Gemini TTS, set `TTS_MODEL=google/gemini-3.8-flash-lite-tts`, `TTS_VOICE=Kor
 
 For a server deployment, place the existing Obsidian vault in `data/obsidian`, configure Git SSH in `data/ssh`, and follow the [Linux server guide](deploy/server-migration.ru.md). See the [development guide](docs/en/development.md) for configuration checks and tests.
 
-The gateway uses Compose's default bridge network and publishes a port for the recorder. Restrict that port to a trusted LAN or WireGuard network. `LLM_API_KEY` and device tokens are passed only to the gateway process and are never exposed by the recorder’s web UI.
+The gateway uses Compose's default bridge network and publishes a port for the recorder. Restrict that port to a trusted LAN; expose only the restricted nginx ingress through KeenDNS. `LLM_API_KEY` and device tokens are passed only to the gateway process and are never exposed by the recorder’s web UI.
 
 ## Connect the StickS3
 
@@ -66,3 +66,5 @@ Never commit `.env`, Wi-Fi passwords, device tokens, API keys, or SSH keys. The 
 ### mDNS
 
 The device advertises `zateya-<MAC>.local`, for example `zateya-7ce8b1e4b780.local`. Full setup is available through this name on the local network or at `http://192.168.4.1/` while connected to the setup AP.
+
+[HTTPS ingress and security](docs/device-security.md). The recorder no longer uses a VPN.

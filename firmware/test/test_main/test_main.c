@@ -151,12 +151,14 @@ static void test_boot_can_resume_a_saved_voice_turn(void) {
 static void test_settings_require_device_token_and_base_url(void) {
   voice_settings_t settings = {0};
   strcpy(settings.wifi[0].ssid, "Atitlan");
-  strcpy(settings.gateway_url, "http://192.168.1.10:8080");
+  strcpy(settings.gateway_url, "https://192.168.1.10:8080");
   strcpy(settings.device_id, "7ce8b1e4b780");
   TEST_ASSERT_FALSE(voice_settings_valid(&settings));
   strcpy(settings.device_token, "device-secret");
   TEST_ASSERT_TRUE(voice_settings_valid(&settings));
-  strcpy(settings.gateway_url, "http://192.168.1.10:8080/api/v1/voice/turn");
+  strcpy(settings.gateway_url, "http://plain.test");
+  TEST_ASSERT_FALSE(voice_settings_valid(&settings));
+  strcpy(settings.gateway_url, "https://192.168.1.10:8080/api/v1/voice/turn");
   TEST_ASSERT_FALSE(voice_settings_valid(&settings));
   strcpy(settings.gateway_url, "http://user@192.168.1.10:8080");
   TEST_ASSERT_FALSE(voice_settings_valid(&settings));

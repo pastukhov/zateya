@@ -1,7 +1,5 @@
 """Strict, secret-free schema for the device's numeric diagnostic snapshot."""
 
-from typing import Literal
-
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, field_validator
 
 
@@ -39,10 +37,6 @@ class DeviceDiagnostics(BaseModel):
     reset_reason: Counter = Field(ge=0, le=255)
     firmware_revision: str = Field(min_length=1, max_length=48, pattern=r"^[A-Za-z0-9 :._-]+$")
     wifi_connected: StrictBool
-    wg_status: Literal[
-        "disabled", "waiting_wifi", "waiting_time", "connecting", "connected", "error",
-        "subnet_conflict", "paused_setup",
-    ]
     backend_status: Counter = Field(ge=-1, le=599)
     free_heap_bytes: Counter = Field(ge=0, le=2**32 - 1)
     recording: RecordingDiagnostics

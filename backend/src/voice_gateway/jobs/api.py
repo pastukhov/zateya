@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Callable
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 
 from .auth import owns_device
 from .store import JobConflict, VoiceJobStore
@@ -33,6 +33,11 @@ def install_voice_job_routes(
         ):
             raise HTTPException(status_code=401, detail={"error": "unauthorized"})
         return device_id
+
+    @app.get("/api/voice/auth", include_in_schema=False)
+    async def ingress_auth(request: Request):
+        await authenticate(request)
+        return Response(status_code=204)
 
     def status_payload(job: dict) -> dict:
         payload = {

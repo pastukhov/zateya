@@ -24,7 +24,7 @@
 #include "voice_gateway_health.h"
 #include "voice_ota_policy.h"
 #include "voice_ota_release.h"
-#include "voice_wireguard.h"
+#include "voice_tls.h"
 
 #define OTA_CHECK_TIMEOUT_MS 5000
 #define OTA_DOWNLOAD_LIMIT_MS 600000
@@ -157,10 +157,10 @@ static esp_http_client_handle_t open_get(const char *path, int *status,
   if (!board_sticks3_network_ready() || !make_url(path, url, sizeof(url)))
     return NULL;
   esp_http_client_config_t config = {
-    .url = url, .if_name = voice_wireguard_interface(),
+    .url = url,
     .timeout_ms = OTA_CHECK_TIMEOUT_MS, .disable_auto_redirect = true,
   };
-  esp_http_client_handle_t client = esp_http_client_init(&config);
+  esp_http_client_handle_t client = voice_tls_client_init(&config);
   if (!client) return NULL;
   if (esp_http_client_set_header(client, "X-Device-Id", device_id) != ESP_OK ||
       esp_http_client_set_header(client, "Authorization", authorization) != ESP_OK ||

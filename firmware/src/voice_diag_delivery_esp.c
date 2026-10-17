@@ -14,7 +14,7 @@
 #include "voice_diag_delivery_policy.h"
 #include "voice_diagnostics.h"
 #include "voice_gateway_health.h"
-#include "voice_wireguard.h"
+#include "voice_tls.h"
 
 static char url[256];
 static char device[32];
@@ -28,11 +28,11 @@ static const char *TAG = "voice_diag_delivery";
 static bool post_report(void) {
   esp_http_client_config_t config = {
     .url = url,
-    .if_name = voice_wireguard_interface(),
+
     .timeout_ms = 5000,
     .disable_auto_redirect = true,
   };
-  esp_http_client_handle_t client = esp_http_client_init(&config);
+  esp_http_client_handle_t client = voice_tls_client_init(&config);
   if (!client) return false;
   esp_http_client_set_method(client, HTTP_METHOD_POST);
   esp_http_client_set_header(client, "Content-Type", "application/json");

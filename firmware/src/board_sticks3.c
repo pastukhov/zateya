@@ -9,7 +9,7 @@
 #include "screen_font.h"
 #include "voice_config_httpd.h"
 #include "voice_wifi_setup.h"
-#include "voice_wireguard.h"
+#include "voice_tls.h"
 #include "voice_gateway_health.h"
 #include "connectivity_policy.h"
 #include "voice_diag_delivery_esp.h"
@@ -71,7 +71,6 @@ static int s_screen_phase = -1;
 static screen_processing_phase_t s_screen_processing_phase = SCREEN_PROCESSING_THINKING;
 static bool s_screen_wifi;
 static bool s_screen_setup;
-static const char *s_screen_wg;
 static bool s_screen_diag_busy;
 static bool s_screen_ota_busy;
 static bool s_screen_ota_pending;
@@ -354,7 +353,7 @@ void board_sticks3_power_tick(bool busy, uint32_t now_ms, uint32_t timeout_ms) {
   busy |= s_manual_setup || voice_wifi_search_grace(s_wifi_connected, s_wifi_started_ms, now_ms);
   busy |= connectivity_sleep_hold(s_wifi_started_ms, now_ms,
       s_wifi_setup.configured,
-      s_wifi_connected && voice_wireguard_ready() && voice_gateway_health_status() == 200,
+      s_wifi_connected && voice_tls_ready() && voice_gateway_health_status() == 200,
       s_wifi_setup.ap_active);
   busy |= voice_diag_delivery_busy();
   busy |= voice_ota_busy();
@@ -485,11 +484,7 @@ static void screen_wifi_icon(bool connected) {
   screen_circle(SCREEN_STATUS_WIFI_X, 23, 1, color);
 }
 
-static void screen_wireguard_icon(const char *status, int phase) {
-  uint16_t color = screen_ui_wireguard_color(status, s_wifi_connected, phase);
-  screen_font_draw_centered(s_screen, SCREEN_W, SCREEN_H, SCREEN_STATUS_WG_X, 13,
-                            SCREEN_FONT_SMALL, "WG", color);
-}
+
 
 static void screen_draw_icon(screen_ui_view_t view, int phase) {
   const int cx = 67, cy = 104;
@@ -559,7 +554,6 @@ void board_sticks3_display_update(state_t state, uint32_t now_ms,
                                  screen_processing_phase_t processing_phase,
                                  screen_recording_timer_t recording_timer) {
   int phase = (int)(now_ms / 180U);
-  const char *wg_status = voice_wireguard_status();
   int backend_status = voice_gateway_health_status();
   bool diag_busy = voice_diag_delivery_busy();
   bool ota_busy = voice_ota_busy();
@@ -572,7 +566,7 @@ void board_sticks3_display_update(state_t state, uint32_t now_ms,
                (mode == WIFI_MODE_AP || mode == WIFI_MODE_APSTA);
   if (state == s_screen_state && phase == s_screen_phase &&
       processing_phase == s_screen_processing_phase &&
-      s_wifi_connected == s_screen_wifi && wg_status == s_screen_wg &&
+      s_wifi_connected == s_screen_wifi &&
       backend_status == s_screen_backend &&
       diag_busy == s_screen_diag_busy &&
       ota_busy == s_screen_ota_busy &&
@@ -584,8 +578,8 @@ void board_sticks3_display_update(state_t state, uint32_t now_ms,
   if (!s_screen) s_screen = heap_caps_malloc(SCREEN_W * SCREEN_H * sizeof(*s_screen), MALLOC_CAP_8BIT);
   if (!s_screen) return;
   lcd_init();
-  screen_ui_view_t view = screen_ui_view_with_connection(state, processing_phase,
-      s_wifi_connected, wg_status, voice_wireguard_ready(), backend_status);
+  screen_ui_view_t view = screen_ui_view_with_network(state, processing_phase,
+      s_wifi_connected, backend_status);
   if(state==STATE_IDLE && wake_status==1)
     view.hint="СКАЖИТЕ ЗАТЕЯ\nИЛИ КНОПКА";
   if(state==STATE_IDLE && wake_status>=2)
@@ -608,7 +602,6 @@ void board_sticks3_display_update(state_t state, uint32_t now_ms,
   screen_ui_draw_server_icon(s_screen, SCREEN_W, SCREEN_H, SCREEN_STATUS_SERVER_X,
                              screen_ui_backend_color(backend_status));
   screen_wifi_icon(s_wifi_connected);
-  screen_wireguard_icon(wg_status, phase);
   screen_rect(10, 32, 115, 1, C_LINE);
   if (setup && (state == STATE_IDLE || state == STATE_BOOT)) {
     screen_ui_draw_setup(s_screen, SCREEN_W, SCREEN_H, s_setup_ssid);
@@ -649,7 +642,6 @@ void board_sticks3_display_update(state_t state, uint32_t now_ms,
   s_screen_phase = phase;
   s_screen_processing_phase = processing_phase;
   s_screen_wifi = s_wifi_connected;
-  s_screen_wg = wg_status;
   s_screen_diag_busy = diag_busy;
   s_screen_ota_busy = ota_busy;
   s_screen_ota_pending = ota_pending;
@@ -740,7 +732,7 @@ bool hw_audio_playback_drained(void) {
 
 
 bool board_sticks3_network_ready(void) {
-  return s_wifi_connected && voice_wireguard_ready();
+  return s_wifi_connected && voice_tls_ready();
 }
 
 bool board_sticks3_usb_powered(void) { return s_usb_powered; }

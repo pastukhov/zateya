@@ -2,7 +2,7 @@
 
 This bounds *buffering time*, not actual ESP32/TCP throughput. In particular,
 the lwIP send buffer may become unavailable well before all nominal bytes can
-be queued when RTT, segment limits, or WireGuard costs dominate.
+be queued when RTT, segment limits, or TLS overhead dominate.
 """
 
 from __future__ import annotations

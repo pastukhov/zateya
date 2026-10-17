@@ -1,7 +1,6 @@
 #ifndef VOICE_SETTINGS_H
 #define VOICE_SETTINGS_H
 
-#include "voice_wireguard.h"
 #include "voice_wifi_profiles.h"
 #include <stdbool.h>
 #include <stddef.h>
@@ -19,7 +18,6 @@ typedef int esp_err_t;
 #define VOICE_SLEEP_MAX_SECONDS 3600U
 
 typedef struct {
-  voice_wireguard_settings_t wireguard;
   voice_wifi_profile_t wifi[VOICE_WIFI_PROFILE_COUNT];
   char gateway_url[192];
   char device_id[64];

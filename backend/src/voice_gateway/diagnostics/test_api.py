@@ -15,8 +15,7 @@ def report(boot=10, sequence=1):
     return {
         "boot_id": boot, "sequence": sequence, "uptime_ms": 5000,
         "reset_reason": 1, "firmware_revision": "Oct 05 2026 12:00:00",
-        "wifi_connected": True, "wg_status": "connected",
-        "backend_status": 200, "free_heap_bytes": 200000,
+        "wifi_connected": True, "backend_status": 200, "free_heap_bytes": 200000,
         "recording": {
             "recording_id": 1, "captured_bytes": 32000, "queued_bytes": 32000,
             "sent_bytes": 21000, "ring_high_water_bytes": 11000,
