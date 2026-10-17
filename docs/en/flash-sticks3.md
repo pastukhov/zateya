@@ -16,7 +16,7 @@ This guide covers Wi-Fi provisioning and the PlatformIO build for the StickS3 (E
 1. On first boot, connect your phone or computer to `Zateya-Setup-XX`. `XX` is the final Wi-Fi MAC byte in lowercase hexadecimal.
 2. Accept the prompt to open the network setup page. If it does not appear, browse to `http://192.168.4.1/`.
 3. Select your home SSID from the scan list or enter it manually. Enter its password and the gateway endpoint.
-4. Enter the gateway base URL, such as `http://192.168.1.10:8080`, and the device token.
+4. Enter the gateway base URL, such as `https://zateya.atitlan.keenetic.link`, and the device token.
 5. Select **Save & Restart**. After reboot, the device connects using the saved settings.
 
 Leave the password or token blank to keep its saved value. The gateway must map the device ID to its token using `VOICE_DEVICE_TOKENS`. A MAC address is an identifier, not a secret. The setup page has no password and is also available on the local network after Wi-Fi connects.
@@ -31,7 +31,7 @@ From the repository root:
 cd firmware
 export ZATEYA_WIFI_SSID='your-network'
 export ZATEYA_WIFI_PASSWORD='your-password'
-export ZATEYA_GATEWAY_URL='http://192.168.1.10:8080'
+export ZATEYA_GATEWAY_URL='https://zateya.atitlan.keenetic.link'
 pio run -e sticks3
 ```
 

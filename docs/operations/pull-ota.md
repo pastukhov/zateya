@@ -115,3 +115,9 @@ ssh root@192.168.11.2 'chmod -R a+rX /opt/zateya/data/firmware && mv /opt/zateya
 за загрузку. Не используйте обычный factory-образ для обновления уже установленной
 OTA-разметки. Для повторной установки по USB берите файлы одного подписанного
 выпуска и смещения из отчёта, предварительно сохранив текущую NVS.
+
+## HTTPS transport (2026-10-17)
+
+Recorder OTA now uses the public KeenDNS HTTPS base URL, verified CA/hostname,
+SNTP time and no redirects. TLS buffers use PSRAM. The existing signed manifest,
+image hash and rollback checks remain mandatory. See [live verification](https-keendns-check-2026-10-17.md).
