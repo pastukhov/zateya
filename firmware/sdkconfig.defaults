@@ -11,3 +11,6 @@ CONFIG_LOG_DEFAULT_LEVEL_INFO=y
 # HTTPS verifies hostnames and the public CA chain. No insecure fallback.
 CONFIG_MBEDTLS_CERTIFICATE_BUNDLE=y
 CONFIG_MBEDTLS_CERTIFICATE_BUNDLE_DEFAULT_FULL=y
+
+# Keep TLS buffers in PSRAM; internal RAM is reserved for audio DMA and tasks.
+CONFIG_MBEDTLS_EXTERNAL_MEM_ALLOC=y
