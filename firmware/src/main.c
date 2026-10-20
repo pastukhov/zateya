@@ -779,7 +779,20 @@ void app_init(void) {
   app.turn_pending_byte = false;
   {
     app.turn_audio_stream = xStreamBufferCreate(8192, 1);
-    app.turn_upload_stream = xStreamBufferCreate(8192, 1);
+    /* Capture starts before DNS/TCP/TLS completes. Keep up to 16 seconds
+     * of 16 kHz mono PCM in PSRAM while the upload worker connects or stalls.
+     * FreeRTOS reserves one byte in a statically supplied stream buffer. */
+    enum { UPLOAD_CAPACITY = 512 * 1024 };
+    static StaticStreamBuffer_t upload_control;
+    static uint8_t *upload_storage;
+    if (!upload_storage)
+      upload_storage = heap_caps_malloc(UPLOAD_CAPACITY + 1,
+                                        MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (upload_storage)
+      app.turn_upload_stream = xStreamBufferCreateStatic(
+          UPLOAD_CAPACITY + 1, 1, upload_storage, &upload_control);
+    else
+      ESP_LOGE("voice_turn", "Cannot allocate upload buffer in PSRAM");
     if (app.turn_audio_stream && app.turn_upload_stream &&
         voice_settings_valid(&voice_settings)) {
       app.turn_http_ready = voice_turn_http_init(&app.turn_http,
