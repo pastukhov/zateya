@@ -116,12 +116,15 @@ class OpenAICompatibleAgentClient:
                     thread_id=f"device:{request.device_id}",
                     model=model or self.config.model,
                     provider="openai_compatible",
+                    clarification=parsed.clarification.model_dump() if parsed.clarification else None,
+                    dialogue_resolution=parsed.dialogue_resolution.model_dump() if parsed.dialogue_resolution else None,
                 )
                 if self.sessions is not None and session is not None:
                     self.sessions.save_result(
                         request.device_id, request.request_id, session.generation,
                         {"reply": result.reply, "note": result.note, "thread_id": result.thread_id,
-                         "model": result.model, "provider": result.provider},
+                         "model": result.model, "provider": result.provider,
+                         "clarification": result.clarification, "dialogue_resolution": result.dialogue_resolution},
                     )
                 return result
         except TimeoutError:

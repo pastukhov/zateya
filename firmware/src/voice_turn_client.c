@@ -267,6 +267,8 @@ voice_turn_result_t voice_turn_client_tick(voice_turn_client_t *client,
     return finish(client, VOICE_TURN_CANCELLED);
   if (response.status != VOICE_TURN_STATUS_READY)
     return finish(client, VOICE_TURN_FAILED);
+  client->follow_up_listen = response.follow_up_listen &&
+    copy_uuid(client->question_id, sizeof(client->question_id), response.question_id);
   client->audio_pending = true;
   return download_ready_audio(client, now_ms);
 }
@@ -285,4 +287,13 @@ voice_turn_result_t voice_turn_client_cancel(voice_turn_client_t *client,
   if (client->ops->cancel_turn(client->ctx, client->turn_id) == VOICE_TURN_IO_RETRY)
     return retry_later(client, now_ms);
   return finish(client, VOICE_TURN_CANCELLED);
+}
+
+bool voice_turn_client_take_follow_up(voice_turn_client_t *client, bool played,
+                                      char *question_id, size_t capacity) {
+  if (!client) return false;
+  bool intent=client->follow_up_listen;
+  client->follow_up_listen=false;
+  return intent && played && client->result==VOICE_TURN_READY &&
+    copy_uuid(question_id,capacity,client->question_id);
 }

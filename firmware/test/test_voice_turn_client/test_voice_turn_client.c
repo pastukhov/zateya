@@ -81,6 +81,7 @@ typedef struct {
   unsigned saved_ids;
   unsigned cleared_ids;
   bool bad_audio_metadata;
+  bool follow_up;
   voice_turn_io_result_t lookup_result;
   voice_turn_io_result_t poll_result;
   voice_turn_io_result_t cancel_result;
@@ -103,6 +104,8 @@ static voice_turn_io_result_t fake_poll(void *ctx, const char *turn_id,
   fake->polls++;
   TEST_ASSERT_EQUAL_STRING("9b69da5b-bd5d-44a3-9391-15e8dac36734", turn_id);
   response->status = fake->status;
+  response->follow_up_listen = fake->follow_up;
+  if(fake->follow_up)strcpy(response->question_id,"9b69da5b-bd5d-44a3-9391-15e8dac36735");
   return fake->poll_result;
 }
 
@@ -265,8 +268,43 @@ void test_invalid_client_configuration_fails_without_crashing(void) {
   TEST_ASSERT_EQUAL(VOICE_TURN_FAILED, voice_turn_client_tick(&client, 0));
 }
 
+void test_follow_up_is_optional_strict_and_consumed_only_once(void) {
+  char id[37]; bool listen=true;
+  TEST_ASSERT_TRUE(voice_turn_parse_follow_up("{\"status\":\"ready\"}", id, sizeof(id), &listen));
+  TEST_ASSERT_FALSE(listen); TEST_ASSERT_EQUAL_STRING("",id);
+  TEST_ASSERT_TRUE(voice_turn_parse_follow_up("{\"follow_up\":{\"question_id\":\"9b69da5b-bd5d-44a3-9391-15e8dac36734\",\"listen\":true}}",id,sizeof(id),&listen));
+  TEST_ASSERT_TRUE(listen);
+  TEST_ASSERT_FALSE(voice_turn_parse_follow_up("{\"follow_up\":{\"question_id\":\"bad\",\"listen\":true}}",id,sizeof(id),&listen));
+  TEST_ASSERT_FALSE(voice_turn_parse_follow_up("{\"follow_up\":{\"listen\":\"true\"}}",id,sizeof(id),&listen));
+  TEST_ASSERT_FALSE(voice_turn_parse_follow_up("{\"status\":\"ready\"",id,sizeof(id),&listen));
+  TEST_ASSERT_FALSE(voice_turn_parse_follow_up("{\"follow_up\":null,\"follow_up\":null}",id,sizeof(id),&listen));
+  voice_turn_client_t client={.result=VOICE_TURN_READY,.follow_up_listen=true};
+  strcpy(client.question_id,"9b69da5b-bd5d-44a3-9391-15e8dac36734");
+  TEST_ASSERT_FALSE(voice_turn_client_take_follow_up(&client,false,id,sizeof(id)));
+  TEST_ASSERT_FALSE(voice_turn_client_take_follow_up(&client,true,id,sizeof(id)));
+  client.follow_up_listen=true;
+  TEST_ASSERT_TRUE(voice_turn_client_take_follow_up(&client,true,id,sizeof(id)));
+  TEST_ASSERT_FALSE(voice_turn_client_take_follow_up(&client,true,id,sizeof(id)));
+}
+
+void test_ready_question_intent_survives_download_and_failed_audio_never_listens(void){
+ turn_fake_t fake={.poll_result=VOICE_TURN_IO_OK,.status=VOICE_TURN_STATUS_READY,.follow_up=true};
+ voice_turn_client_t client;char id[37];
+ voice_turn_client_init(&client,&TURN_OPS,&fake,"9b69da5b-bd5d-44a3-9391-15e8dac36733","9b69da5b-bd5d-44a3-9391-15e8dac36734",0);
+ TEST_ASSERT_EQUAL(VOICE_TURN_READY,voice_turn_client_tick(&client,1000));
+ TEST_ASSERT_TRUE(voice_turn_client_take_follow_up(&client,true,id,sizeof(id)));
+ TEST_ASSERT_EQUAL_STRING("9b69da5b-bd5d-44a3-9391-15e8dac36735",id);
+ TEST_ASSERT_FALSE(voice_turn_client_take_follow_up(&client,true,id,sizeof(id)));
+ fake.bad_audio_metadata=true;
+ voice_turn_client_init(&client,&TURN_OPS,&fake,"9b69da5b-bd5d-44a3-9391-15e8dac36733","9b69da5b-bd5d-44a3-9391-15e8dac36734",0);
+ TEST_ASSERT_EQUAL(VOICE_TURN_FAILED,voice_turn_client_tick(&client,1000));
+ TEST_ASSERT_FALSE(voice_turn_client_take_follow_up(&client,true,id,sizeof(id)));
+}
+
 int main(void) {
   UNITY_BEGIN();
+  RUN_TEST(test_ready_question_intent_survives_download_and_failed_audio_never_listens);
+  RUN_TEST(test_follow_up_is_optional_strict_and_consumed_only_once);
   RUN_TEST(test_poll_retry_uses_bounded_backoff);
   RUN_TEST(test_upload_url_uses_gateway_base_without_truncation);
   RUN_TEST(test_request_uuid_is_stable_rfc4122_v4_text);

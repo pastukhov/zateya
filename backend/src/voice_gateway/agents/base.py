@@ -23,6 +23,8 @@ class AgentReply:
     thread_id: str
     model: str | None
     provider: str
+    clarification: dict[str, Any] | None = None
+    dialogue_resolution: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True, slots=True)

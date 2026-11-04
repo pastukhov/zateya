@@ -42,6 +42,8 @@ static voice_transport_result_t begin(voice_transport_t *t) {
                                    c->config.request_id) != ESP_OK)
       return VOICE_TRANSPORT_FATAL;
   }
+  if (c->config.answer_to && c->config.answer_to[0])
+    esp_http_client_set_header(c->client, "X-Answer-To", c->config.answer_to);
   if (c->config.device_id) esp_http_client_set_header(c->client, "X-Device-Id", c->config.device_id);
   if (c->config.token) {
     char auth[192];

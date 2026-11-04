@@ -20,6 +20,7 @@ voice_wake_event_t voice_wake_tick(voice_wake_t *w, bool eligible,
                                  uint32_t now, bool speech, bool finish) {
   if (w->state == WAKE_ARMED || w->state == WAKE_DONE) return WAKE_NONE;
   if (w->state == WAKE_FAILED ||
+      (finish && w->state != WAKE_RECORDING) ||
       (!eligible && w->state != WAKE_RECORDING)) {
     w->state = WAKE_DONE;
     return WAKE_CANCEL;
@@ -38,7 +39,7 @@ voice_wake_event_t voice_wake_tick(voice_wake_t *w, bool eligible,
     w->state = WAKE_WAIT_SPEECH;
   }
   if (w->state == WAKE_WAIT_SPEECH) {
-    if (finish || (uint32_t)(now - w->started_ms) >= 8000) {
+    if (finish || (uint32_t)(now - w->started_ms) >= 10000) {
       w->state = WAKE_DONE;
       return WAKE_CANCEL;
     }

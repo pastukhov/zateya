@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import wave
 from datetime import UTC, datetime
 from collections.abc import Awaitable, Callable
@@ -88,7 +89,9 @@ class VoiceJobWorker:
                         self._archive_failure(job, "tts_failed")
                         self.store.finish(turn_id, "failed", error_code="tts_failed")
                     else:
-                        self.store.finish(turn_id, "ready", result=str(output_path))
+                        follow_path = output_path.parent / "follow-up.json"
+                        follow_up = json.loads(follow_path.read_text()) if follow_path.exists() else None
+                        self.store.finish(turn_id, "ready", result=str(output_path), follow_up=follow_up)
                 except asyncio.CancelledError:
                     self._archive_failure(job, "interrupted")
                     self.store.finish(turn_id, "interrupted", error_code="interrupted")

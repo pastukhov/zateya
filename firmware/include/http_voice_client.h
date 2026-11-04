@@ -11,6 +11,7 @@ typedef struct {
   const char *token;
   int timeout_ms;
   const char *request_id;
+  const char *answer_to;
 } http_voice_config_t;
 
 typedef struct {

@@ -366,8 +366,14 @@ class KnowledgeStore:
                     # Unmanaged context text is evidence, not a writable idea.
                     continue
             target = proposal.target_id
+            pending_evidence = set()
+            for item in (context.get("pending_clarification") or {}).get("sources", []):
+                sid = item["source_id"]
+                if db.execute("SELECT 1 FROM evidence WHERE id=? AND device=?", (sid, device)).fetchone():
+                    pending_evidence.add(sid)
             if proposal.evidence_sources:
                 allowed = {source_id} | {s["source_id"] for s in context.get("recent_sources", [])}
+                allowed |= pending_evidence
                 allowed |= {s for meta in known_meta.values() for s in meta.get("sources", [])}
                 if not set(proposal.evidence_sources) <= allowed:
                     raise KnowledgeConflict("correction evidence not in context")
@@ -417,7 +423,7 @@ class KnowledgeStore:
                 for source in sources:
                     if not re.fullmatch(r"[a-f0-9]{32}", source) or self._read(f"sources/{source}.md") is None:
                         raise KnowledgeConflict("unknown source")
-                    if source != source_id and source not in old.get("sources", []) and not any(
+                    if source != source_id and source not in pending_evidence and source not in proposal.evidence_sources and source not in old.get("sources", []) and not any(
                         source in p["content"] for p in known.values()
                     ):
                         raise KnowledgeConflict("source not present in context")
@@ -437,7 +443,7 @@ class KnowledgeStore:
 
             status = "draft" if operation != "build" else "awaiting_repository"
             if operation != "organize":
-                add(path, note.title, note.content, [source_id], "idea" if path.startswith("ideas/") else "plan",
+                add(path, note.title, note.content, [source_id, *proposal.evidence_sources], "idea" if path.startswith("ideas/") else "plan",
                     {"status": status, "idea_id": idea, **({"category": topic[:-3]} if topic and organization.membership else {})})
             topic_addition = None
             for page in proposal.pages:

@@ -1,0 +1,10 @@
+{
+  "text": "Обрабатываю.",
+  "model": "google/gemini-3.8-flash-lite-tts",
+  "voice": "Kore",
+  "sample_rate": 24000,
+  "channels": 1,
+  "bits_per_sample": 16,
+  "size": 71068,
+  "sha256": "63ec1ad926ef5c188bb4262e55c28bfc4774be46342c8c9033bc9c9771417449"
+}

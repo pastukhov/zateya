@@ -32,6 +32,7 @@ from backend.src.voice_gateway.knowledge.git_sync import GitSync
 from backend.src.voice_gateway.knowledge.store import KnowledgeConflict, KnowledgeStore
 from backend.src.voice_gateway.models import Transcript
 from backend.src.voice_gateway.models.hermes_response import HermesResponse
+from backend.src.voice_gateway.dialogue import DialogueStore
 from backend.src.voice_gateway.usage.recorder import UsageRecorder
 
 logger = logging.getLogger(__name__)
@@ -72,6 +73,7 @@ class TextTurnRequest:
     transcript: str
     created_at: str
     archive_dir: Path
+    answer_to: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -83,6 +85,7 @@ class TextTurnResult:
     receipt: dict | None
     provider: str
     model: str | None
+    clarification: dict | None = None
 
 
 class TextTurnProcessor:
@@ -116,6 +119,7 @@ class TextTurnProcessor:
         else:
             self.agent = agent
             self.hermes = hermes
+        self.dialogue = DialogueStore(knowledge.state / "dialogue.sqlite3") if knowledge else None
         self.knowledge = knowledge
         self.git_sync = git_sync
         self.usage_recorder = usage_recorder
@@ -227,16 +231,39 @@ class TextTurnProcessor:
                 )
                 atomic_write_json(context_path, context)
 
+        pending = self.dialogue.pending(request.context_id) if self.dialogue else None
+        if context is not None:
+            # Persist the exact model input for retries, including pending evidence.
+            if "pending_clarification" not in context:
+                context["pending_clarification"] = pending
+                if pending:
+                    with self.knowledge._locked() as db:
+                        pending["sources"] = [dict(source_id=row[0], transcript=row[1])
+                            for sid in pending["source_ids"] for row in db.execute(
+                                "SELECT id, transcript FROM evidence WHERE id=? AND device=?", (sid, request.context_id))]
+                context["answer_to"] = (request.answer_to if pending and
+                    request.answer_to == pending["question_id"] else None)
+                atomic_write_json(context_path, context)
+            pending = context["pending_clarification"]
+
         if receipt is not None:
             # A crash may have happened after the writer committed but before
             # history did; reuse the durable LLM result without regenerating.
-            response = HermesResponse(reply=receipt["reply"])
+            proposal_path = archive_dir / "knowledge-proposal.json"
+            response = (HermesResponse.model_validate_json(proposal_path.read_text())
+                        if proposal_path.exists() else HermesResponse(reply=receipt["reply"]))
+            response.reply = receipt["reply"]
             metadata = {"provider": "knowledge", "model": None}
             if self.agent is not None and hasattr(self.agent, "record_turn"):
                 await self.agent.complete(
                     AgentRequest(request.request_id, request.context_id, request.transcript, context,
                                  channel=request.channel, turn_id=request.turn_id)
                 )
+        elif self.knowledge is not None and (archive_dir / "knowledge-proposal.json").exists():
+            # Query/clarification has no writer commit, but its decision must be
+            # just as stable on retry as a published note.
+            response = HermesResponse.model_validate_json((archive_dir / "knowledge-proposal.json").read_text())
+            metadata = {"provider": "knowledge", "model": None}
         elif self.agent is not None:
             reply = await self.agent.complete(
                 AgentRequest(request.request_id, request.context_id, request.transcript, context,
@@ -245,6 +272,8 @@ class TextTurnProcessor:
             response = HermesResponse.model_validate(
                 {
                     "reply": reply.reply,
+                    "clarification": reply.clarification,
+                    "dialogue_resolution": reply.dialogue_resolution,
                     "note": reply.note or {"create": False, "title": "", "content": "", "tags": []},
                 }
             )
@@ -252,6 +281,25 @@ class TextTurnProcessor:
         else:
             response = await self.hermes.run(request.transcript)
             metadata = {"provider": "hermes", "model": None}
+
+        if response.clarification or response.dialogue_resolution:
+            if not self.dialogue or context is None:
+                raise TextTurnError("agent_invalid_response")
+            visible = {item["source_id"] for item in context.get("recent_sources", [])}
+            visible.add(source_id)
+            if pending:
+                visible.update(pending["source_ids"])
+            if response.clarification:
+                if (not response.clarification.question.strip() or
+                    not set(response.clarification.source_ids) <= visible):
+                    raise TextTurnError("agent_invalid_response")
+                with self.knowledge._locked() as db:
+                    for sid in response.clarification.source_ids:
+                        if not db.execute("SELECT 1 FROM evidence WHERE id=? AND device=?", (sid, request.context_id)).fetchone():
+                            raise TextTurnError("agent_invalid_response")
+            if response.dialogue_resolution and (not pending or
+                response.dialogue_resolution.question_id != pending["question_id"]):
+                raise TextTurnError("agent_invalid_response")
 
         if self.knowledge is not None and receipt is None:
             atomic_write_json(archive_dir / "knowledge-proposal.json", response.model_dump())
@@ -281,6 +329,13 @@ class TextTurnProcessor:
                                       "существующие правки не перезаписаны.")
             atomic_write_json(archive_dir / "knowledge-result.json", receipt)
 
+        clarification = None
+        if self.dialogue and receipt and receipt.get("status") != "needs_review":
+            clarification = self.dialogue.apply(request.context_id, source_id,
+                response.clarification, response.dialogue_resolution, pending)
+            if clarification:
+                response.reply = clarification["question"]
+
         if self.agent is not None and hasattr(self.agent, "record_turn"):
             if receipt is None or receipt.get("status") != "needs_review":
                 history_started = time.monotonic()
@@ -308,6 +363,7 @@ class TextTurnProcessor:
             receipt=receipt,
             provider=metadata["provider"],
             model=metadata["model"],
+            clarification=clarification,
         )
 
     async def _record_stage(self, request: TextTurnRequest, stage: str, outcome: str,

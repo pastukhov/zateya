@@ -47,6 +47,8 @@ def install_voice_job_routes(
         }
         if job.get("error_code"):
             payload["error"] = job["error_code"]
+        if job["status"] == "ready" and job.get("follow_up"):
+            payload["follow_up"] = job["follow_up"]
         return payload
 
     @app.post("/api/voice/turns", status_code=202)
@@ -58,9 +60,9 @@ def install_voice_job_routes(
         except (ValueError, AttributeError):
             raise HTTPException(status_code=400, detail={"error": "invalid_request_id"}) from None
         try:
-            is_new, job = store.claim_upload(device_id, request_id)
+            is_new, job = store.claim_upload(device_id, request_id, answer_to=request.headers.get("X-Answer-To"))
         except JobConflict as exc:
-            raise HTTPException(status_code=409, detail={"error": str(exc)}) from None
+            raise HTTPException(status_code=400 if str(exc) == "invalid_answer_to" else 409, detail={"error": str(exc)}) from None
 
         stage_path = (
             Path(job["upload_path"])

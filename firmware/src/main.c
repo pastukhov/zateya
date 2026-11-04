@@ -89,6 +89,7 @@
 #include "voice_wake_detector.h"
 #include "voice_wake_policy.h"
 #include "voice_listening_cue.h"
+#include "voice_static_cues.h"
 #include "voice_vad.h"
 #include "voice_wake_ui.h"
 #ifdef ESP_PLATFORM
@@ -174,6 +175,7 @@ typedef struct {
   volatile bool turn_upload_release_requested;
   volatile bool turn_upload_failed;
   bool turn_http_ready;
+  bool turn_fresh;
   volatile bool turn_storage_failed;
   bool turn_pending_byte;
   uint8_t turn_pending_value;
@@ -186,8 +188,25 @@ static voice_settings_t voice_settings;
 #ifdef ESP_PLATFORM
 static voice_wake_t wake;
 static voice_listening_cue_t wake_cue;
-static bool wake_listening, wake_active, wake_recording, wake_lease, wake_speech;
+static bool wake_listening, wake_active, wake_recording, wake_speech;
 static unsigned wake_ui;
+static voice_listening_cue_t feedback_cue;
+static bool feedback_active;
+static char capture_answer_to[VOICE_TURN_ID_CAPACITY];
+static bool feedback_start(voice_static_cue_t name,uint32_t now) {
+  if(feedback_active)return false;
+  /* This application is the sole voice-gate owner: processing may retain
+   * its existing lease; idle offline feedback must acquire one too. */
+  if(!voice_ota_voice_begin() && voice_ota_busy())return false;
+  size_t size=0;const uint8_t *pcm=voice_static_cue_get(name,&size);
+  feedback_active=voice_listening_cue_start(&feedback_cue,pcm,size,now);
+  return feedback_active;
+}
+static bool feedback_tick(uint32_t now) {
+  if(feedback_active && voice_listening_cue_tick(&feedback_cue,now)!=CUE_BUSY)
+    feedback_active=false;
+  return feedback_active;
+}
 #define WAKE_PREROLL_BYTES 9600
 static uint8_t *wake_preroll;
 static bool wake_start_attempted;
@@ -196,12 +215,11 @@ unsigned app_wake_status(void) { return wake_ui; }
 static void wake_stop(void) {
   bool owned_gate=wake_active;
   if(wake_cue.status==CUE_BUSY)voice_listening_cue_cancel(&wake_cue);
-  if(wake_lease){voice_cue_cache_release();wake_lease=false;}
   if(wake_listening || wake_active)hw_audio_capture_stop();
-  wake_listening=false;wake_active=false;wake_ui=0;
+  wake_listening=false;wake_active=false;wake_ui=0;capture_answer_to[0]=0;
   if(owned_gate)voice_ota_voice_end();
   voice_wake_detector_reset();
-  voice_wake_init(&wake,voice_settings.wake_pause_ms,MAX_RECORD_SECONDS_DEFAULT*1000U);
+  voice_wake_init(&wake,3000,MAX_RECORD_SECONDS_DEFAULT*1000U);
 }
 #else
 unsigned app_wake_status(void) { return 0; }
@@ -353,6 +371,7 @@ static bool start_turn_worker(bool upload_pending) {
   app.turn_upload_finished = !upload_pending;
   app.turn_upload_release_requested = false;
   app.turn_upload_active = upload_pending;
+  app.turn_fresh = upload_pending;
   app.turn_result = VOICE_TURN_WAITING;
   app.turn_task_active = true;
   if (xTaskCreate(turn_worker, "voice_turn", 8192, &app, 5, NULL) != pdPASS) {
@@ -379,8 +398,21 @@ static void enter_state(state_t next, const char* error_what) {
   }
 #ifdef ESP_PLATFORM
   if(next==STATE_ERROR || next==STATE_IDLE)wake_recording=false;
+  if(next==STATE_ERROR)app.turn_client.follow_up_listen=false;
 #endif
   if (next == STATE_ERROR) {
+#ifdef ESP_PLATFORM
+    if(wake_active || wake_listening)wake_stop();
+    hw_audio_capture_stop();
+    if(app.turn_task_active) {
+      app.turn_cancel_requested=true;
+      app.turn_upload_failed=true;
+      app.turn_upload_finished=true;
+    }
+    if(feedback_active){voice_listening_cue_cancel(&feedback_cue);feedback_active=false;}
+    if(!board_sticks3_network_ready() || voice_gateway_health_status()==0)
+      (void)feedback_start(VOICE_CUE_OFFLINE,hw_clock_ms());
+#endif
     voice_diag_ensure_error(hw_clock_ms());
     app.error_ack_ready = false;
     app.error_ack_pressed = false;
@@ -425,14 +457,18 @@ static bool recording_start(void) {
 }
 
 #ifdef ESP_PLATFORM
-static bool wake_eligible(void) {
+/* Manual, wake and question answers share capture ownership/lifecycle.
+ * Wake monitoring alone additionally requires USB power and a loaded detector. */
+static bool capture_eligible(void) {
   wifi_mode_t mode=WIFI_MODE_NULL;
-  return voice_settings.wake_enabled && wake_preroll && board_sticks3_usb_powered() &&
-    esp_wifi_get_mode(&mode)==ESP_OK && mode==WIFI_MODE_STA &&
-    board_sticks3_network_ready() && voice_gateway_health_status()==200 &&
+  return wake_preroll && esp_wifi_get_mode(&mode)==ESP_OK && mode==WIFI_MODE_STA &&
+    board_sticks3_network_ready() && voice_tls_ready() && app.turn_http_ready &&
     !voice_ota_busy() && !voice_ota_boot_pending() && !app.turn_task_active &&
-    !voice_diag_delivery_busy() && !voice_config_httpd_wifi_scanning() &&
-    voice_cue_cache_ready() && voice_wake_detector_ready();
+    !voice_diag_delivery_busy() && !voice_config_httpd_wifi_scanning() && !feedback_active;
+}
+static bool wake_eligible(void) {
+  return voice_settings.wake_enabled && board_sticks3_usb_powered() &&
+    voice_gateway_health_status()==200 && voice_wake_detector_ready() && capture_eligible();
 }
 static void wake_pre_append(const uint8_t *pcm,size_t bytes) {
   for(size_t i=0;i<bytes;i++) {
@@ -440,35 +476,42 @@ static void wake_pre_append(const uint8_t *pcm,size_t bytes) {
     if(wake_pre_used<WAKE_PREROLL_BYTES)wake_pre_used++;
   }
 }
+static bool capture_begin(uint32_t now,const char *answer_to,bool owned_gate) {
+  if(!capture_eligible() || (!owned_gate && !voice_ota_voice_begin()))return false;
+  if(wake_listening)hw_audio_capture_stop();
+  voice_wake_detector_reset();wake_listening=false;
+  wake_active=true;wake_ui=2;
+  strlcpy(capture_answer_to,answer_to?answer_to:"",sizeof(capture_answer_to));
+  voice_wake_init(&wake,3000,MAX_RECORD_SECONDS_DEFAULT*1000U);
+  (void)voice_wake_activate(&wake,true,now);
+  size_t size=0;const uint8_t *pcm=voice_static_cue_get(VOICE_CUE_LISTENING,&size);
+  if(!voice_listening_cue_start(&wake_cue,pcm,size,now)){wake_stop();return false;}
+  return true;
+}
 static void wake_idle_tick(uint32_t now, bool pressed) {
-  bool eligible=wake_eligible();
-  if(!eligible || pressed) {
-    if(wake_active || wake_listening)wake_stop();
-    return;
-  }
   if(!wake_active) {
+    if(pressed || !wake_eligible()) {
+      if(wake_listening)wake_stop();
+      return;
+    }
     if(!wake_listening){voice_wake_detector_reset();hw_audio_capture_start();wake_listening=true;}
-    wake_ui=1;
-    uint8_t chunk[320];
+    wake_ui=1;uint8_t chunk[320];
     for(unsigned i=0;i<16;i++) {
       size_t n=hw_audio_capture_read(chunk,sizeof(chunk));if(!n)break;
       voice_wake_detector_feed(chunk,n);
     }
-    if(!voice_wake_detector_detected() || !voice_ota_voice_begin())return;
-    size_t size=0;const uint8_t *pcm=voice_cue_cache_acquire(&size);
-    if(!pcm){voice_ota_voice_end();return;}
-    wake_lease=true;wake_active=true;wake_listening=false;wake_ui=2;
-    voice_wake_detector_reset();
-    voice_wake_init(&wake,voice_settings.wake_pause_ms,MAX_RECORD_SECONDS_DEFAULT*1000U);
-    (void)voice_wake_activate(&wake,true,now);
-    if(!voice_listening_cue_start(&wake_cue,pcm,size,now))wake_stop();
+    if(voice_wake_detector_detected())(void)capture_begin(now,NULL,false);
     return;
+  }
+  if(pressed || !capture_eligible()) {
+    wake_stop();app.ignore_button_until_release=hw_button_raw();return;
   }
   if(wake.state==WAKE_CUE) {
     voice_cue_status_t status=voice_listening_cue_tick(&wake_cue,now);
     if(status==CUE_BUSY)return;
-    if(wake_lease){voice_cue_cache_release();wake_lease=false;}
-    if(status!=CUE_DONE || !voice_vad_reset()){wake_stop();return;}
+    if(status!=CUE_DONE || !voice_vad_reset()){
+      wake_stop();enter_state(STATE_ERROR,"voice activity detection failed");return;
+    }
     voice_wake_cue_done(&wake,now,true);
     hw_audio_capture_start();wake_pre_used=0;wake_pre_head=0;wake_ui=3;
   }
@@ -476,20 +519,21 @@ static void wake_idle_tick(uint32_t now, bool pressed) {
   for(unsigned i=0;i<16;i++) {
     size_t n=hw_audio_capture_read(chunk,sizeof(chunk));if(!n)break;
     if(wake.state==WAKE_SETTLE && (uint32_t)(now-wake.cue_end_ms)<150)continue;
-    wake_pre_append(chunk,n);
-    speech=voice_vad_feed(chunk,n)||speech;
+    wake_pre_append(chunk,n);speech=voice_vad_feed(chunk,n)||speech;
   }
-  if(!voice_vad_ready()){wake_stop();return;}
-  voice_wake_event_t event=voice_wake_tick(&wake,eligible,now,speech,false);
-  if(event==WAKE_CANCEL){wake_stop();return;}
+  if(!voice_vad_ready()){wake_stop();enter_state(STATE_ERROR,"voice activity detection failed");return;}
+  voice_wake_event_t event=voice_wake_tick(&wake,true,now,speech,false);
+  if(event==WAKE_CANCEL){wake_stop();app.ignore_button_until_release=hw_button_raw();return;}
   if(event==WAKE_START_RECORD) {
-    if(!recording_start()){wake_stop();enter_state(STATE_ERROR,"wake recording failed");return;}
+    if(!recording_start()){wake_stop();enter_state(STATE_ERROR,"voice recording failed");return;}
     size_t first=(wake_pre_head+WAKE_PREROLL_BYTES-wake_pre_used)%WAKE_PREROLL_BYTES;
     size_t part=WAKE_PREROLL_BYTES-first;if(part>wake_pre_used)part=wake_pre_used;
     ring_buffer_push(&app.rb,wake_preroll+first,part);
     ring_buffer_push(&app.rb,wake_preroll,wake_pre_used-part);
-    wake_active=false;wake_recording=true;wake_ui=0;app.btn.press_ms=now;
-    enter_state(STATE_RECORDING,NULL);ESP_LOGI("wake","Dictation started after speech");
+    wake_active=false;wake_recording=true;wake_ui=0;
+    /* Preserve the debounced held/released edge state; first release is ignored. */
+    app.btn.press_ms=now;enter_state(STATE_RECORDING,NULL);
+    ESP_LOGI("capture","Dictation started after cue, settle and speech");
   }
 }
 #endif
@@ -811,8 +855,8 @@ void app_init(void) {
   voice_tls_start();
   (void)voice_gateway_health_start(voice_settings.gateway_url);
 
-  (void)voice_cue_cache_start(voice_settings.gateway_url,
-                             voice_settings.device_id, voice_settings.device_token);
+  /* Flash cues are present even before Wi-Fi and survive every reboot. */
+  wake_preroll=heap_caps_malloc(WAKE_PREROLL_BYTES,MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT);
   (void)voice_ota_start(voice_settings.gateway_url,
                         voice_settings.device_id, voice_settings.device_token);
   if (voice_diag_delivery_start(voice_settings.gateway_url,
@@ -829,6 +873,7 @@ void app_init(void) {
       .token = voice_settings.device_token[0] ? voice_settings.device_token : NULL,
       .timeout_ms = 5000,
       .request_id = voice_settings.request_id,
+      .answer_to = capture_answer_to,
   };
   if (http_voice_client_init(&voice_client, &cfg) == 0)
     http_session_bind_transport(&app.session, http_voice_client_transport(&voice_client));
@@ -903,6 +948,9 @@ void app_test_simulate_playback_bad_wav_header(void) {
  */
 void app_tick(void) {
   uint32_t now = hw_clock_ms();
+#ifdef ESP_PLATFORM
+  (void)feedback_tick(now);
+#endif
 
   state_t s = state_machine_get_state(&app.sm);
 
@@ -932,22 +980,22 @@ void app_tick(void) {
       }
       button_event_t ev = button_poll(&app.btn, hw_button_raw(), now);
 #ifdef ESP_PLATFORM
+      if(feedback_active)break;
+      bool was_capture=wake_active;
       wake_idle_tick(now,ev==BUTTON_EVENT_PRESSED);
+      if(was_capture || wake_active)break;
 #endif
       if (ev == BUTTON_EVENT_PRESSED) {
 #ifdef ESP_PLATFORM
-        if (voice_diag_delivery_busy()) {
-          app.ignore_button_until_release = true;
-          break;
+        if (!board_sticks3_network_ready() || voice_gateway_health_status()==0) {
+          wake_stop();(void)feedback_start(VOICE_CUE_OFFLINE,now);
+          app.ignore_button_until_release=true;break;
         }
-        if (!board_sticks3_network_ready()) break;
-        if (!voice_ota_voice_begin()) {
-          app.ignore_button_until_release = true;
-          break;
-        }
-#endif
+        if(!capture_begin(now,NULL,false))enter_state(STATE_ERROR,"voice capture unavailable");
+#else
         if (recording_start()) enter_state(STATE_RECORDING, NULL);
         else enter_state(STATE_ERROR, "voice recording start failed");
+#endif
       }
       break;
     }
@@ -1007,6 +1055,9 @@ void app_tick(void) {
         }
 #endif
         enter_state(STATE_PROCESSING, NULL);
+#ifdef ESP_PLATFORM
+        (void)feedback_start(VOICE_CUE_PROCESSING,now);
+#endif
       }
       break;
     }
@@ -1025,7 +1076,10 @@ void app_tick(void) {
           if (ring_buffer_empty(&app.rb)) app.turn_upload_finished = true;
         }
         button_event_t event = button_poll(&app.btn, hw_button_raw(), now);
-        if (event == BUTTON_EVENT_PRESSED) app.turn_cancel_requested = true;
+        if (event == BUTTON_EVENT_PRESSED) {
+          app.turn_cancel_requested = true;
+          if(feedback_active){voice_listening_cue_cancel(&feedback_cue);feedback_active=false;}
+        }
         if (app.turn_storage_failed || app.turn_result == VOICE_TURN_FAILED) {
           if (app.turn_task_active) app.turn_cancel_requested = true;
           enter_state(STATE_ERROR, "voice turn failed");
@@ -1033,7 +1087,7 @@ void app_tick(void) {
           app.ignore_button_until_release = true;
           playback_release_resources();
           enter_state(STATE_IDLE, NULL);
-        } else if (app.turn_audio_started) {
+        } else if (app.turn_audio_started && !feedback_active) {
           app.playback_position = 0;
           hw_audio_playback_start(NULL, 0);
           enter_state(STATE_PLAYING, NULL);
@@ -1070,6 +1124,14 @@ void app_tick(void) {
       }
 #ifdef ESP_PLATFORM
       {
+        if(button_poll(&app.btn,hw_button_raw(),now)==BUTTON_EVENT_PRESSED) {
+          app.turn_cancel_requested=true;
+          app.turn_client.follow_up_listen=false;
+          app.ignore_button_until_release=true;
+          playback_release_resources();
+          enter_state(STATE_IDLE,NULL);
+          break;
+        }
         if (app.turn_result == VOICE_TURN_FAILED || app.turn_storage_failed) {
           on_playback_error("voice turn failed during audio");
           break;
@@ -1090,9 +1152,14 @@ void app_tick(void) {
             on_playback_error("odd-length voice audio");
             break;
           }
-          if (hw_audio_playback_drained()) {
+          if (hw_audio_playback_drained() && !app.turn_task_active) {
+            char question_id[VOICE_TURN_ID_CAPACITY];
+            bool follow=voice_turn_client_take_follow_up(&app.turn_client,
+                app.turn_fresh && !app.turn_cancel_requested && !app.turn_storage_failed,
+                question_id,sizeof(question_id));
             playback_release_resources();
             enter_state(STATE_IDLE, NULL);
+            if(follow)(void)capture_begin(now,question_id,true);
           }
         }
         break;
@@ -1169,11 +1236,11 @@ static void voice_main_loop(void) {
     } else if (app_state() != STATE_ERROR) {
       error_reported = false;
     }
-    voice_cue_cache_set_idle(app_state() == STATE_IDLE && !app.turn_task_active && !wake_active);
+    voice_cue_cache_set_idle(app_state() == STATE_IDLE && !app.turn_task_active && !wake_active && !feedback_active);
     voice_diag_delivery_set_idle(
         (app_state() == STATE_IDLE || app_state() == STATE_ERROR) &&
-        !app.turn_task_active && !wake_active);
-    if (app_state() == STATE_IDLE && !app.turn_task_active && !wake_active)
+        !app.turn_task_active && !wake_active && !feedback_active);
+    if ((app_state() == STATE_IDLE || app_state()==STATE_ERROR) && !app.turn_task_active && !wake_active && !feedback_active)
       voice_ota_voice_end();
 #endif
     screen_processing_phase_t phase = SCREEN_PROCESSING_THINKING;
@@ -1193,14 +1260,13 @@ static void voice_main_loop(void) {
        app_state()==STATE_IDLE && !app.turn_task_active &&
        voice_settings.wake_enabled && board_sticks3_local_self_test()) {
       wake_start_attempted=true;
-      wake_preroll=heap_caps_malloc(WAKE_PREROLL_BYTES,MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT);
       if(wake_preroll)(void)voice_wake_detector_start();
     }
     voice_ota_set_application_ready(!voice_settings.wake_enabled || voice_wake_detector_ready());
     voice_ota_confirm_boot();
 #endif
     board_sticks3_power_tick(
-      (app_state() != STATE_IDLE && app_state() != STATE_ERROR) || app.turn_task_active,
+      (app_state() != STATE_IDLE && app_state() != STATE_ERROR) || app.turn_task_active || wake_active || feedback_active,
       hw_clock_ms(), voice_settings.sleep_timeout_seconds * 1000U);
     /* Keep the USB/Wi-Fi/I2S system tasks and watchdog serviced. */
     vTaskDelay(pdMS_TO_TICKS(10));

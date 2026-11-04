@@ -113,6 +113,7 @@ class VoicePipeline:
                     transcript=transcript.text,
                     created_at=job["created_at"],
                     archive_dir=turn_dir,
+                    answer_to=job.get("answer_to"),
                 ))
                 response_reply = result.reply
                 receipt = result.receipt
@@ -155,6 +156,15 @@ class VoicePipeline:
                 )
                 self._validate_reply_wav(output_part)
                 os.replace(output_part, output_wav)
+                # Only successful, validated question audio may request a new
+                # listen. Text/source publication remains independently durable.
+                follow_up = None
+                clarification = getattr(result, "clarification", None)
+                if clarification and clarification["listen"]:
+                    pending = self.text_processor.dialogue.pending(job["device_id"])
+                    if pending and pending["question_id"] == clarification["question_id"]:
+                        follow_up = dict(question_id=clarification["question_id"], listen=True)
+                atomic_write_json(turn_dir / "follow-up.json", follow_up)
                 atomic_write_bytes(turn_dir / "transcript.txt", transcript.text.encode("utf-8"))
                 atomic_write_bytes(turn_dir / "reply.txt", response_reply.encode("utf-8"))
                 response_filename = (

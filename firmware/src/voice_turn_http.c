@@ -14,7 +14,7 @@
 #include <strings.h>
 
 #define TURN_HTTP_TIMEOUT_MS 5000
-#define TURN_JSON_CAPACITY 384
+#define TURN_JSON_CAPACITY 768
 
 typedef struct {
   voice_turn_http_t *http;
@@ -104,6 +104,8 @@ static voice_turn_io_result_t read_json(esp_http_client_handle_t client,
   }
   if (used + 1 == cap) return VOICE_TURN_IO_FATAL;
   body[used] = '\0';
+  if (!voice_turn_parse_follow_up(body,response->question_id,sizeof(response->question_id),
+                                  &response->follow_up_listen)) return VOICE_TURN_IO_FATAL;
   if (!voice_turn_parse_status(body, &response->status)) return VOICE_TURN_IO_FATAL;
   if (needs_turn_id && !voice_turn_parse_turn_id(body, response->turn_id,
                                                   sizeof(response->turn_id)))

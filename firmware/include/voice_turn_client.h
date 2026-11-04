@@ -29,6 +29,8 @@ typedef enum {
 
 typedef struct {
   voice_turn_status_t status;
+  bool follow_up_listen;
+  char question_id[VOICE_TURN_ID_CAPACITY];
   char turn_id[VOICE_TURN_ID_CAPACITY];
   int http_status;
   char content_type[32];
@@ -69,6 +71,8 @@ typedef struct {
   bool audio_pending;
   bool cancel_requested;
   bool ids_cleared;
+  bool follow_up_listen;
+  char question_id[VOICE_TURN_ID_CAPACITY];
 } voice_turn_client_t;
 
 void voice_turn_client_init(voice_turn_client_t *client,
@@ -79,6 +83,12 @@ voice_turn_result_t voice_turn_client_tick(voice_turn_client_t *client,
                                            uint64_t now_ms);
 voice_turn_result_t voice_turn_client_cancel(voice_turn_client_t *client,
                                              uint64_t now_ms);
+
+/* Consumes intent on both success and failed/cancelled playback. */
+bool voice_turn_client_take_follow_up(voice_turn_client_t *client, bool played,
+                                      char *question_id, size_t capacity);
+bool voice_turn_parse_follow_up(const char *json, char *question_id,
+                                size_t capacity, bool *listen);
 
 /* Retry delays for the voice-turn status poll, in milliseconds. */
 uint32_t voice_turn_retry_delay_ms(unsigned failed_attempts);

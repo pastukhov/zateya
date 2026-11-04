@@ -288,6 +288,8 @@ def create_app(
         if agent_client is None or not hasattr(agent_client, "reset"):
             raise HTTPException(status_code=503, detail={"error": "agent_reset_unavailable"})
         await agent_client.reset(device_id)
+        if shared_text_processor.dialogue is not None:
+            shared_text_processor.dialogue.reset(device_id)
 
     install_voice_job_routes(
         app, job_store, job_worker, device_tokens, reset_device=reset_device,

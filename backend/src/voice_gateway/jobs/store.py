@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import sqlite3
 import uuid
@@ -75,7 +76,25 @@ class VoiceJobStore:
                 """
             )
 
-    def claim_upload(self, device_id: str, request_id: str) -> tuple[bool, dict]:
+            columns = {row[1] for row in connection.execute("PRAGMA table_info(voice_jobs)")}
+            for name in ("answer_to", "follow_up"):
+                if name not in columns:
+                    connection.execute(f"ALTER TABLE voice_jobs ADD COLUMN {name} TEXT")
+
+    @staticmethod
+    def _row(row):
+        if row is None:
+            return None
+        result = dict(row)
+        result["follow_up"] = json.loads(result["follow_up"]) if result.get("follow_up") else None
+        return result
+
+    def claim_upload(self, device_id: str, request_id: str, *, answer_to: str | None = None) -> tuple[bool, dict]:
+        if answer_to is not None:
+            try:
+                answer_to = str(uuid.UUID(answer_to))
+            except (ValueError, AttributeError):
+                raise JobConflict("invalid_answer_to") from None
         with self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
             existing = connection.execute(
@@ -83,6 +102,8 @@ class VoiceJobStore:
                 (device_id, request_id),
             ).fetchone()
             if existing is not None:
+                if existing["answer_to"] != answer_to:
+                    raise JobConflict("idempotency_conflict")
                 if (
                     existing["status"] == "upload_failed"
                     and existing["audio_sha256"] is None
@@ -98,25 +119,25 @@ class VoiceJobStore:
                         (existing["turn_id"],),
                     ).fetchone()
                     connection.commit()
-                    return True, dict(row)
+                    return True, self._row(row)
                 connection.commit()
                 if existing["status"] == "uploading":
                     raise JobConflict("upload_in_progress")
-                return False, dict(existing)
+                return False, self._row(existing)
             turn_id = str(uuid.uuid4())
             stage_path = self.staging / f"{uuid.uuid4().hex}.part"
             now = _now()
             connection.execute(
                 "INSERT INTO voice_jobs "
-                "(turn_id, device_id, request_id, status, upload_path, created_at, updated_at) "
-                "VALUES (?, ?, ?, 'uploading', ?, ?, ?)",
-                (turn_id, device_id, request_id, str(stage_path), now, now),
+                "(turn_id, device_id, request_id, status, upload_path, created_at, updated_at, answer_to) "
+                "VALUES (?, ?, ?, 'uploading', ?, ?, ?, ?)",
+                (turn_id, device_id, request_id, str(stage_path), now, now, answer_to),
             )
             row = connection.execute(
                 "SELECT * FROM voice_jobs WHERE turn_id = ?", (turn_id,)
             ).fetchone()
             connection.commit()
-            return True, dict(row)
+            return True, self._row(row)
 
     def complete_upload(
         self,
@@ -164,7 +185,7 @@ class VoiceJobStore:
                 "SELECT * FROM voice_jobs WHERE turn_id = ?", (row["turn_id"],)
             ).fetchone()
             connection.commit()
-            return dict(updated)
+            return self._row(updated)
 
     def verify_duplicate(self, device_id: str, request_id: str, digest: str) -> str:
         with self._connect() as connection:
@@ -190,7 +211,7 @@ class VoiceJobStore:
     def queued(self) -> list[dict]:
         with self._connect() as connection:
             return [
-                dict(row)
+                self._row(row)
                 for row in connection.execute(
                     "SELECT * FROM voice_jobs WHERE status = 'queued' ORDER BY created_at"
                 ).fetchall()
@@ -245,7 +266,7 @@ class VoiceJobStore:
             row = connection.execute(
                 "SELECT * FROM voice_jobs WHERE turn_id = ?", (turn_id,)
             ).fetchone()
-            return dict(row) if row else None
+            return self._row(row) if row else None
 
     def get_by_request(self, device_id: str, request_id: str) -> dict | None:
         with self._connect() as connection:
@@ -253,7 +274,7 @@ class VoiceJobStore:
                 "SELECT * FROM voice_jobs WHERE device_id = ? AND request_id = ?",
                 (device_id, request_id),
             ).fetchone()
-            return dict(row) if row else None
+            return self._row(row) if row else None
 
     def get_owned(self, device_id: str, turn_id: str) -> dict | None:
         with self._connect() as connection:
@@ -261,7 +282,7 @@ class VoiceJobStore:
                 "SELECT * FROM voice_jobs WHERE device_id = ? AND turn_id = ?",
                 (device_id, turn_id),
             ).fetchone()
-            return dict(row) if row else None
+            return self._row(row) if row else None
 
     def device_busy(self, device_id: str) -> bool:
         with self._connect() as connection:
@@ -272,13 +293,13 @@ class VoiceJobStore:
             ).fetchone() is not None
 
     def finish(self, turn_id: str, status: str, *, result: str | None = None,
-               error_code: str | None = None) -> None:
+               error_code: str | None = None, follow_up: dict | None = None) -> None:
         with self._connect() as connection:
             connection.execute(
-                "UPDATE voice_jobs SET status = ?, result_json = ?, error_code = ?, "
+                "UPDATE voice_jobs SET status = ?, result_json = ?, error_code = ?, follow_up = ?, "
                 "updated_at = ? WHERE turn_id = ? AND status IN "
                 "('running', 'transcribing', 'thinking', 'synthesizing')",
-                (status, result, error_code, _now(), turn_id),
+                (status, result, error_code, json.dumps(follow_up) if status == "ready" and follow_up else None, _now(), turn_id),
             )
 
     def cancel(self, device_id: str, turn_id: str) -> str | None:
