@@ -85,10 +85,10 @@ partition table, NVS or OTA-slot migration is needed.
 - [x] Run full native suite and StickS3 build; exercise restart/offline persistence
   in host tests and real LittleFS emulator if feasible. Run relevant release/
   dependency checks. Do not claim host tests validate physical flash/power cuts.
-- [ ] Commit/push scoped changes after checks. Build/sign next OTA using existing
+- [x] Commit/push scoped changes after checks. Build/sign next OTA using existing
   key in a staging copy; preserve current partition table, bootloader and NVS.
   Publish and verify full external HTTPS image/hash/signature.
-- [ ] Check available device evidence. User's USB is a charger, not a data cable;
+- [x] Check available device evidence. User's USB is a charger, not a data cable;
   no direct serial access currently exists. Report installation and physical
   offline reboot/power-loss tests as separate acceptance requirements.
 
@@ -107,5 +107,8 @@ runtime registration/mount or offline reboot on the real recorder.
 
 Persistent backing does not block continuous background wake monitoring; that
 monitor is outside the dictation voice lease, so flash-latency effects on detector
-quality remain physical acceptance. OTA25 publication/installation are pending
-parent rollout and are separate from implementation checks.
+quality remain physical acceptance. OTA25 was published and its signature/full
+HTTPS image verified (1518512 bytes, SHA256
+600d741c729652c6ea774e5be3ba2105e72d3359fa705ba71667a5ea8f09cd9a).
+Implementation commit195c0ef was pushed. Device installation, runtime mount and
+offline reboot remain unverified; USB is connected to a charger, without serial.
