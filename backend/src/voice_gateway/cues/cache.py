@@ -17,6 +17,8 @@ from fastapi.responses import Response
 
 from backend.src.voice_gateway.jobs.auth import owns_device
 from backend.src.voice_gateway.tts.config import TTSConfig
+from backend.src.voice_gateway.tts.base import TTSProviderError
+from backend.src.voice_gateway.tts.wav import wav_pcm
 from backend.src.voice_gateway.cues import opus
 
 _LOG = logging.getLogger(__name__)
@@ -31,6 +33,44 @@ CUE_TEXTS = {
     'timeout': 'Не дождалась ответа.', 'recognition_error': 'Не удалось распознать речь.',
     'synthesis_error': 'Не удалось озвучить ответ.',
 }
+
+
+def _atomic_cache_bytes(path: Path, data: bytes) -> None:
+    with tempfile.NamedTemporaryFile(prefix='.cue-repair-',dir=path.parent,delete=False) as file:
+        temporary=Path(file.name)
+        try:
+            file.write(data);file.flush();os.fsync(file.fileno())
+        except BaseException:
+            temporary.unlink(missing_ok=True);raise
+    try:os.replace(temporary,path)
+    finally:temporary.unlink(missing_ok=True)
+
+
+def _repair_cache(pcm_path: Path,meta_path: Path,pcm: bytes,meta: dict) -> bytes:
+    repaired=pcm
+    if pcm.startswith(b'RIFF'):
+        try:
+            candidate,rate=wav_pcm(pcm,finite=True)
+            if rate==24000 and candidate and len(candidate)<=_MAX_BYTES:
+                repaired=candidate
+        except TTSProviderError:
+            pass  # Bare PCM is changed only after a complete container validates.
+    digest=hashlib.sha256(repaired).hexdigest()
+    if repaired!=pcm:
+        # Two file names cannot be replaced in one rename. Write-ahead metadata
+        # accepts exactly the verified old/new digests across an interrupted
+        # repair; restart completes it without synthesizing again.
+        intent={'sha256':hashlib.sha256(pcm).hexdigest(),'repair_sha256':digest}
+        try:
+            _atomic_cache_bytes(meta_path,json.dumps(intent).encode())
+            _atomic_cache_bytes(pcm_path,repaired)
+            _atomic_cache_bytes(meta_path,json.dumps({'sha256':digest}).encode())
+        except OSError:
+            _LOG.warning('Cue cache repair persistence deferred')
+    elif 'repair_sha256' in meta:
+        try:_atomic_cache_bytes(meta_path,json.dumps({'sha256':digest}).encode())
+        except OSError:_LOG.warning('Cue cache repair metadata deferred')
+    return repaired
 
 
 class _Cue:
@@ -75,8 +115,9 @@ class _Cue:
                     raise ValueError('Oversized cache')
                 pcm = pcm_path.read_bytes()
                 meta = json.loads(meta_path.read_text())
-                if meta['sha256'] != hashlib.sha256(pcm).hexdigest():
+                if hashlib.sha256(pcm).hexdigest() not in (meta['sha256'],meta.get('repair_sha256')):
                     raise ValueError('Corrupt cache')
+                pcm=_repair_cache(pcm_path,meta_path,pcm,meta)
                 self._publish(pcm)
                 return
             except (OSError, ValueError, KeyError, TypeError):

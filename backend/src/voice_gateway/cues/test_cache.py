@@ -168,3 +168,66 @@ def test_listening_reuses_pre_catalog_persistent_key(tmp_path):
     assert cache.version == old_version
     assert synth.calls == 0
     assert cache.audio(cache.manifest()['sha256']) == pcm
+
+
+def test_cached_nested_wav_repaired_without_tts_and_opus_reencoded(tmp_path):
+    import hashlib
+    import json
+    from backend.src.voice_gateway.tts.test_openai_compatible import _metadata_wav
+    from backend.src.voice_gateway.cues.opus import decode_container
+    provider=Synth();cache=CueCache(tmp_path,provider,CONFIG);cache.ensure_opus('listening')
+    version=cache.version;old_opus=cache.manifest('listening',codec='opus-v1')
+    wrapped,pcm=_metadata_wav()
+    (tmp_path/f'{version}.pcm').write_bytes(wrapped)
+    (tmp_path/f'{version}.json').write_text(json.dumps({'sha256':hashlib.sha256(wrapped).hexdigest()}))
+    restarted=CueCache(tmp_path,provider,CONFIG);restarted.ensure_opus('listening')
+    assert provider.calls==1
+    assert (tmp_path/f'{version}.pcm').read_bytes()==pcm
+    manifest=restarted.manifest();assert manifest['version']==version
+    assert manifest['sha256']==hashlib.sha256(pcm).hexdigest()
+    encoded=restarted.manifest('listening',codec='opus-v1');assert encoded['version']!=old_opus['version']
+    assert len(decode_container(restarted.opus_audio(encoded['sha256'])))==len(pcm)
+    again=CueCache(tmp_path,provider,CONFIG);again.ensure_opus('listening')
+    assert provider.calls==1 and again.manifest()==manifest
+
+
+@pytest.mark.parametrize('failed_replace',[1,2,3])
+def test_interrupted_cache_repair_restarts_without_tts(tmp_path,monkeypatch,failed_replace):
+    import hashlib
+    import json
+    from backend.src.voice_gateway.tts.test_openai_compatible import _metadata_wav
+    from backend.src.voice_gateway.cues import cache as module
+    provider=Synth();cache=CueCache(tmp_path,provider,CONFIG);cache.ensure()
+    version=cache.version;wrapped,pcm=_metadata_wav()
+    (tmp_path/f'{version}.pcm').write_bytes(wrapped)
+    (tmp_path/f'{version}.json').write_text(json.dumps({'sha256':hashlib.sha256(wrapped).hexdigest()}))
+    replace=module.os.replace;calls=0
+    def fail_final_metadata(source,target):
+        nonlocal calls
+        calls+=1
+        if calls==failed_replace:raise OSError('interrupted repair commit')
+        return replace(source,target)
+    monkeypatch.setattr(module.os,'replace',fail_final_metadata)
+    restarted=CueCache(tmp_path,provider,CONFIG);restarted.ensure()
+    assert provider.calls==1
+    assert (tmp_path/f'{version}.pcm').read_bytes()==(pcm if failed_replace==3 else wrapped)
+    assert ('repair_sha256' in json.loads((tmp_path/f'{version}.json').read_text()))==(failed_replace>1)
+    monkeypatch.setattr(module.os,'replace',replace)
+    again=CueCache(tmp_path,provider,CONFIG);again.ensure()
+    assert provider.calls==1
+    assert json.loads((tmp_path/f'{version}.json').read_text())=={'sha256':hashlib.sha256(pcm).hexdigest()}
+
+
+def test_raw_pcm_cache_unchanged_including_unverified_riff_prefix(tmp_path):
+    import hashlib
+    import json
+    provider=Synth();first=CueCache(tmp_path,provider,CONFIG);first.ensure()
+    version=first.version
+    for pcm in (b'\x01\0'*100,b'RIFFnot-a-valid-wave-container\0\0'):
+        (tmp_path/f'{version}.pcm').write_bytes(pcm)
+        meta={'sha256':hashlib.sha256(pcm).hexdigest()}
+        (tmp_path/f'{version}.json').write_text(json.dumps(meta))
+        again=CueCache(tmp_path,provider,CONFIG);again.ensure()
+        assert provider.calls==1
+        assert (tmp_path/f'{version}.pcm').read_bytes()==pcm
+        assert again.audio(meta['sha256'])==pcm

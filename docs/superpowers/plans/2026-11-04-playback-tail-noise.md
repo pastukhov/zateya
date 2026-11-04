@@ -12,3 +12,13 @@ User confirms silence is quiet; clicks/noise occur within and at end of spoken p
 Unrelated attachments, get_ya_id.py and PNG stay untouched. User device powered from charger; direct serial is not currently available. User authorized action repeatedly; no further design approval needed. Prior timing harness showed normal20ms/tick steady state sufficient, so do not assume starvation solely from frame size.
 
 Implementation and verification boundary: [playback-tail-noise operations](../../operations/playback-tail-noise.md). Focused production-helper native tests:3 passed. No physical noise-elimination claim.
+
+## Confirmed cause: PCM request returned a WAV container
+
+Actual archived answer f198a63f-46b2-4cde-a583-6db4a59eebdb/reply.wav contains a second RIFF at byte44. Its inner data is213120 bytes; outer PCM is220828 bytes including WAV headers and trailing C2PA metadata. Last200ms of bad PCM is-7dBFS; corrected inner PCM preserves speech and removes metadata.13of14 cached cue PCM files have the same nested container, except listening.
+
+Superseding noise-fix scope:
+- [ ] Detect and validate actual RIFF/WAVE response before wrapping requested raw PCM; normalize only declared audio data, never heuristic speech trimming.
+- [ ] Repair verified existing cue PCM cache by extracting valid embedded WAV data, atomically updating PCM/hash without TTS. Opus identity already includes source SHA and will regenerate.
+- [ ] Tests: mislabeledWAV underPCMrequest, trailingmetadata, rawPCMunchanged, malformedcontainer rejects, existingcuecachemigration/noTTS, all14productioncuehashes and real audio tail.
+- [ ] Deploy compatible backend only; device updates changed cues whileidle. No OTA27 is needed for this root cause. Keep DMA work separate and uncommitted until independently justified/compiled/reviewed.

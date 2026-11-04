@@ -489,3 +489,63 @@ def test_invalid_pcm_is_not_published(tmp_path, content_type, body):
     with pytest.raises(TTSProviderError):
         client.synthesize("test", output)
     assert not output.exists()
+
+
+def _metadata_wav(*, unknown_riff=False, unknown_data=False):
+    import struct
+    pcm = b'\x01\0\xff\xff' * 200
+    fmt = struct.pack('<HHIIHH',1,1,24000,48000,2,16)
+    def chunk(tag,payload):
+        return tag+struct.pack('<I',len(payload))+payload+(b'\0' if len(payload)&1 else b'')
+    before=chunk(b'JUNK',b'odd')+chunk(b'fmt ',fmt)
+    after=chunk(b'LIST',b'INFO'+chunk(b'ICMT',b'metadata-not-audio'))+chunk(b'iXML',b'<metadata/>')+chunk(b'C2PA',b'provenance-not-audio')
+    data=b'data'+struct.pack('<I',0xffffffff if unknown_data else len(pcm))+pcm
+    payload=b'WAVE'+before+data+(b'' if unknown_data else after)
+    return b'RIFF'+struct.pack('<I',0xffffffff if unknown_riff else len(payload))+payload,pcm
+
+
+@pytest.mark.parametrize('content_type',['application/octet-stream','audio/pcm','audio/wav'])
+def test_pcm_requested_but_provider_returns_wav_does_not_wrap_metadata(tmp_path,content_type):
+    body,pcm=_metadata_wav()
+    config=_config(response_format='pcm')
+    client=_make_client(httpx.MockTransport(lambda req:httpx.Response(200,content=body,headers={'content-type':content_type})),config)
+    result=client.synthesize('hi',tmp_path/'out.wav')
+    with wave.open(str(result.wav_path),'rb') as wav:
+        assert wav.getnframes()==len(pcm)//2
+        assert wav.readframes(wav.getnframes())==pcm
+    assert result.wav_path.read_bytes()[44:]==pcm
+
+
+@pytest.mark.parametrize('unknown_riff,unknown_data',[(False,False),(True,False),(True,True)])
+def test_wav_normalization_extracts_only_data_and_handles_streaming(tmp_path,unknown_riff,unknown_data):
+    body,pcm=_metadata_wav(unknown_riff=unknown_riff,unknown_data=unknown_data)
+    result=_make_client(httpx.MockTransport(lambda req:_wav_response(body))).synthesize('hi',tmp_path/'out.wav')
+    with wave.open(str(result.wav_path),'rb') as wav:
+        assert wav.readframes(wav.getnframes())==pcm
+    normalized=result.wav_path.read_bytes()
+    assert normalized[44:]==pcm
+    assert int.from_bytes(normalized[4:8],'little')==len(normalized)-8
+
+
+@pytest.mark.parametrize('damage',['truncated_data','truncated_metadata','odd_pcm','duplicate_data'])
+def test_malformed_wav_container_not_published(tmp_path,damage):
+    import struct
+    body,pcm=_metadata_wav()
+    if damage=='truncated_data':body=body[:body.index(b'data')+8+len(pcm)-2]
+    elif damage=='truncated_metadata':body=body[:-2]
+    elif damage=='odd_pcm':
+        body=bytearray(WAV_24K);body[40:44]=(len(body)-45).to_bytes(4,'little')
+    else:
+        body+=b'data'+struct.pack('<I',2)+b'\0\0'
+        body=body[:4]+(len(body)-8).to_bytes(4,'little')+body[8:]
+    out=tmp_path/'out.wav'
+    with pytest.raises(TTSProviderError):
+        _make_client(httpx.MockTransport(lambda req:_wav_response(bytes(body)))).synthesize('hi',out)
+    assert not out.exists()
+
+
+def test_unknown_length_pcm_is_not_split_on_metadata_like_sample_bytes(tmp_path):
+    pcm=b'\0\0'*100+b'LIST\x04\0\0\0INFO'+b'C2PA\x04\0\0\0test'
+    body=bytearray(WAV_24K[:44]);body[4:8]=b'\xff'*4;body[40:44]=b'\xff'*4
+    result=_make_client(httpx.MockTransport(lambda req:_wav_response(bytes(body)+pcm))).synthesize('hi',tmp_path/'out.wav')
+    assert result.wav_path.read_bytes()[44:]==pcm

@@ -32,6 +32,7 @@ from backend.src.voice_gateway.logging_config import log_stage_event
 from backend.src.voice_gateway.models import TTSResult
 from backend.src.voice_gateway.tts.base import TTSProvider, TTSProviderError
 from backend.src.voice_gateway.tts.config import TTSConfig
+from backend.src.voice_gateway.tts.wav import normalize_wav
 from backend.src.voice_gateway.usage.models import CallContext, Cost, UsageObservation
 from backend.src.voice_gateway.usage.recorder import UsageRecorder
 
@@ -166,6 +167,7 @@ class OpenAICompatibleTTS(TTSProvider):
         try:
             if self._config.response_format == "pcm":
                 body = self._pcm_to_wav(body, response.headers.get("content-type", ""))
+            body = normalize_wav(body)
             sample_rate = self._validate_wav(body)
         except TTSProviderError as exc:
             log_stage_event(
@@ -175,23 +177,6 @@ class OpenAICompatibleTTS(TTSProvider):
                 error=str(exc),
             )
             raise
-
-        # Streaming TTS responses can leave the RIFF and data sizes as
-        # 0xffffffff. Python's wave reader accepts this, but the StickS3
-        # parser rejects the odd data size before playback. Re-emit the
-        # actual PCM with finite lengths, leaving ordinary WAVs untouched.
-        if body[4:8] == b"\xff" * 4:
-            with wave.open(BytesIO(body), "rb") as source:
-                pcm = source.readframes(len(body) // 2)
-            if len(pcm) % 2:
-                raise TTSProviderError("tts returned an incomplete PCM frame")
-            normalized = BytesIO()
-            with wave.open(normalized, "wb") as target:
-                target.setnchannels(1)
-                target.setsampwidth(2)
-                target.setframerate(sample_rate)
-                target.writeframes(pcm)
-            body = normalized.getvalue()
 
         out_path.parent.mkdir(parents=True, exist_ok=True)
         out_path.write_bytes(body)
@@ -207,6 +192,13 @@ class OpenAICompatibleTTS(TTSProvider):
         """Wrap API PCM16 little-endian at 24 kHz mono without changing samples."""
         header = Message()
         header["content-type"] = content_type
+        # Some compatible providers ignore response_format=pcm and return a
+        # complete RIFF, even labelled application/octet-stream or audio/pcm.
+        # Verify/extract the actual container before considering bare PCM.
+        if body[:4]==b"RIFF":
+            if header.get_content_type() not in {"audio/pcm","application/octet-stream","audio/wav","audio/x-wav","audio/wave"}:
+                raise TTSProviderError("tts returned an unexpected PCM content type")
+            return normalize_wav(body)
         if header.get_content_type() not in {"audio/pcm", "application/octet-stream"}:
             raise TTSProviderError("tts returned an unexpected PCM content type")
         # Bare PCM has no header; absent parameters use the requested API format.
