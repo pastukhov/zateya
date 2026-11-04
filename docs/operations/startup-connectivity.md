@@ -34,3 +34,12 @@ diagnostic resets and contain no network credentials or note contents.
 
 Validation: 141 native tests and 6 backend/diagnostic tests passed. Device
 installation and actual startup latency remain separate physical checks.
+
+Release: implementation `d6c82fd5c26607d7d0e52d5ea12139d115df093f` was committed,
+pushed and deployed. Signed OTA 29 was published; its generated SDK config
+confirms `CONFIG_LWIP_SNTP_MAX_SERVERS=2`. Image size is 1670368 bytes, SHA-256
+`2538ca5107e590ed1ae70883027ddae7c36f8a126f46994d8bca3397657fec73`.
+The external manifest signature and complete downloaded image hash passed.
+External readiness returned HTTP 200 in 0.629 seconds after deployment.
+Old firmware needs a restart on USB power to retry its one-shot OTA check;
+installation and startup latency on the recorder are not yet confirmed.

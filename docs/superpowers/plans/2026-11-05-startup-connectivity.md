@@ -29,3 +29,8 @@ Implementation is delegated to Sol; the parent reviews, tests and releases.
 6. Commit and push, publish signed OTA 29, and verify its signature and image
    through external HTTPS. Installation, startup latency and sound acceptance
    remain separate physical checks.
+
+Implementation and independent review completed. Native tests: 141 passed;
+backend diagnostics tests: 6 passed; target and signed OTA builds succeeded.
+Backend deployed and OTA 29 externally verified. Physical acceptance remains
+pending; see [release evidence](../../operations/startup-connectivity.md).
