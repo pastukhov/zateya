@@ -72,11 +72,12 @@ ThreadingHTTPServer(('0.0.0.0', 8080), Handler).serve_forever()
         assert request('/api/alice/webhook', 'POST', b'x'*65537)[0] == 413
         assert request('/api/voice/turns')[0] == 405
         assert request('/health/ready')[0] == 200
-        for path in ['/api/firmware/manifest', '/api/voice/turns/'+str(uuid.uuid4()),
+        for path in ['/api/voice/history', '/api/voice/turns/'+str(uuid.uuid4())+'/answer', '/api/firmware/manifest', '/api/voice/turns/'+str(uuid.uuid4()),
                      '/api/device/cues/listening', '/api/device/cues/processing', '/api/device/cues/offline', '/api/firmware/images/'+'a'*64+'.bin']:
             assert request(path)[0] == 200, path
             assert request(path, token='wrong')[0] == 401, path
             assert request(path, device='other')[0] == 401, path
+            time.sleep(.12)
         assert request('/api/voice/turns', 'POST', b'pcm', token='wrong')[0] == 401
         for _ in range(8):
             assert request('/api/voice/turns', 'POST', b'', token='attacker')[0] in (401, 429)

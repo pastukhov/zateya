@@ -142,7 +142,8 @@ def test_pipeline_keeps_source_evidence_when_git_refresh_fails(tmp_path):
         recent = KnowledgeStore(vault, tmp_path / 'state').context('mic-a', '', '')['recent_sources']
         assert recent[0]['transcript'] == 'тестовая фраза'
         assert recent[0]['publication_state'] == 'unpublished'
-        assert len(list((knowledge.root / 'sources').glob('*.md'))) == 1
+        assert not list((knowledge.root / 'sources').glob('*.md'))
+        assert (audio.parent / 'transcript.txt').read_text() == 'тестовая фраза'
         assert (tmp_path / 'transcript.txt').read_text() == 'тестовая фраза'
 
     asyncio.run(scenario())

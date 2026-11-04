@@ -9,6 +9,8 @@ import time
 
 import httpx
 
+from backend.src.voice_gateway.answers import answer_contract_issue
+from backend.src.voice_gateway.models.hermes_response import HermesResponse
 from backend.src.voice_gateway.hermes.validation import HermesValidationError, parse_hermes_response
 
 from .base import AgentClientError, AgentReply, AgentRequest
@@ -89,33 +91,46 @@ class OpenAICompatibleAgentClient:
                 messages.append({"role": "user", "content": self._user_message(request)})
                 payload = await self._post(messages, request=request, phase="initial")
                 content, model = self._extract_content(payload)
+                parsed=None
                 try:
                     parsed = parse_hermes_response(content)
+                    issue=answer_contract_issue(parsed,request.knowledge_context)
                 except HermesValidationError:
-                    logger.warning(
-                        "LLM response needs format repair (request_id=%s)",
-                        request.request_id,
-                    )
-                    repair_messages = [
-                        *messages,
-                        {"role": "assistant", "content": content},
-                        {"role": "user", "content": self._repair_instruction()},
-                    ]
-                    repaired_payload = await self._post(
-                        repair_messages, request=request, phase="repair"
-                    )
-                    content, repaired_model = self._extract_content(repaired_payload)
-                    model = repaired_model or model
+                    issue="invalid_json_contract"
+                if issue:
+                    logger.warning("LLM response needs bounded repair (request_id=%s, reason=%s)",request.request_id,issue)
+                    instruction=self._repair_instruction()
+                    if issue!="invalid_json_contract":
+                        instruction+=("\nAnswer validation: "+issue+". Return the complete JSON. "
+                            "Preserve user intent: for a question set note.create=false, note.knowledge={operation:query,pages:[]}; "
+                            "for dictation preserve its intended mutation and remove the inconsistent answer field. "
+                            "Prefer citations:[{ref:ID}] using only exact candidate IDs from retrieved_pages[].quotes[].id. "
+                            "Do not retype Cyrillic quotes when a supplied ref exists. Legacy path+quote must be exact. "
+                            "Do not invent missing facts; use not_found if evidence is insufficient.")
+                    repair_messages=[*messages,{"role":"assistant","content":content},
+                                     {"role":"user","content":instruction}]
+                    repaired_payload=await self._post(repair_messages,request=request,phase="repair")
+                    content,repaired_model=self._extract_content(repaired_payload)
+                    model=repaired_model or model
                     try:
-                        parsed = parse_hermes_response(content)
+                        parsed=parse_hermes_response(content)
                     except HermesValidationError:
-                        raise AgentClientError("agent_invalid_response", "LLM returned invalid JSON") from None
+                        if issue=="invalid_json_contract":
+                            raise AgentClientError("agent_invalid_response","LLM returned invalid JSON") from None
+                        parsed=None
+                    if parsed is None or answer_contract_issue(parsed,request.knowledge_context):
+                        # One shared format/semantic repair budget. Never cache
+                        # an invented answer or reinterpret its original intent.
+                        parsed=HermesResponse.model_validate(dict(
+                            reply="Не могу подтвердить ответ по найденным заметкам. Уточните вопрос или источник.",
+                            note=dict(create=False,knowledge=dict(operation="query",pages=[]))))
                 result = AgentReply(
                     reply=parsed.reply.strip(),
                     note=parsed.note.model_dump(mode="json"),
                     thread_id=f"device:{request.device_id}",
                     model=model or self.config.model,
                     provider="openai_compatible",
+                    answer=parsed.answer.model_dump() if parsed.answer else None,
                     clarification=parsed.clarification.model_dump() if parsed.clarification else None,
                     dialogue_resolution=parsed.dialogue_resolution.model_dump() if parsed.dialogue_resolution else None,
                 )
@@ -124,7 +139,8 @@ class OpenAICompatibleAgentClient:
                         request.device_id, request.request_id, session.generation,
                         {"reply": result.reply, "note": result.note, "thread_id": result.thread_id,
                          "model": result.model, "provider": result.provider,
-                         "clarification": result.clarification, "dialogue_resolution": result.dialogue_resolution},
+                         "clarification": result.clarification, "dialogue_resolution": result.dialogue_resolution,
+                         "answer": result.answer},
                     )
                 return result
         except TimeoutError:

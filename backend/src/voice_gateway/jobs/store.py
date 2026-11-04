@@ -77,7 +77,7 @@ class VoiceJobStore:
             )
 
             columns = {row[1] for row in connection.execute("PRAGMA table_info(voice_jobs)")}
-            for name in ("answer_to", "follow_up"):
+            for name in ("answer_to", "follow_up", "answer_json"):
                 if name not in columns:
                     connection.execute(f"ALTER TABLE voice_jobs ADD COLUMN {name} TEXT")
 
@@ -87,6 +87,7 @@ class VoiceJobStore:
             return None
         result = dict(row)
         result["follow_up"] = json.loads(result["follow_up"]) if result.get("follow_up") else None
+        result["answer"] = json.loads(result["answer_json"]) if result.get("answer_json") else None
         return result
 
     def claim_upload(self, device_id: str, request_id: str, *, answer_to: str | None = None) -> tuple[bool, dict]:
@@ -284,6 +285,12 @@ class VoiceJobStore:
             ).fetchone()
             return self._row(row) if row else None
 
+    def history(self, device_id: str, *, limit: int = 20) -> list[dict]:
+        with self._connect() as connection:
+            rows=connection.execute("SELECT * FROM voice_jobs WHERE device_id=? AND status='ready' "
+                                    "ORDER BY created_at DESC, rowid DESC LIMIT ?",(device_id,max(1,min(limit,20)))).fetchall()
+            return [self._row(row) for row in rows]
+
     def device_busy(self, device_id: str) -> bool:
         with self._connect() as connection:
             return connection.execute(
@@ -293,13 +300,16 @@ class VoiceJobStore:
             ).fetchone() is not None
 
     def finish(self, turn_id: str, status: str, *, result: str | None = None,
-               error_code: str | None = None, follow_up: dict | None = None) -> None:
+               error_code: str | None = None, follow_up: dict | None = None, answer: dict | None = None) -> None:
+        answer_json=json.dumps(answer,ensure_ascii=False) if status=="ready" and answer else None
+        if answer_json and len(answer_json.encode())>65536:
+            raise ValueError("answer metadata too large")
         with self._connect() as connection:
             connection.execute(
-                "UPDATE voice_jobs SET status = ?, result_json = ?, error_code = ?, follow_up = ?, "
+                "UPDATE voice_jobs SET status = ?, result_json = ?, error_code = ?, follow_up = ?, answer_json = ?, "
                 "updated_at = ? WHERE turn_id = ? AND status IN "
                 "('running', 'transcribing', 'thinking', 'synthesizing')",
-                (status, result, error_code, json.dumps(follow_up) if status == "ready" and follow_up else None, _now(), turn_id),
+                (status, result, error_code, json.dumps(follow_up) if status == "ready" and follow_up else None, answer_json, _now(), turn_id),
             )
 
     def cancel(self, device_id: str, turn_id: str) -> str | None:

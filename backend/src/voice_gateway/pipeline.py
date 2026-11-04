@@ -173,7 +173,7 @@ class VoicePipeline:
                 )
                 atomic_write_json(
                     turn_dir / response_filename,
-                    {**metadata, "reply": response_reply, "note": response_note_dump},
+                    {**metadata, "reply": response_reply, "note": response_note_dump, "answer":getattr(result,"answer",None)},
                 )
                 atomic_write_json(
                     turn_dir / "metadata.json",

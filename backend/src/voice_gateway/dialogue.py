@@ -20,6 +20,8 @@ class DialogueStore:
         with self._db() as db:
             db.execute('CREATE TABLE IF NOT EXISTS questions (id TEXT PRIMARY KEY, context TEXT, '
                        'source TEXT UNIQUE, payload TEXT, expires REAL, status TEXT)')
+            db.execute('CREATE TABLE IF NOT EXISTS query_history (source TEXT PRIMARY KEY, context TEXT, '
+                       'question TEXT, payload TEXT, expires REAL, status TEXT)')
 
     def _db(self):
         db = sqlite3.connect(self.path, timeout=15)
@@ -37,6 +39,24 @@ class DialogueStore:
     def reset(self, context):
         with self._db() as db:
             db.execute("UPDATE questions SET status='reset' WHERE context=? AND status='pending'", (context,))
+            db.execute("UPDATE query_history SET status='reset' WHERE context=? AND status='active'",(context,))
+
+    def remember_query(self, context, source, question, answer, paths):
+        payload=dict(question=question[:4000],paths=list(dict.fromkeys(paths))[:8],
+                     answer=answer)
+        with self._db() as db:
+            db.execute("INSERT OR IGNORE INTO query_history VALUES (?, ?, ?, ?, ?, 'active')",
+                       (source,context,question[:4000],json.dumps(payload,ensure_ascii=False),self.clock()+self.ttl_seconds))
+
+    def query_context(self, context):
+        with self._db() as db:
+            row=db.execute("SELECT payload FROM query_history WHERE context=? AND status='active' "
+                           "AND expires>? ORDER BY rowid DESC LIMIT 1",(context,self.clock())).fetchone()
+        return json.loads(row[0]) if row else None
+
+    def close_queries(self, context):
+        with self._db() as db:
+            db.execute("UPDATE query_history SET status='closed' WHERE context=? AND status='active'",(context,))
 
     def for_source(self, source):
         with self._db() as db:

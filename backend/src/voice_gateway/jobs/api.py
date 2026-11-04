@@ -49,7 +49,27 @@ def install_voice_job_routes(
             payload["error"] = job["error_code"]
         if job["status"] == "ready" and job.get("follow_up"):
             payload["follow_up"] = job["follow_up"]
+        if job["status"]=="ready" and job.get("answer"):
+            payload["answer_url"] = f"/api/voice/turns/{job['turn_id']}/answer"
         return payload
+
+    @app.get("/api/voice/history")
+    async def history(request: Request):
+        device_id=await authenticate(request)
+        return JSONResponse({"turns":[status_payload(job) for job in store.history(device_id)]},
+                            headers={"Cache-Control":"private, no-store"})
+
+    @app.get("/api/voice/turns/{turn_id}/answer")
+    async def answer(request: Request,turn_id: str):
+        device_id=await authenticate(request)
+        try:
+            turn_id=str(uuid.UUID(turn_id))
+        except ValueError:
+            raise HTTPException(status_code=404,detail={"error":"not_found"}) from None
+        job=store.get_owned(device_id,turn_id)
+        if not job or job["status"]!="ready" or not job.get("answer"):
+            raise HTTPException(status_code=404,detail={"error":"not_found"})
+        return JSONResponse(job["answer"],headers={"Cache-Control":"private, no-store"})
 
     @app.post("/api/voice/turns", status_code=202)
     async def upload_turn(request: Request):

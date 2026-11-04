@@ -91,7 +91,9 @@ class VoiceJobWorker:
                     else:
                         follow_path = output_path.parent / "follow-up.json"
                         follow_up = json.loads(follow_path.read_text()) if follow_path.exists() else None
-                        self.store.finish(turn_id, "ready", result=str(output_path), follow_up=follow_up)
+                        answer_path=output_path.parent / "answer.json"
+                        answer=json.loads(answer_path.read_text()) if answer_path.exists() else None
+                        self.store.finish(turn_id, "ready", result=str(output_path), follow_up=follow_up,answer=answer)
                 except asyncio.CancelledError:
                     self._archive_failure(job, "interrupted")
                     self.store.finish(turn_id, "interrupted", error_code="interrupted")

@@ -25,6 +25,7 @@ class AgentReply:
     provider: str
     clarification: dict[str, Any] | None = None
     dialogue_resolution: dict[str, Any] | None = None
+    answer: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True, slots=True)

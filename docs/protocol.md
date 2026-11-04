@@ -117,3 +117,25 @@ Firmware начинает ответ лишь после полного успе
 Буфер удерживается на время воспроизведения; неудачная загрузка сохраняет прежний.
 При активации записи сетевого запроса нет. После выключения питания PSRAM пуста,
 до первой загрузки звучит короткий встроенный сигнал; речевых PCM в прошивке нет.
+
+## Ответ по заметкам и история
+
+В готовом status/lookup может присутствовать короткий
+`answer_url: "/api/voice/turns/<uuid>/answer"`. Полные цитаты не включаются в
+обычный status: он остаётся совместимым с JSON-буфером firmware 768 байт.
+`GET /api/voice/turns/{turn_id}/answer` возвращает приватные метаданные:
+
+```json
+{"status":"found","reply":"Краткий озвученный ответ","citations":[{"ref":"q-…","path":"Отпуск/Раджа.md","title":"Раджа","quote":"Точная цитата","sha256":"…","link":"obsidian://open?…"}],"search":{"coverage":"bounded_local_scan","truncated":false}}
+```
+
+Статусы: `found`, `not_found`, `ambiguous`, `conflicting`, `unsupported`.
+Путь/quote/hash/link формирует и проверяет backend по реально переданному
+retrieval-снимку; ID цитаты позволяет модели не перепечатывать исходный текст.
+`GET /api/voice/history` возвращает до 20 ready jobs с ID и `answer_url` текущего
+устройства. Все маршруты требуют его токен; чужой/неизвестный/неготовый answer —
+404, без токена — 401. History/answer имеют `private, no-store`; answer — до 64 КиБ.
+
+`query` хранит сырой ввод и receipt в archive/DB, но не публикует Markdown в vault.
+Источники материализуются только при настоящем изменении заметок. Подробнее:
+[вопросы по Obsidian](operations/obsidian-questions.md).

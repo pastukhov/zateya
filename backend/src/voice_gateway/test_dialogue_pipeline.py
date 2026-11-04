@@ -34,7 +34,8 @@ def test_follow_up_only_after_validated_question_audio(tmp_path, valid_audio):
             assert pipeline.text_processor.dialogue.pending('mic')
             assert not (audio.parent/'follow-up.json').exists()
         assert audio.exists()
-        assert len(list((knowledge.root/'sources').glob('*.md'))) == 1
+        assert not list((knowledge.root/'sources').glob('*.md'))
+        assert knowledge.context('mic','','')['recent_sources'][0]['transcript']=='тестовая фраза'
     asyncio.run(run())
 
 

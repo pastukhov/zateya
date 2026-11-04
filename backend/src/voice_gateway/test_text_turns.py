@@ -99,13 +99,13 @@ def test_basic_capture_publishes_and_records_history(tmp_path):
         processor = TextTurnProcessor(agent, knowledge=knowledge)
         archive = tmp_path / "archive" / "turn-1"
         result = await processor.process(make_request(archive_dir=archive))
-        assert result.reply == "ответ"
+        assert result.answer["status"] == "unsupported"
         assert result.provider == "codex"
         assert result.receipt["source_id"]
-        assert (archive / "reply.txt").read_text() == "ответ"
+        assert (archive / "reply.txt").read_text() == result.reply
         assert (archive / "transcript.txt").read_text() == "новая идея"
         assert (archive / "agent-response.json").exists()
-        assert agent.recorded == [("mic", "request-1", "новая идея", "ответ")]
+        assert agent.recorded == [("mic", "request-1", "новая идея", result.reply)]
 
     asyncio.run(scenario())
 
@@ -192,7 +192,8 @@ def test_explicit_query_creates_no_idea(tmp_path):
         processor = TextTurnProcessor(QueryAgent(), knowledge=knowledge,
                                       usage_recorder=UsageRecorder(usage_store))
         result = await processor.process(make_request(archive_dir=tmp_path / "q"))
-        assert result.receipt["reply"] == "ответ"
+        assert result.receipt["reply"] == result.reply
+        assert result.answer["status"] == "unsupported"
         assert result.receipt["pages"] == []
         assert not (vault / "Затея/ideas").exists()
         turn = usage_store.snapshot()["turns"][0]
@@ -220,7 +221,9 @@ def test_needs_review_on_manual_edit_keeps_source_and_reply(tmp_path):
         assert result.receipt["reason"] == "agent omitted knowledge proposal"
         assert result.reply.startswith("Исходная запись сохранена")
         assert (archive / "reply.txt").exists()
-        assert (vault / "Затея/sources").exists()
+        assert (archive / "transcript.txt").read_text() == "первая"
+        assert knowledge.context("mic", "", "")["recent_sources"][0]["transcript"] == "первая"
+        assert not (vault / "Затея/sources").exists()
         turn = usage_store.snapshot()["turns"][0]
         assert (turn["operation"], turn["note_saved"]) == ("none", 0)
 
@@ -263,7 +266,7 @@ def test_git_busy_waits_within_turn_deadline(tmp_path, release):
         request = make_request(archive_dir=tmp_path / 'archive')
         if release:
             result = await processor.process(request)
-            assert result.reply == 'ответ'
+            assert result.answer['status'] == 'unsupported'
             assert len(agent.requests) == 1
         else:
             with pytest.raises(TextTurnError, match='agent_timeout'):

@@ -33,6 +33,8 @@ from backend.src.voice_gateway.knowledge.store import KnowledgeConflict, Knowled
 from backend.src.voice_gateway.models import Transcript
 from backend.src.voice_gateway.models.hermes_response import HermesResponse
 from backend.src.voice_gateway.dialogue import DialogueStore
+from backend.src.voice_gateway.answers import validate_answer
+from backend.src.voice_gateway.knowledge.retrieval import VaultRetrieval
 from backend.src.voice_gateway.usage.recorder import UsageRecorder
 
 logger = logging.getLogger(__name__)
@@ -86,6 +88,7 @@ class TextTurnResult:
     provider: str
     model: str | None
     clarification: dict | None = None
+    answer: dict | None = None
 
 
 class TextTurnProcessor:
@@ -188,6 +191,8 @@ class TextTurnProcessor:
 
     async def _process(self, request: TextTurnRequest) -> TextTurnResult:
         archive_dir = Path(request.archive_dir)
+        if self.knowledge is None:
+            self._persist_input(request,archive_dir)
         # Alice's service calls must never be mistaken for recorder audio
         # metadata; the audio pipeline keeps its own metadata writing.
         context_path = archive_dir / "knowledge-context.json"
@@ -199,7 +204,8 @@ class TextTurnProcessor:
             job = {"device_id": request.context_id, "request_id": request.request_id,
                    "turn_id": request.turn_id, "created_at": request.created_at,
                    "channel": request.channel, "client_id": request.client_id}
-            source_id = await asyncio.to_thread(self.knowledge.capture, job, request.transcript)
+            source_id = await asyncio.to_thread(self.knowledge.capture, job, request.transcript, defer=True)
+            self._persist_input(request,archive_dir)
             if self.git_sync is not None:
                 sync_started = time.monotonic()
                 sync_result = await asyncio.to_thread(self.git_sync.run_once)
@@ -229,6 +235,11 @@ class TextTurnProcessor:
                 context = await asyncio.to_thread(
                     self.knowledge.context, request.context_id, source_id, request.transcript
                 )
+                prior=self.dialogue.query_context(request.context_id) if self.dialogue else None
+                retrieved=await asyncio.to_thread(VaultRetrieval(self.knowledge.vault).search,
+                                                  request.transcript,prior)
+                context.update(retrieved)
+                context["previous_query"]=prior
                 atomic_write_json(context_path, context)
 
         pending = self.dialogue.pending(request.context_id) if self.dialogue else None
@@ -254,11 +265,6 @@ class TextTurnProcessor:
                         if proposal_path.exists() else HermesResponse(reply=receipt["reply"]))
             response.reply = receipt["reply"]
             metadata = {"provider": "knowledge", "model": None}
-            if self.agent is not None and hasattr(self.agent, "record_turn"):
-                await self.agent.complete(
-                    AgentRequest(request.request_id, request.context_id, request.transcript, context,
-                                 channel=request.channel, turn_id=request.turn_id)
-                )
         elif self.knowledge is not None and (archive_dir / "knowledge-proposal.json").exists():
             # Query/clarification has no writer commit, but its decision must be
             # just as stable on retry as a published note.
@@ -274,6 +280,7 @@ class TextTurnProcessor:
                     "reply": reply.reply,
                     "clarification": reply.clarification,
                     "dialogue_resolution": reply.dialogue_resolution,
+                    "answer": reply.answer,
                     "note": reply.note or {"create": False, "title": "", "content": "", "tags": []},
                 }
             )
@@ -300,6 +307,11 @@ class TextTurnProcessor:
             if response.dialogue_resolution and (not pending or
                 response.dialogue_resolution.question_id != pending["question_id"]):
                 raise TextTurnError("agent_invalid_response")
+
+        if response.answer is not None and (response.note.knowledge is None or
+                response.note.knowledge.operation != "query"):
+            raise TextTurnError("agent_invalid_response")
+        answer=validate_answer(response,context)
 
         if self.knowledge is not None and receipt is None:
             atomic_write_json(archive_dir / "knowledge-proposal.json", response.model_dump())
@@ -336,6 +348,21 @@ class TextTurnProcessor:
             if clarification:
                 response.reply = clarification["question"]
 
+        if receipt and receipt.get("status")=="needs_review":
+            answer=None
+        if answer is not None:
+            answer["reply"]=response.reply
+            atomic_write_json(archive_dir / "answer.json",answer)
+        else:
+            (archive_dir / "answer.json").unlink(missing_ok=True)
+        if self.dialogue and receipt and receipt.get("status") != "needs_review":
+            if receipt.get("operation")=="query":
+                paths=[p["path"] for p in (answer or {}).get("citations",[])]
+                if not paths:paths=[p["path"] for p in (context or {}).get("retrieved_pages",[])]
+                self.dialogue.remember_query(request.context_id,source_id,request.transcript,answer,paths)
+            else:
+                self.dialogue.close_queries(request.context_id)
+
         if self.agent is not None and hasattr(self.agent, "record_turn"):
             if receipt is None or receipt.get("status") != "needs_review":
                 history_started = time.monotonic()
@@ -355,7 +382,7 @@ class TextTurnProcessor:
         )
         atomic_write_json(
             archive_dir / response_filename,
-            {**metadata, "reply": response.reply, "note": response.note.model_dump()},
+            {**metadata, "reply": response.reply, "note": response.note.model_dump(), "answer":answer},
         )
         return TextTurnResult(
             reply=response.reply,
@@ -364,7 +391,24 @@ class TextTurnProcessor:
             provider=metadata["provider"],
             model=metadata["model"],
             clarification=clarification,
+            answer=answer,
         )
+
+    @staticmethod
+    def _persist_input(request, archive_dir):
+        values={"transcript.txt":request.transcript.encode(),
+                "text-input.json":json.dumps(dict(request_id=request.request_id,
+                    turn_id=request.turn_id,context_id=request.context_id,client_id=request.client_id,
+                    channel=request.channel,created_at=request.created_at,answer_to=request.answer_to),ensure_ascii=False,
+                    indent=2).encode()+b"\n"}
+        # Validate the whole original input before changing either artifact.
+        for name,data in values.items():
+            path=archive_dir/name
+            if path.exists() and path.read_bytes()!=data:
+                raise TextTurnError("idempotency_conflict")
+        for name,data in values.items():
+            path=archive_dir/name
+            if not path.exists():atomic_write_bytes(path,data)
 
     async def _record_stage(self, request: TextTurnRequest, stage: str, outcome: str,
                             started: float) -> None:

@@ -80,11 +80,9 @@ class KnowledgeStore:
             db.execute("CREATE TABLE IF NOT EXISTS commits (id TEXT PRIMARY KEY, device TEXT, "
                        "idea TEXT, status TEXT, payload TEXT, receipt TEXT)")
             db.execute("CREATE TABLE IF NOT EXISTS evidence (id TEXT PRIMARY KEY, device TEXT, transcript TEXT)")
+            db.execute("CREATE TABLE IF NOT EXISTS evidence_payload (id TEXT PRIMARY KEY, payload TEXT NOT NULL)")
             db.execute("CREATE TABLE IF NOT EXISTS reviews (id TEXT PRIMARY KEY)")
             self._recover(db)
-            path = self._path("schema.md")
-            if not path.exists():
-                self._write("schema.md", SCHEMA.encode())
 
     @contextmanager
     def _locked(self):
@@ -176,7 +174,7 @@ class KnowledgeStore:
                 raise KnowledgeConflict("page changed during commit")
             self._write(change["path"], after)
 
-    def capture(self, job: dict, transcript: str) -> str:
+    def capture(self, job: dict, transcript: str, *, defer: bool = False) -> str:
         source_id = hashlib.sha256((job["device_id"] + ":" + job["request_id"]).encode()).hexdigest()[:32]
         relative = f"sources/{source_id}.md"
         origin = {
@@ -192,10 +190,26 @@ class KnowledgeStore:
             existing = self._read(relative)
             if existing is not None and existing != content:
                 raise KnowledgeConflict("source already exists with different content")
-            if existing is None:
-                self._write(relative, content)
+            row = db.execute("SELECT device, transcript FROM evidence WHERE id=?", (source_id,)).fetchone()
+            payload = db.execute("SELECT payload FROM evidence_payload WHERE id=?", (source_id,)).fetchone()
+            if (row and (row["device"] != job["device_id"] or row["transcript"] != transcript)) or (payload and payload[0] != content.decode()):
+                raise KnowledgeConflict("source already exists with different content")
+            # A query's raw evidence is durable without creating vault pages.
+            db.execute("BEGIN IMMEDIATE")
             db.execute("INSERT OR IGNORE INTO evidence VALUES (?, ?, ?)", (source_id, job["device_id"], transcript))
+            db.execute("INSERT OR IGNORE INTO evidence_payload VALUES (?, ?)", (source_id, content.decode()))
+            db.commit()
+            if existing is None and not defer:
+                self._write(relative, content)
         return source_id
+
+    def _source_bytes(self, db, source_id, device):
+        existing=self._read(f"sources/{source_id}.md")
+        if existing is not None:
+            return existing
+        row=db.execute("SELECT p.payload FROM evidence_payload p JOIN evidence e ON e.id=p.id "
+                       "WHERE p.id=? AND e.device=?",(source_id,device)).fetchone()
+        return row[0].encode() if row else None
 
     def mark_review(self, source_id):
         with self._locked() as db:
@@ -293,7 +307,7 @@ class KnowledgeStore:
             candidates = [(score + (20000 if relative == active_topic else 1000 if relative in active_members else 0), relative, text, sha)
                           for score, relative, text, sha in candidates]
             recent, raw_budget = [], 12000
-            rows = db.execute("SELECT e.*, c.status FROM evidence e LEFT JOIN commits c ON c.id=e.id "
+            rows = db.execute("SELECT e.*, c.status, c.receipt FROM evidence e LEFT JOIN commits c ON c.id=e.id "
                               "WHERE e.device=? ORDER BY e.rowid DESC LIMIT 9", (device,)).fetchall()
             truncated = len(rows) > 8
             for row in rows[:8]:
@@ -301,8 +315,9 @@ class KnowledgeStore:
                 truncated |= len(text) < len(row["transcript"])
                 if not text:
                     break
+                query_only=row["receipt"] and json.loads(row["receipt"]).get("operation")=="query"
                 recent.append({"source_id": row["id"], "transcript": text,
-                               "publication_state": row["status"] or ("needs_review" if db.execute("SELECT 1 FROM reviews WHERE id=?", (row["id"],)).fetchone() else "unpublished")})
+                               "publication_state": "query_only" if query_only else row["status"] or ("needs_review" if db.execute("SELECT 1 FROM reviews WHERE id=?", (row["id"],)).fetchone() else "unpublished")})
                 raw_budget -= len(text)
             recent.reverse()
             topic_paths = {t["path"] for t in topics}
@@ -328,7 +343,7 @@ class KnowledgeStore:
                     "active_topic": active_topic, "topics": catalog,
                     "topics_truncated": len(topics) > len(catalog), "recent_sources": recent,
                     "recent_sources_truncated": truncated,
-                    "schema": self._read("schema.md").decode()[:6000], "pages": pages}
+                    "schema": (self._read("schema.md") or SCHEMA.encode()).decode()[:6000], "pages": pages}
 
     def publish(self, source_id: str, device: str, note, context: dict, reply: str) -> dict:
         proposal = note.knowledge
@@ -341,7 +356,8 @@ class KnowledgeStore:
                 if previous["status"] == "done":
                     return json.loads(previous["receipt"])
                 raise KnowledgeConflict("unresolved journal conflict")
-            if self._read(f"sources/{source_id}.md") is None:
+            current_source = self._source_bytes(db,source_id,device)
+            if current_source is None:
                 raise KnowledgeConflict("source missing")
             operation = proposal.operation
             organization = proposal.organization
@@ -353,8 +369,10 @@ class KnowledgeStore:
             if operation == "query":
                 if note.create or proposal.pages:
                     raise KnowledgeConflict("query must not mutate pages")
-                return {"reply": reply, "source_id": source_id,
-                        "operation": "query", "pages": []}
+                receipt = {"reply": reply, "source_id": source_id,"operation": "query", "pages": []}
+                db.execute("INSERT INTO commits VALUES (?, ?, NULL, 'done', '[]', ?)",
+                           (source_id,device,json.dumps(receipt,ensure_ascii=False)))
+                return receipt
             if operation != "organize" and (not note.create or not note.title.strip() or not note.content.strip()):
                 raise KnowledgeConflict("empty idea")
             known = {p["path"]: p for p in context["pages"]}
@@ -399,7 +417,8 @@ class KnowledgeStore:
             path = (target_path or self._new_note_path('ideas', note.title)) if operation in ("capture", "amend") \
                    else self._new_note_path('builds', note.title)
             changes = []
-            source_meta = metadata(self._read(f"sources/{source_id}.md"))
+            materialize = {source_id}
+            source_meta = metadata(current_source)
             date = source_meta["created"]
 
             def add(relative, title, body, sources, kind, extra=None):
@@ -421,8 +440,9 @@ class KnowledgeStore:
                     old = {}
                 sources = sorted(set(sources) | set(old.get("sources", [])) | {source_id})
                 for source in sources:
-                    if not re.fullmatch(r"[a-f0-9]{32}", source) or self._read(f"sources/{source}.md") is None:
+                    if not re.fullmatch(r"[a-f0-9]{32}", source) or self._source_bytes(db,source,device) is None:
                         raise KnowledgeConflict("unknown source")
+                    materialize.add(source)
                     if source != source_id and source not in pending_evidence and source not in proposal.evidence_sources and source not in old.get("sources", []) and not any(
                         source in p["content"] for p in known.values()
                     ):
@@ -572,7 +592,7 @@ class KnowledgeStore:
                     r"\[\[Затея/ideas/([a-f0-9]{32})(?:\.md)?([#|][^\]]*|)\]\]",
                     resolve_idea_link, change["after"])
             # Links must resolve in the vault or in this proposed transaction.
-            planned = {change["path"] for change in changes}
+            planned = {change["path"] for change in changes} | {f"sources/{sid}.md" for sid in materialize}
             for change in changes:
                 for link in re.findall(r"\[\[([^\]]+)\]\]", change["after"]):
                     target_path = link.split("|", 1)[0].split("#", 1)[0]
@@ -609,9 +629,19 @@ class KnowledgeStore:
                 spoken += f' Тема: «{topic_title}».' if topic else ' Тема пока не определена.'
             receipt = {**({"topic_path": topic} if organization else {}), "reply": spoken, "source_id": source_id, "idea_id": idea,
                        "operation": operation, "pages": [c["path"] for c in changes]}
+            # Materialize evidence in the same crash journal only after every
+            # note mutation has passed validation. Raw dictation links are data.
+            for sid in sorted(materialize):
+                relative=f"sources/{sid}.md"
+                if self._read(relative) is None:
+                    content=self._source_bytes(db,sid,device)
+                    changes.append({"path":relative,"before":None,"after":content.decode()})
+            if self._read("schema.md") is None:
+                changes.append({"path":"schema.md","before":None,"after":SCHEMA})
             files = {"Затея/" + change["path"]: digest(change["after"].encode()) for change in changes}
             for relative in (f"sources/{source_id}.md", "schema.md"):
-                files["Затея/" + relative] = digest(self._read(relative))
+                if "Затея/"+relative not in files:
+                    files["Затея/" + relative] = digest(self._read(relative))
             # Last journal write: host cannot observe an outbox item before all
             # published files exist. Recovery replays this write as well.
             changes.append({"path": f".sync/{source_id}.json", "before": None,

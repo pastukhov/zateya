@@ -350,3 +350,29 @@ def test_session_cache_prevents_second_http_call_and_history_is_injected(tmp_pat
         finally:
             await http.aclose()
     asyncio.run(scenario())
+
+
+@pytest.mark.parametrize('repair_valid',[True,False])
+def test_answer_semantics_get_one_repair_before_cache(tmp_path,repair_valid):
+    async def run():
+        calls=[]
+        context={'retrieved_pages':[dict(path='Юннань.md',title='Юннань',content='Юннань выбрали вместо Хайнаня.',sha256='a'*64,link='obsidian://x')]}
+        bad=dict(reply='Юньнань выбрали.',note=dict(create=False),answer=dict(status='found',citations=[dict(path='Юннань.md',quote='Юньнань выбрали вместо Хайнаня.')]))
+        good=dict(reply='Юннань выбрали вместо Хайнаня.',note=dict(create=False,knowledge=dict(operation='query',pages=[])),answer=dict(status='found',citations=[dict(path='Юннань.md',quote='Юннань выбрали вместо Хайнаня.')]))
+        async def handler(request):
+            calls.append(json.loads(request.content))
+            return httpx.Response(200,json=response(json.dumps(good if len(calls)>1 and repair_valid else bad,ensure_ascii=False)))
+        http=httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        client=OpenAICompatibleAgentClient(make_config(),'rules',client=http,sessions=AgentSessionStore(tmp_path/'s.sqlite'))
+        request=AgentRequest('r','mic','Почему Юннань?',context)
+        try:
+            result=await client.complete(request)
+            cached=await client.complete(request)
+            assert cached==result
+            assert len(calls)==2
+            assert 'exact' in calls[1]['messages'][-1]['content']
+            assert result.note['knowledge']['operation']=='query'
+            if repair_valid:assert result.answer['citations'][0]['quote']=='Юннань выбрали вместо Хайнаня.'
+            else:assert result.answer is None and 'подтвердить' in result.reply
+        finally:await http.aclose()
+    asyncio.run(run())

@@ -16,7 +16,7 @@ The logical JSON contract Hermes must return:
 """
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from backend.src.voice_gateway.knowledge.models import KnowledgeProposal
 
 
@@ -40,6 +40,20 @@ class DialogueResolution(BaseModel):
     action: Literal["answered", "declined", "superseded"]
 
 
+class AnswerCitation(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    ref: str | None = Field(default=None,min_length=1,max_length=64)
+    path: str = Field(default="",max_length=512)
+    title: str = Field(default="", max_length=200)
+    quote: str = Field(default="",max_length=600)
+
+
+class GroundedAnswer(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    status: Literal["found", "not_found", "ambiguous", "conflicting"]
+    citations: list[AnswerCitation] = Field(default_factory=list, max_length=8)
+
+
 class HermesResponse(BaseModel):
     """Validated structured Hermes result (ТЗ section 22)."""
 
@@ -47,3 +61,4 @@ class HermesResponse(BaseModel):
     note: HermesNote = Field(default_factory=HermesNote)
     clarification: Clarification | None = None
     dialogue_resolution: DialogueResolution | None = None
+    answer: GroundedAnswer | None = None
