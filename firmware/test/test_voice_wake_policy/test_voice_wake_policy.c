@@ -72,6 +72,44 @@ static void test_toggle_button_release_held_and_double_tap(void) {
  voice_wake_init(&w,3000,600000);voice_wake_activate(&w,true,1500);
  TEST_ASSERT_EQUAL(WAKE_CANCEL,voice_wake_tick(&w,true,1550,false,true));
 }
-int main(void){UNITY_BEGIN();RUN_TEST(test_toggle_button_release_held_and_double_tap);RUN_TEST(test_next_press_cancels_even_during_cue);RUN_TEST(test_cue_and_echo_are_not_recorded);
+static void test_manual_hold_ignores_silence_finishes_release_and_keeps_limit(void){
+ voice_wake_t w;voice_wake_capture_init(&w,3000,20000,true,VOICE_BUTTON_HOLD);
+ voice_wake_activate(&w,true,0);voice_wake_cue_done(&w,0,true);
+ TEST_ASSERT_EQUAL(WAKE_START_RECORD,voice_wake_tick(&w,true,150,true,false));
+ TEST_ASSERT_FALSE(voice_wake_button_finish(&w,true,false));
+ TEST_ASSERT_EQUAL(WAKE_NONE,voice_wake_tick(&w,true,10000,false,false));
+ TEST_ASSERT_TRUE(voice_wake_button_finish(&w,false,true));
+ TEST_ASSERT_EQUAL(WAKE_FINISH,voice_wake_tick(&w,true,10001,false,voice_wake_button_finish(&w,false,true)));
+ voice_wake_capture_init(&w,3000,20000,true,VOICE_BUTTON_HOLD);
+ voice_wake_activate(&w,true,0);voice_wake_cue_done(&w,0,true);voice_wake_tick(&w,true,150,true,false);
+ TEST_ASSERT_EQUAL(WAKE_FINISH,voice_wake_tick(&w,true,20150,false,false));
+}
+static void test_hold_release_before_speech_cancels_and_wake_ignores_manual_setting(void){
+ voice_wake_t w;
+ for(unsigned phase=0;phase<3;phase++){
+  voice_wake_capture_init(&w,3000,600000,true,VOICE_BUTTON_HOLD);voice_wake_activate(&w,true,0);
+  if(phase>0)voice_wake_cue_done(&w,10,true);
+  if(phase>1)voice_wake_tick(&w,true,160,false,false);
+  TEST_ASSERT_EQUAL(WAKE_CANCEL,voice_wake_tick(&w,true,200,false,voice_wake_button_finish(&w,false,true)));
+ }
+ /* Wake and automatic answers do not inherit manual hold. */
+ voice_wake_capture_init(&w,5000,600000,false,VOICE_BUTTON_HOLD);
+ voice_wake_activate(&w,true,0);voice_wake_cue_done(&w,0,true);
+ TEST_ASSERT_FALSE(voice_wake_button_finish(&w,false,true));
+ TEST_ASSERT_EQUAL(WAKE_START_RECORD,voice_wake_tick(&w,true,150,true,false));
+ TEST_ASSERT_EQUAL(WAKE_NONE,voice_wake_tick(&w,true,5149,false,false));
+ TEST_ASSERT_EQUAL(WAKE_FINISH,voice_wake_tick(&w,true,5150,false,false));
+}
+static void test_toggle_mode_is_snapshotted_and_uses_configured_pause(void){
+ voice_button_mode_t setting=VOICE_BUTTON_TOGGLE;voice_wake_t w;
+ voice_wake_capture_init(&w,5000,600000,true,setting);setting=VOICE_BUTTON_HOLD;
+ TEST_ASSERT_FALSE(voice_wake_button_finish(&w,false,true));
+ TEST_ASSERT_TRUE(voice_wake_button_finish(&w,true,false));
+ voice_wake_activate(&w,true,0);voice_wake_cue_done(&w,0,true);voice_wake_tick(&w,true,150,true,false);
+ TEST_ASSERT_EQUAL(WAKE_NONE,voice_wake_tick(&w,true,4000,false,false));
+ TEST_ASSERT_EQUAL(WAKE_FINISH,voice_wake_tick(&w,true,5150,false,false));
+ (void)setting;
+}
+int main(void){UNITY_BEGIN();RUN_TEST(test_manual_hold_ignores_silence_finishes_release_and_keeps_limit);RUN_TEST(test_hold_release_before_speech_cancels_and_wake_ignores_manual_setting);RUN_TEST(test_toggle_mode_is_snapshotted_and_uses_configured_pause);RUN_TEST(test_toggle_button_release_held_and_double_tap);RUN_TEST(test_next_press_cancels_even_during_cue);RUN_TEST(test_cue_and_echo_are_not_recorded);
 RUN_TEST(test_silence_and_manual_endpoint);RUN_TEST(test_no_speech_and_power_loss);
 RUN_TEST(test_wrap_limit_and_failed_cue);return UNITY_END();}

@@ -476,19 +476,22 @@ static void wake_pre_append(const uint8_t *pcm,size_t bytes) {
     if(wake_pre_used<WAKE_PREROLL_BYTES)wake_pre_used++;
   }
 }
-static bool capture_begin(uint32_t now,const char *answer_to,bool owned_gate) {
+static bool capture_begin(uint32_t now,const char *answer_to,bool owned_gate,bool manual) {
   if(!capture_eligible() || (!owned_gate && !voice_ota_voice_begin()))return false;
   if(wake_listening)hw_audio_capture_stop();
   voice_wake_detector_reset();wake_listening=false;
   wake_active=true;wake_ui=2;
   strlcpy(capture_answer_to,answer_to?answer_to:"",sizeof(capture_answer_to));
-  voice_wake_init(&wake,3000,MAX_RECORD_SECONDS_DEFAULT*1000U);
+  voice_wake_capture_init(&wake,voice_settings.wake_pause_ms,MAX_RECORD_SECONDS_DEFAULT*1000U,
+                           manual,voice_settings.button_mode);
   (void)voice_wake_activate(&wake,true,now);
   size_t size=0;const uint8_t *pcm=voice_static_cue_get(VOICE_CUE_LISTENING,&size);
   if(!voice_listening_cue_start(&wake_cue,pcm,size,now)){wake_stop();return false;}
   return true;
 }
-static void wake_idle_tick(uint32_t now, bool pressed) {
+static void wake_idle_tick(uint32_t now, button_event_t button) {
+  bool pressed=button==BUTTON_EVENT_PRESSED;
+  bool released=button==BUTTON_EVENT_RELEASED;
   if(!wake_active) {
     if(pressed || !wake_eligible()) {
       if(wake_listening)wake_stop();
@@ -500,10 +503,10 @@ static void wake_idle_tick(uint32_t now, bool pressed) {
       size_t n=hw_audio_capture_read(chunk,sizeof(chunk));if(!n)break;
       voice_wake_detector_feed(chunk,n);
     }
-    if(voice_wake_detector_detected())(void)capture_begin(now,NULL,false);
+    if(voice_wake_detector_detected())(void)capture_begin(now,NULL,false,false);
     return;
   }
-  if(pressed || !capture_eligible()) {
+  if(voice_wake_button_finish(&wake,pressed,released) || !capture_eligible()) {
     wake_stop();app.ignore_button_until_release=hw_button_raw();return;
   }
   if(wake.state==WAKE_CUE) {
@@ -531,7 +534,7 @@ static void wake_idle_tick(uint32_t now, bool pressed) {
     ring_buffer_push(&app.rb,wake_preroll+first,part);
     ring_buffer_push(&app.rb,wake_preroll,wake_pre_used-part);
     wake_active=false;wake_recording=true;wake_ui=0;
-    /* Preserve the debounced held/released edge state; first release is ignored. */
+    /* Preserve debounced edges; snapshotted mode decides what release means. */
     app.btn.press_ms=now;enter_state(STATE_RECORDING,NULL);
     ESP_LOGI("capture","Dictation started after cue, settle and speech");
   }
@@ -982,7 +985,7 @@ void app_tick(void) {
 #ifdef ESP_PLATFORM
       if(feedback_active)break;
       bool was_capture=wake_active;
-      wake_idle_tick(now,ev==BUTTON_EVENT_PRESSED);
+      wake_idle_tick(now,ev);
       if(was_capture || wake_active)break;
 #endif
       if (ev == BUTTON_EVENT_PRESSED) {
@@ -991,7 +994,7 @@ void app_tick(void) {
           wake_stop();(void)feedback_start(VOICE_CUE_OFFLINE,now);
           app.ignore_button_until_release=true;break;
         }
-        if(!capture_begin(now,NULL,false))enter_state(STATE_ERROR,"voice capture unavailable");
+        if(!capture_begin(now,NULL,false,true))enter_state(STATE_ERROR,"voice capture unavailable");
 #else
         if (recording_start()) enter_state(STATE_RECORDING, NULL);
         else enter_state(STATE_ERROR, "voice recording start failed");
@@ -1029,7 +1032,8 @@ void app_tick(void) {
 #ifdef ESP_PLATFORM
       if(wake_recording) {
         if(!voice_vad_ready()){hw_audio_capture_stop();enter_state(STATE_ERROR,"voice activity detection failed");break;}
-        finished=voice_wake_tick(&wake,true,now,wake_speech,ev==BUTTON_EVENT_PRESSED)==WAKE_FINISH;
+        finished=voice_wake_tick(&wake,true,now,wake_speech,
+          voice_wake_button_finish(&wake,ev==BUTTON_EVENT_PRESSED,ev==BUTTON_EVENT_RELEASED))==WAKE_FINISH;
         if(finished){wake_recording=false;app.ignore_button_until_release=hw_button_raw();}
       }
 #endif
@@ -1159,7 +1163,7 @@ void app_tick(void) {
                 question_id,sizeof(question_id));
             playback_release_resources();
             enter_state(STATE_IDLE, NULL);
-            if(follow)(void)capture_begin(now,question_id,true);
+            if(follow)(void)capture_begin(now,question_id,true,false);
           }
         }
         break;

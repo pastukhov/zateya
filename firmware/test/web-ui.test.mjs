@@ -271,3 +271,33 @@ test('wake settings load, validate and submit without exposing secrets', async()
  const body=requested.find(r=>r.options?.method==='POST').options.body;
  assert.equal(body.get('wake_enabled'),'1');assert.equal(body.get('wake_pause_seconds'),'3');
 });
+
+test('manual button mode loads saved hold, explains behavior and submits selection',async()=>{
+ const page=await openSetupPage({gateway_url_set:true,button_mode:'hold',wifi_networks:[{ssid:'Home',password_set:true}]});
+ assert.equal(page.elements['button-mode'].value,'hold');
+ assert.match(page.elements['button-mode-help'].textContent,/Удерживайте/);
+ assert.match(page.elements['button-mode-help'].textContent,/Пауза не завершает/);
+ assert.match(page.elements['button-mode-help'].textContent,/до начала речи/);
+ page.elements['button-mode'].value='toggle';page.context.buttonModeHint();
+ assert.match(page.elements['button-mode-help'].textContent,/Повторное нажатие/);
+ await page.context.saveCfg();
+ assert.equal(page.requested.find(r=>r.options?.method==='POST').options.body.get('button_mode'),'toggle');
+});
+
+test('manual button mode defaults safely and invalid edited value never posts',async()=>{
+ for(const saved of [undefined,'invalid','HOLD',1]){
+  const page=await openSetupPage({gateway_url_set:true,button_mode:saved,wifi_networks:[{ssid:'Home',password_set:true}]});
+  assert.equal(page.elements['button-mode'].value,'toggle');
+  page.elements['button-mode'].value='invalid';await page.context.saveCfg();
+  assert.equal(page.requested.some(r=>r.options?.method==='POST'),false);
+  assert.match(page.elements.info.textContent,/режим кнопки/);
+ }
+});
+
+test('manual hold setting is saved without changing wake or configured pause',async()=>{
+ const page=await openSetupPage({gateway_url_set:true,button_mode:'hold',wake_enabled:true,wake_pause_seconds:7,wifi_networks:[{ssid:'Home',password_set:true}]});
+ await page.context.saveCfg();
+ const body=page.requested.find(r=>r.options?.method==='POST').options.body;
+ assert.equal(body.get('button_mode'),'hold');assert.equal(body.get('wake_enabled'),'1');assert.equal(body.get('wake_pause_seconds'),'7');
+ assert.match(html,/После слова «Затея» и уточняющего вопроса/);
+});

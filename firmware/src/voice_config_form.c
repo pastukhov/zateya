@@ -33,6 +33,8 @@ static bool update_form_field(char *dst, size_t cap, const char *value) {
 bool voice_config_parse_form(char *body, voice_settings_t *next) {
   if (!body || !next) return false;
   bool token_given = false;
+  bool button_mode_given = false;
+  voice_button_mode_t button_mode = next->button_mode;
   char old_gateway[sizeof(next->gateway_url)];
   memcpy(old_gateway, next->gateway_url, sizeof(old_gateway));
   char old_ssids[VOICE_WIFI_PROFILE_COUNT][33];
@@ -45,12 +47,21 @@ bool voice_config_parse_form(char *body, voice_settings_t *next) {
     char *pair_end = strchr(cursor, '&');
     if (!pair_end) pair_end = cursor + strlen(cursor);
     char *equals = memchr(cursor, '=', (size_t)(pair_end - cursor));
+    if(!equals && (size_t)(pair_end-cursor)==strlen("button_mode") &&
+       !strncmp(cursor,"button_mode",(size_t)(pair_end-cursor)))return false;
     if (equals) {
       char key[40], value[256];
       if (!decode_form_component(cursor, (size_t)(equals - cursor), key, sizeof(key)) ||
           !decode_form_component(equals + 1, (size_t)(pair_end - equals - 1), value, sizeof(value))) return false;
       char *dst = NULL; size_t cap = 0;
-      if (strcmp(key,"wake_enabled")==0) {
+      if (strcmp(key,"button_mode")==0) {
+        if(button_mode_given)return false;
+        button_mode_given=true;
+        if(!strcmp(value,"toggle"))button_mode=VOICE_BUTTON_TOGGLE;
+        else if(!strcmp(value,"hold"))button_mode=VOICE_BUTTON_HOLD;
+        else return false;
+      }
+      else if (strcmp(key,"wake_enabled")==0) {
         if(strcmp(value,"0") && strcmp(value,"1"))return false;
         next->wake_enabled=value[0]=='1';
       }
@@ -101,5 +112,7 @@ bool voice_config_parse_form(char *body, voice_settings_t *next) {
   }
   // Do not let an unauthenticated destination edit forward a saved bearer token.
   if (strcmp(old_gateway, next->gateway_url) != 0 && !token_given) return false;
-  return voice_settings_valid(next);
+  if(!voice_settings_valid(next))return false;
+  next->button_mode=button_mode;
+  return true;
 }

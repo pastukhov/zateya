@@ -2,6 +2,7 @@
 #define VOICE_SETTINGS_H
 
 #include "voice_wifi_profiles.h"
+#include "voice_button_mode.h"
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -25,6 +26,7 @@ typedef struct {
   uint32_t sleep_timeout_seconds;
   bool wake_enabled;
   uint32_t wake_pause_ms;
+  voice_button_mode_t button_mode;
   char request_id[37];
   char turn_id[37];
 } voice_settings_t;
@@ -35,6 +37,7 @@ void voice_settings_factory_defaults(voice_settings_t *settings);
 esp_err_t voice_settings_reset(void);
 uint8_t voice_settings_load_brightness(void);
 esp_err_t voice_settings_save_brightness(uint8_t level);
+voice_button_mode_t voice_settings_button_mode_from_stored(uint8_t value);
 bool voice_settings_parse_sleep_timeout(const char *value, uint32_t *seconds);
 bool voice_settings_valid(const voice_settings_t *settings);
 void voice_settings_set_device_id_from_mac(voice_settings_t *settings,

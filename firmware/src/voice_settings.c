@@ -43,6 +43,7 @@ static void defaults(voice_settings_t *s) {
   s->sleep_timeout_seconds = VOICE_SLEEP_DEFAULT_SECONDS;
   s->wake_enabled = true;
   s->wake_pause_ms = 3000;
+  s->button_mode = VOICE_BUTTON_TOGGLE;
 }
 
 void voice_settings_factory_defaults(voice_settings_t *s) {
@@ -52,6 +53,10 @@ void voice_settings_factory_defaults(voice_settings_t *s) {
   memset(s->wifi, 0, sizeof(s->wifi));
   memset(s->gateway_url, 0, sizeof(s->gateway_url));
   memset(s->device_token, 0, sizeof(s->device_token));
+}
+
+voice_button_mode_t voice_settings_button_mode_from_stored(uint8_t value) {
+  return value == VOICE_BUTTON_HOLD ? VOICE_BUTTON_HOLD : VOICE_BUTTON_TOGGLE;
 }
 
 bool voice_settings_parse_sleep_timeout(const char *value, uint32_t *seconds) {
@@ -128,6 +133,9 @@ esp_err_t voice_settings_load(voice_settings_t *s) {
     size_t len = fields[i].cap;
     (void)nvs_get_str(h, fields[i].key, fields[i].value, &len);
   }
+  uint8_t button_mode = VOICE_BUTTON_TOGGLE;
+  (void)nvs_get_u8(h, "button_mode", &button_mode);
+  s->button_mode = voice_settings_button_mode_from_stored(button_mode);
   uint8_t wake_enabled = 1;
   (void)nvs_get_u8(h, "wake_enabled", &wake_enabled);
   s->wake_enabled = wake_enabled != 0;
@@ -168,6 +176,7 @@ static esp_err_t save_unlocked(const voice_settings_t *s) {
   if (err == ESP_OK) err = nvs_set_u32(h, "sleep_seconds", s->sleep_timeout_seconds);
   if (err == ESP_OK) err = nvs_set_u8(h,"wake_enabled",s->wake_enabled);
   if (err == ESP_OK) err = nvs_set_u32(h,"wake_pause_ms",s->wake_pause_ms);
+  if (err == ESP_OK) err = nvs_set_u8(h,"button_mode",voice_settings_button_mode_from_stored((uint8_t)s->button_mode));
   if (err == ESP_OK) err = nvs_commit(h);
   nvs_close(h);
   return err;

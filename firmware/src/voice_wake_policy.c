@@ -5,6 +5,14 @@ void voice_wake_init(voice_wake_t *w, uint32_t pause_ms, uint32_t max_ms) {
     .pause_ms = pause_ms < 1000 ? 1000 : pause_ms > 10000 ? 10000 : pause_ms,
     .max_ms = max_ms ? max_ms : 600000};
 }
+void voice_wake_capture_init(voice_wake_t *w, uint32_t pause_ms, uint32_t max_ms,
+                             bool manual, voice_button_mode_t mode) {
+  voice_wake_init(w,pause_ms,max_ms);
+  w->manual_hold=manual && mode==VOICE_BUTTON_HOLD;
+}
+bool voice_wake_button_finish(const voice_wake_t *w, bool pressed, bool released) {
+  return w->manual_hold ? released : pressed;
+}
 bool voice_wake_activate(voice_wake_t *w, bool eligible, uint32_t now) {
   if (!eligible || w->state != WAKE_ARMED) return false;
   w->state = WAKE_CUE;
@@ -50,7 +58,7 @@ voice_wake_event_t voice_wake_tick(voice_wake_t *w, bool eligible,
   }
   if (speech) w->last_speech_ms = now;
   if (finish || (uint32_t)(now - w->started_ms) >= w->max_ms ||
-      (uint32_t)(now - w->last_speech_ms) >= w->pause_ms) {
+      (!w->manual_hold && (uint32_t)(now - w->last_speech_ms) >= w->pause_ms)) {
     w->state = WAKE_DONE;
     return WAKE_FINISH;
   }
