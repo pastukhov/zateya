@@ -98,9 +98,9 @@ deploys the backend. No firmware change is expected.
   Yunnan decision, Raja Ampat uncertainties, follow-up diving comparison, absent
   facts, conflicting notes, malicious note instructions, then a new dictated note.
   Assert correct operation, real citations and no query-created Markdown.
-- [ ] Document API/operations, search limits and verification evidence. Commit/push
+- [x] Document API/operations, search limits and verification evidence. Commit/push
   scoped changes and deploy backend with a rollback image retained.
-- [ ] Verify health plus authenticated result metadata; distinguish server/model
+- [x] Verify health plus authenticated result metadata; distinguish server/model
   verification from actual microphone/playback verification on the recorder.
 
 ## Verification before rollout (2026-11-04)
@@ -123,3 +123,17 @@ travel alternatives and an unresolved route question with two verified citations
 All copied Markdown hashes stayed unchanged. First attempt hit the configured
 model timeout; a fresh attempt succeeded. Retrieval reported truncation honestly.
 No live vault mutation or physical microphone/playback test was performed.
+
+## Rollout
+
+Implementation commit `2ad0cc3` pushed and cherry-picked onto the clean server
+checkout with prerequisite documentation commits. Backend image rebuilt and
+healthy; nginx recreated with the new fixed routes. Previous image retained as
+`zateya-voice-gateway:before-obsidian-qa-20261104`.
+
+External HTTPS checks passed: readiness 200, authenticated history 200 (20 owned
+ready jobs), private/no-store header, history and answer without token 401,
+unknown authenticated answer 404. Existing status records fit below 768 bytes.
+Successful answer payloads and owner isolation were verified in API tests;
+production probe did not fabricate a voice job. OTA stays at release 23. Physical
+microphone/STT/playback verification remains outstanding.
