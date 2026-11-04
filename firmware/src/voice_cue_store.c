@@ -1,4 +1,5 @@
 #include "voice_cue_store.h"
+#include "voice_cue_opus.h"
 #include <stdio.h>
 #include <errno.h>
 #include <string.h>
@@ -26,27 +27,35 @@ bool voice_cue_store_layout_valid(uint32_t size,const voice_cue_partition_t *p,s
  }
  return seen==31;
 }
-bool voice_cue_record_encode(uint8_t h[VOICE_CUE_RECORD_HEADER],voice_cue_name_t name,size_t size,const char *sha){
+bool voice_cue_record_encode_codec(uint8_t h[VOICE_CUE_RECORD_HEADER],voice_cue_name_t name,size_t size,const char *sha,voice_cue_codec_t codec){
  const char *label=voice_cue_name(name);
- if(!h||!label||!voice_cue_metadata_valid(size,24000,1,16,sha))return false;
- memset(h,0,VOICE_CUE_RECORD_HEADER);memcpy(h,"VCUEPCM1",8);put32(h+8,1);put32(h+12,(uint32_t)size);
- memcpy(h+16,label,strlen(label));memcpy(h+40,sha,64);put32(h+108,24000);h[112]=1;h[114]=16;
+ if(!h||!label||!sha||strlen(sha)!=64)return false;
+ for(unsigned i=0;i<64;i++)if(!((sha[i]>='0'&&sha[i]<='9')||(sha[i]>='a'&&sha[i]<='f')))return false;
+ if(codec==VOICE_CUE_PCM16){if(!voice_cue_metadata_valid(size,24000,1,16,sha))return false;}
+ else if(codec!=VOICE_CUE_OPUS||size<34||size>65536)return false;
+ memset(h,0,VOICE_CUE_RECORD_HEADER);memcpy(h,codec==VOICE_CUE_OPUS?"VCUEOPU1":"VCUEPCM1",8);put32(h+8,codec==VOICE_CUE_OPUS?2:1);put32(h+12,(uint32_t)size);
+ memcpy(h+16,label,strlen(label));memcpy(h+40,sha,64);put32(h+108,24000);h[112]=1;h[114]=16;put32(h+116,codec);
  return true;
 }
 bool voice_cue_record_decode(const uint8_t h[VOICE_CUE_RECORD_HEADER],voice_cue_name_t name,size_t bytes,voice_cue_record_t *r){
  const char *label=voice_cue_name(name);
- if(!h||!r||!label||memcmp(h,"VCUEPCM1",8)||u32(h+8)!=1||
+ if(!h||!r||!label)return false;
+ voice_cue_codec_t codec=!memcmp(h,"VCUEPCM1",8)&&u32(h+8)==1?VOICE_CUE_PCM16:
+  !memcmp(h,"VCUEOPU1",8)&&u32(h+8)==2?VOICE_CUE_OPUS:(voice_cue_codec_t)2;
+ if(codec>VOICE_CUE_OPUS||u32(h+116)!=(uint32_t)codec||
     !memchr(h+16,0,24)||strcmp((const char*)h+16,label)||h[104]||
     u32(h+108)!=24000||h[112]!=1||h[113]||h[114]!=16||h[115])return false;
  size_t n=u32(h+12);char sha[65];memcpy(sha,h+40,64);sha[64]=0;
- if(!voice_cue_metadata_valid(n,24000,1,16,sha)||bytes!=VOICE_CUE_RECORD_HEADER+n)return false;
- r->size=n;memcpy(r->sha,sha,65);return true;
+ uint8_t expected[128];
+ if(!voice_cue_record_encode_codec(expected,name,n,sha,codec)||bytes!=VOICE_CUE_RECORD_HEADER+n)return false;
+ r->size=n;r->codec=codec;memcpy(r->sha,sha,65);return true;
 }
 bool voice_cue_record_verify(const uint8_t h[VOICE_CUE_RECORD_HEADER],const uint8_t *pcm,size_t n,voice_cue_name_t name,voice_cue_hash_fn hash){
  voice_cue_record_t r;uint8_t digest[32];char actual[65];
  if(!pcm||!hash||!voice_cue_record_decode(h,name,VOICE_CUE_RECORD_HEADER+n,&r)||!hash(pcm,n,digest))return false;
  for(unsigned i=0;i<32;i++)snprintf(actual+2*i,3,"%02x",digest[i]);
- return !strcmp(actual,r.sha);
+ voice_cue_opus_t opus;
+ return !strcmp(actual,r.sha) && (r.codec==VOICE_CUE_PCM16 || voice_cue_opus_parse(pcm,n,&opus));
 }
 static bool path(voice_cue_store_t *s,voice_cue_name_t name,const char *suffix,char out[192]){
  const char *label=voice_cue_name(name);if(!s||!label)return false;
@@ -62,40 +71,41 @@ static bool header(FILE *f,voice_cue_name_t name,uint8_t h[128],voice_cue_record
   info.st_size<=128+VOICE_CUE_MAX_BYTES && fread(h,1,128,f)==128 &&
   voice_cue_record_decode(h,name,(size_t)info.st_size,r);
 }
-bool voice_cue_store_info(voice_cue_store_t *s,voice_cue_name_t name,voice_cue_record_t *r){
- char file[192];uint8_t h[128];if(!path(s,name,"vcue",file))return false;
+bool voice_cue_store_info_codec(voice_cue_store_t *s,voice_cue_name_t name,voice_cue_codec_t codec,voice_cue_record_t *r){
+ char file[192];uint8_t h[128];if(!path(s,name,codec==VOICE_CUE_OPUS?"vopus":"vcue",file))return false;
  FILE *f=fopen(file,"rb");if(!f)return false;
- bool valid=header(f,name,h,r);if(fclose(f))valid=false;
+ bool valid=header(f,name,h,r)&&r->codec==codec;if(fclose(f))valid=false;
  return valid;
 }
-bool voice_cue_store_load(voice_cue_store_t *s,voice_cue_name_t name,uint8_t *pcm,size_t cap,voice_cue_record_t *r){
- char file[192];uint8_t h[128];if(!pcm||!path(s,name,"vcue",file))return false;
+bool voice_cue_store_load_codec(voice_cue_store_t *s,voice_cue_name_t name,voice_cue_codec_t codec,uint8_t *pcm,size_t cap,voice_cue_record_t *r){
+ char file[192];uint8_t h[128];if(!pcm||!path(s,name,codec==VOICE_CUE_OPUS?"vopus":"vcue",file))return false;
  FILE *f=fopen(file,"rb");if(!f)return false;
- bool valid=header(f,name,h,r) && r->size<=cap && fread(pcm,1,r->size,f)==r->size &&
+ bool valid=header(f,name,h,r) && r->codec==codec && r->size<=cap && fread(pcm,1,r->size,f)==r->size &&
   voice_cue_record_verify(h,pcm,r->size,name,s->hash);
  if(fclose(f))valid=false;
  return valid;
 }
-static bool identical(const char *file,voice_cue_name_t name,const uint8_t *pcm,size_t size,const char *sha){
+static bool identical(const char *file,voice_cue_name_t name,const uint8_t *pcm,size_t size,const char *sha,voice_cue_codec_t codec){
  FILE *f=fopen(file,"rb");if(!f)return false;
  uint8_t h[128],chunk[512];voice_cue_record_t r;
- bool valid=header(f,name,h,&r)&&r.size==size&&!strcmp(r.sha,sha);
+ bool valid=header(f,name,h,&r)&&r.codec==codec&&r.size==size&&!strcmp(r.sha,sha);
  for(size_t offset=0;valid&&offset<size;){size_t n=size-offset;if(n>sizeof(chunk))n=sizeof(chunk);
   valid=fread(chunk,1,n,f)==n&&!memcmp(chunk,pcm+offset,n);offset+=n;
  }
  if(fclose(f))valid=false;
  return valid;
 }
-voice_cue_store_result_t voice_cue_store_put(voice_cue_store_t *s,voice_cue_name_t name,const uint8_t *pcm,size_t size,const char *sha){
+voice_cue_store_result_t voice_cue_store_put_codec(voice_cue_store_t *s,voice_cue_name_t name,const uint8_t *pcm,size_t size,const char *sha,voice_cue_codec_t codec){
  uint8_t h[128];char file[192],temp[192];
- if(!s||!voice_cue_record_encode(h,name,size,sha)||!voice_cue_record_verify(h,pcm,size,name,s->hash)||
-    !path(s,name,"vcue",file)||!path(s,name,"tmp",temp))return VOICE_CUE_STORE_FAILED;
- if(identical(file,name,pcm,size,sha))return VOICE_CUE_STORE_UNCHANGED;
+ if(!s||!voice_cue_record_encode_codec(h,name,size,sha,codec)||!voice_cue_record_verify(h,pcm,size,name,s->hash)||
+    !path(s,name,codec==VOICE_CUE_OPUS?"vopus":"vcue",file)||!path(s,name,codec==VOICE_CUE_OPUS?"opus.tmp":"tmp",temp))return VOICE_CUE_STORE_FAILED;
+ if(identical(file,name,pcm,size,sha,codec))return VOICE_CUE_STORE_UNCHANGED;
  uint64_t total=128+size;
- for(unsigned i=0;i<VOICE_CUE_COUNT;i++)if(i!=(unsigned)name){
-  char other[192];struct stat info;path(s,(voice_cue_name_t)i,"vcue",other);
+ for(unsigned i=0;i<VOICE_CUE_COUNT;i++)for(unsigned kind=0;kind<2;kind++){
+  if(i==(unsigned)name&&kind==(unsigned)codec)continue;
+  char other[192];struct stat info;path(s,(voice_cue_name_t)i,kind?"vopus":"vcue",other);
   if(stat(other,&info)==0){
-   if(!S_ISREG(info.st_mode)||info.st_size<0||info.st_size>128+VOICE_CUE_MAX_BYTES)return VOICE_CUE_STORE_FAILED;
+   if(!S_ISREG(info.st_mode)||info.st_size<0||info.st_size>128+(kind?65536:240000))return VOICE_CUE_STORE_FAILED;
    total+=(uint64_t)info.st_size;
   }else if(errno!=ENOENT)return VOICE_CUE_STORE_FAILED;
  }
@@ -109,10 +119,16 @@ voice_cue_store_result_t voice_cue_store_put(voice_cue_store_t *s,voice_cue_name
  if(fflush(f))valid=false;
  if(valid&&fsync(fileno(f)))valid=false;
  if(fclose(f))valid=false;
- if(valid)valid=identical(temp,name,pcm,size,sha);
+ if(valid)valid=identical(temp,name,pcm,size,sha,codec);
  if(!valid || rename(temp,file)){(void)unlink(temp);return VOICE_CUE_STORE_FAILED;}
  return VOICE_CUE_STORE_WRITTEN;
 }
 void voice_cue_store_clean_temps(voice_cue_store_t *s){
- for(unsigned i=0;i<VOICE_CUE_COUNT;i++){char temp[192];if(path(s,(voice_cue_name_t)i,"tmp",temp))(void)unlink(temp);}
+ for(unsigned i=0;i<VOICE_CUE_COUNT;i++)for(unsigned kind=0;kind<2;kind++){
+  char temp[192];if(path(s,(voice_cue_name_t)i,kind?"opus.tmp":"tmp",temp))(void)unlink(temp);
+ }
 }
+bool voice_cue_record_encode(uint8_t h[128],voice_cue_name_t name,size_t n,const char *sha){return voice_cue_record_encode_codec(h,name,n,sha,VOICE_CUE_PCM16);}
+bool voice_cue_store_info(voice_cue_store_t *s,voice_cue_name_t name,voice_cue_record_t *r){return voice_cue_store_info_codec(s,name,VOICE_CUE_PCM16,r);}
+bool voice_cue_store_load(voice_cue_store_t *s,voice_cue_name_t name,uint8_t *p,size_t n,voice_cue_record_t *r){return voice_cue_store_load_codec(s,name,VOICE_CUE_PCM16,p,n,r);}
+voice_cue_store_result_t voice_cue_store_put(voice_cue_store_t *s,voice_cue_name_t name,const uint8_t *p,size_t n,const char *sha){return voice_cue_store_put_codec(s,name,p,n,sha,VOICE_CUE_PCM16);}

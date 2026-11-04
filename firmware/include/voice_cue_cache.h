@@ -4,17 +4,22 @@
 #include <stddef.h>
 #include <stdint.h>
 #define VOICE_CUE_MAX_BYTES 240000
+typedef enum {VOICE_CUE_PCM16,VOICE_CUE_OPUS} voice_cue_codec_t;
+typedef struct {const uint8_t *data;size_t size;voice_cue_codec_t codec;} voice_cue_audio_t;
 typedef enum {VOICE_CUE_LISTENING,VOICE_CUE_PROCESSING,VOICE_CUE_OFFLINE,
  VOICE_CUE_READY,VOICE_CUE_DONE,VOICE_CUE_CANCELLED,VOICE_CUE_TRANSCRIBING,
  VOICE_CUE_THINKING,VOICE_CUE_SYNTHESIZING,VOICE_CUE_ANSWERING,VOICE_CUE_ERROR,
  VOICE_CUE_TIMEOUT,VOICE_CUE_RECOGNITION_ERROR,VOICE_CUE_SYNTHESIS_ERROR,VOICE_CUE_COUNT} voice_cue_name_t;
 /* Pure slot policy; caller serializes access and owns buffer allocation/free. */
-typedef struct {uint8_t *pcm;size_t size;unsigned readers;} voice_cue_slot_t;
+typedef struct {uint8_t *pcm;size_t size;unsigned readers;voice_cue_codec_t codec;} voice_cue_slot_t;
 bool voice_cue_metadata_valid(size_t size, int rate, int channels, int bits, const char *sha);
 bool voice_cue_slot_publish(voice_cue_slot_t *slot, uint8_t *pcm, size_t size, uint8_t **old);
 const uint8_t *voice_cue_slot_acquire(voice_cue_slot_t *slot, size_t *size);
 void voice_cue_slot_release(voice_cue_slot_t *slot);
 typedef struct {voice_cue_slot_t slots[VOICE_CUE_COUNT];} voice_cue_bank_t;
+bool voice_cue_bank_publish_codec(voice_cue_bank_t *bank,voice_cue_name_t name,uint8_t *data,size_t size,voice_cue_codec_t codec,uint8_t **old);
+voice_cue_audio_t voice_cue_bank_acquire_audio(voice_cue_bank_t *bank,voice_cue_name_t name);
+voice_cue_audio_t voice_cue_cache_acquire_audio(voice_cue_name_t name);
 bool voice_cue_bank_publish(voice_cue_bank_t *bank,voice_cue_name_t name,uint8_t *pcm,size_t size,uint8_t **old);
 const uint8_t *voice_cue_bank_acquire(voice_cue_bank_t *bank,voice_cue_name_t name,size_t *size);
 void voice_cue_bank_release(voice_cue_bank_t *bank,voice_cue_name_t name);

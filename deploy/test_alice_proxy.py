@@ -73,7 +73,7 @@ ThreadingHTTPServer(('0.0.0.0', 8080), Handler).serve_forever()
         assert request('/api/voice/turns')[0] == 405
         assert request('/health/ready')[0] == 200
         for path in ['/api/voice/history', '/api/voice/turns/'+str(uuid.uuid4())+'/answer', '/api/firmware/manifest', '/api/voice/turns/'+str(uuid.uuid4()),
-                     '/api/device/cues/listening', '/api/device/cues/processing', '/api/device/cues/offline',
+                     '/api/device/cues/listening?codec=opus-v1', '/api/device/cues/audio/'+'a'*64+'.vop', '/api/device/cues/listening', '/api/device/cues/processing', '/api/device/cues/offline',
                      '/api/device/cues/ready', '/api/device/cues/done', '/api/device/cues/cancelled',
                      '/api/device/cues/transcribing', '/api/device/cues/thinking', '/api/device/cues/synthesizing',
                      '/api/device/cues/answering', '/api/device/cues/error', '/api/device/cues/timeout',

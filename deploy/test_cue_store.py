@@ -17,7 +17,7 @@ class Store(C.Structure):
     _fields_=[('root',C.c_char*128),('hash',HASH),('limit',C.c_size_t)]
 
 class Record(C.Structure):
-    _fields_=[('size',C.c_size_t),('sha',C.c_char*65)]
+    _fields_=[('size',C.c_size_t),('sha',C.c_char*65),('codec',C.c_int)]
 
 @pytest.fixture(scope='module')
 def library(tmp_path_factory):
@@ -37,7 +37,7 @@ int __wrap_rename(const char*a,const char*b){return fault==4?-1:__real_rename(a,
 ''')
     out=root/'store.so'
     subprocess.run(['cc','-shared','-fPIC','-Wall','-Wextra','-Werror','-I'+str(ROOT/'firmware/include'),
-        str(ROOT/'firmware/src/voice_cue_store.c'),str(ROOT/'firmware/src/voice_cue_cache.c'),str(shim),
+        str(ROOT/'firmware/src/voice_cue_store.c'),str(ROOT/'firmware/src/voice_cue_cache.c'),str(ROOT/'firmware/src/voice_cue_opus.c'),str(shim),
         '-Wl,--wrap=fwrite,--wrap=fclose,--wrap=fsync,--wrap=rename','-o',str(out)],check=True)
     lib=C.CDLL(str(out))
     lib.voice_cue_store_init.argtypes=[C.POINTER(Store),C.c_char_p,HASH];lib.voice_cue_store_init.restype=C.c_bool
@@ -91,3 +91,28 @@ def test_full_cache_preserves_valid_records_and_unknown_files(library,tmp_path):
     foreign=tmp_path/'foreign.tmp';foreign.write_text('keep')
     lib.voice_cue_store_clean_temps(C.byref(store))
     assert foreign.read_text()=='keep'
+
+
+def test_opus_record_retains_legacy_rollback_and_failed_replace(library,tmp_path):
+    from backend.src.voice_gateway.cues.opus import encode_pcm
+    lib=library;store=init(lib,tmp_path);pcm=b'\x01\0'*2000
+    assert put(lib,store,pcm)==2
+    legacy=(tmp_path/'listening.vcue').read_bytes()
+    lib.voice_cue_store_put_codec.argtypes=lib.voice_cue_store_put.argtypes+[C.c_int]
+    lib.voice_cue_store_put_codec.restype=C.c_int
+    def encoded_put(data):
+        return lib.voice_cue_store_put_codec(C.byref(store),0,data,len(data),hashlib.sha256(data).hexdigest().encode(),1)
+    data=encode_pcm(pcm);assert encoded_put(data)==2
+    original=(tmp_path/'listening.vopus').read_bytes()
+    assert (tmp_path/'listening.vcue').read_bytes()==legacy and load(lib,store)==pcm
+    lib.test_fault(4)
+    try:assert encoded_put(encode_pcm(b'\0\0'*2400))==0
+    finally:lib.test_fault(0)
+    assert (tmp_path/'listening.vopus').read_bytes()==original
+    assert encoded_put(data[:-1])==0
+    wrong=bytearray(original);wrong[:8]=b'VCUEPCM1';wrong[8:12]=(1).to_bytes(4,'little');wrong[116:120]=bytes(4)
+    (tmp_path/'listening.vopus').write_bytes(wrong)
+    assert encoded_put(data)==2
+    assert (tmp_path/'listening.vopus').read_bytes()==original
+    store.limit=len(legacy)+128
+    assert encoded_put(encode_pcm(b'\0\0'*3000))==0

@@ -1,5 +1,6 @@
 #include "voice_cue_cache.h"
 #include "voice_cue_store.h"
+#include "voice_cue_opus.h"
 #ifdef ESP_PLATFORM
 #include <stdatomic.h>
 #include <stdio.h>
@@ -29,16 +30,18 @@ static int64_t next_persist[VOICE_CUE_COUNT];
 static char disk_sha[VOICE_CUE_COUNT][65];
 static void preload(void){
  persistent=voice_cue_store_mount();if(!persistent)return;
- for(unsigned i=0;i<VOICE_CUE_COUNT;i++){
-  voice_cue_record_t record;
-  if(!voice_cue_store_info(persistent,(voice_cue_name_t)i,&record))continue;
-  uint8_t *pcm=heap_caps_malloc(record.size,MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT);
-  if(!pcm)continue;
-  if(!voice_cue_store_load(persistent,(voice_cue_name_t)i,pcm,record.size,&record)){free(pcm);continue;}
+ for(unsigned i=0;i<VOICE_CUE_COUNT;i++)for(int kind=VOICE_CUE_OPUS;kind>=VOICE_CUE_PCM16;kind--){
+  voice_cue_record_t record;voice_cue_codec_t codec=(voice_cue_codec_t)kind;
+  if(!voice_cue_store_info_codec(persistent,(voice_cue_name_t)i,codec,&record))continue;
+  uint8_t *data=heap_caps_malloc(record.size,MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT);
+  if(!data)continue;
+  if(!voice_cue_store_load_codec(persistent,(voice_cue_name_t)i,codec,data,record.size,&record)||
+     (codec==VOICE_CUE_OPUS&&!voice_cue_opus_validate(data,record.size,NULL))){free(data);continue;}
   uint8_t *old=NULL;
-  if(!voice_cue_bank_publish(&bank,(voice_cue_name_t)i,pcm,record.size,&old)){free(pcm);continue;}
+  if(!voice_cue_bank_publish_codec(&bank,(voice_cue_name_t)i,data,record.size,codec,&old)){free(data);continue;}
   memcpy(current_sha[i],record.sha,65);memcpy(disk_sha[i],record.sha,65);free(old);
-  ESP_LOGI("cue_cache","%s cue loaded offline: %u bytes",voice_cue_name((voice_cue_name_t)i),(unsigned)record.size);
+  ESP_LOGI("cue_cache","%s cue loaded offline: %u bytes codec %d",voice_cue_name((voice_cue_name_t)i),(unsigned)record.size,kind);
+  break;
  }
 }
 static void persist(unsigned i,int64_t now){
@@ -47,9 +50,9 @@ static void persist(unsigned i,int64_t now){
  if(!atomic_load(&idle)||!voice_ota_storage_begin())return;
  /* Whole filesystem mutation has its own owner, never the app voice lease. */
  if(!atomic_load(&idle)){voice_ota_storage_end();return;}
- size_t size=0;const uint8_t *pcm=voice_cue_cache_acquire_named((voice_cue_name_t)i,&size);
- if(!pcm){voice_ota_storage_end();return;}
- voice_cue_store_result_t result=voice_cue_store_put(persistent,(voice_cue_name_t)i,pcm,size,current_sha[i]);
+ voice_cue_audio_t audio=voice_cue_cache_acquire_audio((voice_cue_name_t)i);bool acquired=audio.data!=NULL;
+ if(!acquired){voice_ota_storage_end();return;}
+ voice_cue_store_result_t result=voice_cue_store_put_codec(persistent,(voice_cue_name_t)i,audio.data,audio.size,current_sha[i],audio.codec);
  voice_cue_cache_release_named((voice_cue_name_t)i);voice_ota_storage_end();
  if(result!=VOICE_CUE_STORE_FAILED){
   memcpy(disk_sha[i],current_sha[i],65);pending_disk[i]=false;
@@ -89,33 +92,48 @@ static bool integer(cJSON *o,const char *name,int *value) {
  if(!cJSON_IsNumber(x) || x->valuedouble<0 || x->valuedouble>VOICE_CUE_MAX_BYTES || x->valuedouble!=x->valueint)return false;
  *value=x->valueint;return true;
 }
+static bool validation_allowed(void){vTaskDelay(1);return atomic_load(&idle);}
 static void refresh(voice_cue_name_t name) {
- char manifest_path[64];
- snprintf(manifest_path,sizeof(manifest_path),"/api/device/cues/%s",voice_cue_name(name));
+ char manifest_path[96];
+ snprintf(manifest_path,sizeof(manifest_path),"/api/device/cues/%s?codec=opus-v1",voice_cue_name(name));
  uint8_t manifest[1024];int n=fetch(manifest_path,manifest,sizeof(manifest)-1);
  if(n<=0)return;
  manifest[n]=0;
  cJSON *o=cJSON_Parse((char*)manifest);if(!o)return;
- int size,rate,channels,bits;char sha[65];
+ int size,rate,channels,bits,samples,skip,frame,count,bitrate;char sha[65];
  cJSON *digest=cJSON_GetObjectItemCaseSensitive(o,"sha256");
  bool valid=integer(o,"size",&size)&&integer(o,"sample_rate",&rate)&&
  integer(o,"channels",&channels)&&integer(o,"bits_per_sample",&bits)&&cJSON_IsString(digest)&&
- voice_cue_metadata_valid((size_t)size,rate,channels,bits,digest->valuestring);
+ size>=34&&size<=VOICE_OPUS_MAX_BYTES&&rate==24000&&channels==1&&bits==16&&
+ cJSON_IsString(cJSON_GetObjectItemCaseSensitive(o,"codec"))&&
+ !strcmp(cJSON_GetObjectItemCaseSensitive(o,"codec")->valuestring,"opus-v1")&&
+ strlen(digest->valuestring)==64&&
+ cJSON_IsString(cJSON_GetObjectItemCaseSensitive(o,"container"))&&
+ !strcmp(cJSON_GetObjectItemCaseSensitive(o,"container")->valuestring,"vcopus1")&&
+ integer(o,"samples",&samples)&&samples>0&&samples<=120000&&
+ integer(o,"preskip",&skip)&&skip<=960&&integer(o,"frame_samples",&frame)&&frame==480&&
+ integer(o,"packet_count",&count)&&count>0&&count<=252&&integer(o,"bitrate",&bitrate)&&bitrate==24000;
+ if(valid)for(unsigned i=0;i<64;i++)if(!((digest->valuestring[i]>='0'&&digest->valuestring[i]<='9')||(digest->valuestring[i]>='a'&&digest->valuestring[i]<='f')))valid=false;
  if(valid)memcpy(sha,digest->valuestring,65);
  cJSON_Delete(o);
  if(!valid || strcmp(sha,current_sha[name])==0)return;
  uint8_t *pcm=heap_caps_malloc((size_t)size,MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT);
  if(!pcm)return;
- char path[128];snprintf(path,sizeof(path),"/api/device/cues/audio/%s.pcm",sha);
+ char path[128];snprintf(path,sizeof(path),"/api/device/cues/audio/%s.vop",sha);
  n=fetch(path,pcm,(size_t)size);
  uint8_t digest_bytes[32];char actual[65];
  if(n!=size || mbedtls_sha256(pcm,(size_t)size,digest_bytes,0)!=0){free(pcm);return;}
  for(unsigned i=0;i<32;i++)snprintf(actual+i*2,3,"%02x",digest_bytes[i]);
- if(strcmp(sha,actual)!=0 || !allowed()){free(pcm);return;}
+ voice_cue_opus_t parsed;
+ if(strcmp(sha,actual)!=0 || !voice_cue_opus_parse(pcm,(size_t)size,&parsed)||parsed.samples!=(unsigned)samples||parsed.preskip!=(unsigned)skip||parsed.count!=(unsigned)count|| !allowed()){free(pcm);return;}
+ /* Serialise decoder validation with voice/OTA, then publish only playable data. */
+ if(!voice_ota_storage_begin()){free(pcm);return;}
+ bool playable=atomic_load(&idle)&&voice_cue_opus_validate(pcm,(size_t)size,validation_allowed);
+ if(!playable){voice_ota_storage_end();free(pcm);return;}
  uint8_t *old=NULL;
  xSemaphoreTake(mutex,portMAX_DELAY);
- bool published=allowed() && voice_cue_bank_publish(&bank,name,pcm,(size_t)size,&old);
- xSemaphoreGive(mutex);
+ bool published=allowed() && voice_cue_bank_publish_codec(&bank,name,pcm,(size_t)size,VOICE_CUE_OPUS,&old);
+ xSemaphoreGive(mutex);voice_ota_storage_end();
  if(published){memcpy(current_sha[name],sha,65);
   pending_disk[name]=strcmp(disk_sha[name],sha)!=0;next_persist[name]=0;
   free(old);ESP_LOGI("cue_cache","%s cue cached: %d bytes",voice_cue_name(name),size);}
@@ -145,7 +163,7 @@ bool voice_cue_cache_start(const char *gateway,const char *id,const char *token)
  int a=snprintf(base,sizeof(base),"%.*s",(int)len,gateway);
  int b=snprintf(device,sizeof(device),"%s",id);int c=snprintf(auth,sizeof(auth),"Bearer %s",token);
  if(a<=0||a>=sizeof(base)||b<=0||b>=sizeof(device)||c<=0||c>=sizeof(auth))return false;
- if(xTaskCreate(worker,"cue_cache",8192,NULL,2,NULL)==pdPASS)return true;
+ if(xTaskCreate(worker,"cue_cache",24576,NULL,2,NULL)==pdPASS)return true;
  return false; /* retain preloaded bank even if networking task cannot start */
 }
 void voice_cue_cache_set_idle(bool value){atomic_store(&idle,value);}
@@ -162,12 +180,17 @@ const uint8_t *voice_cue_cache_acquire_named(voice_cue_name_t name,size_t *size)
  const uint8_t *pcm=voice_cue_bank_acquire(&bank,name,size);
  xSemaphoreGive(mutex);return pcm;
 }
+voice_cue_audio_t voice_cue_cache_acquire_audio(voice_cue_name_t name){
+ voice_cue_audio_t audio={0};if(!mutex||!voice_cue_name(name))return audio;
+ xSemaphoreTake(mutex,portMAX_DELAY);audio=voice_cue_bank_acquire_audio(&bank,name);xSemaphoreGive(mutex);return audio;
+}
 void voice_cue_cache_release_named(voice_cue_name_t name){
  if(mutex && voice_cue_name(name)){
   xSemaphoreTake(mutex,portMAX_DELAY);voice_cue_bank_release(&bank,name);xSemaphoreGive(mutex);
  }
 }
 #else
+voice_cue_audio_t voice_cue_cache_acquire_audio(voice_cue_name_t n){(void)n;return (voice_cue_audio_t){0};}
 bool voice_cue_cache_start(const char*g,const char*d,const char*t){(void)g;(void)d;(void)t;return false;}
 void voice_cue_cache_set_idle(bool idle){(void)idle;}
 bool voice_cue_cache_ready_named(voice_cue_name_t name){(void)name;return false;}

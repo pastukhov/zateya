@@ -200,11 +200,15 @@ static void cue_release(void *ctx) {
   voice_cue_cache_release_named((voice_cue_name_t)(uintptr_t)ctx);
 }
 static bool local_cue_start(voice_listening_cue_t *cue,voice_cue_name_t name,uint32_t now) {
-  size_t size=0;const uint8_t *pcm=voice_cue_cache_acquire_named(name,&size);
-  bool acquired=pcm!=NULL;
-  if(!pcm)pcm=voice_cue_fallback_named(name,&size);
-  return voice_listening_cue_start_lease(cue,pcm,size,now,
-      acquired?cue_release:NULL,(void*)(uintptr_t)name);
+  voice_cue_audio_t audio=voice_cue_cache_acquire_audio(name);
+  if(audio.data){
+    if(audio.codec==VOICE_CUE_OPUS){
+      if(voice_listening_cue_start_opus(cue,audio.data,audio.size,now,voice_cue_opus_decoder(),cue_release,(void*)(uintptr_t)name))return true;
+      /* Rejected compressed start has already returned its lease. */
+    }else return voice_listening_cue_start_lease(cue,audio.data,audio.size,now,cue_release,(void*)(uintptr_t)name);
+  }
+  size_t size;const uint8_t *pcm=voice_cue_fallback_named(name,&size);
+  return voice_listening_cue_start_lease(cue,pcm,size,now,NULL,NULL);
 }
 static bool voice_gate_acquire(void *ctx){(void)ctx;return voice_ota_voice_begin();}
 static bool voice_gate_release(void *ctx){
@@ -1349,7 +1353,7 @@ static void voice_main_loop(void) {
     } else if (app_state() != STATE_ERROR) {
       error_reported = false;
     }
-    voice_cue_cache_set_idle(app_state() == STATE_IDLE && !app.turn_task_active && !wake_active && !feedback_active && !voice_feedback_pending(&feedback));
+    voice_cue_cache_set_idle(app_state() == STATE_IDLE && !app.turn_task_active && !wake_active && !feedback_active && !voice_feedback_pending(&feedback) && !feedback.manual_pending && !wake_pending);
     voice_diag_delivery_set_idle(
         (app_state() == STATE_IDLE || app_state() == STATE_ERROR) &&
         !app.turn_task_active && !wake_active && !feedback_active && !voice_feedback_pending(&feedback));

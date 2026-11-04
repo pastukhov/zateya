@@ -5,3 +5,4 @@ dependencies:
   espressif/esp-nn: "1.1.2"
   esphome/esp-micro-speech-features: "1.2.3"
   joltwallet/littlefs: "1.23.1"
+  espressif/esp_audio_codec: "2.3.0"

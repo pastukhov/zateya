@@ -1,4 +1,5 @@
 #include <unity.h>
+#include <string.h>
 #include "voice_listening_cue.h"
 #include "hardware.h"
 static bool drained, blocked, bad_write;static unsigned stops;static size_t written;
@@ -55,4 +56,23 @@ static void test_leases_release_on_done_cancel_error_and_failed_start(void){
  TEST_ASSERT_TRUE(voice_listening_cue_start_lease(&c,pcm,2,10000,NULL,NULL));
  voice_listening_cue_cancel(&c);TEST_ASSERT_EQUAL(6,releases);
 }
-int main(void){UNITY_BEGIN();RUN_TEST(test_leases_release_on_done_cancel_error_and_failed_start);RUN_TEST(test_waits_for_drain_and_stops);RUN_TEST(test_stall_timeout_cancel_and_input);return UNITY_END();}
+#include "../test_cue_opus/fixture.h"
+static unsigned opens,closes;static bool fail_open,fail_decode;
+static void *decoder_open(void){opens++;return fail_open?NULL:&opens;}
+static int decoder_decode(void *d,const uint8_t *p,size_t n,int16_t out[480]){(void)d;(void)p;(void)n;memset(out,0,960);return fail_decode?-1:480;}
+static void decoder_close(void *d){(void)d;closes++;}
+static void test_opus_failures_release_and_fallback(void){
+ voice_listening_cue_t c={0};voice_cue_decoder_t ops={decoder_open,decoder_decode,decoder_close};
+ unsigned count=0;uint8_t tone[2]={0};opens=closes=0;fail_open=true;
+ TEST_ASSERT_FALSE(voice_listening_cue_start_opus(&c,fixture,sizeof(fixture),0,&ops,release_lease,&count));
+ TEST_ASSERT_EQUAL(1,count);TEST_ASSERT_EQUAL(0,closes);
+ TEST_ASSERT_TRUE(voice_listening_cue_start(&c,tone,sizeof(tone),0));voice_listening_cue_cancel(&c);
+ fail_open=false;fail_decode=true;
+ TEST_ASSERT_TRUE(voice_listening_cue_start_opus(&c,fixture,sizeof(fixture),1,&ops,release_lease,&count));
+ TEST_ASSERT_EQUAL(CUE_ERROR,voice_listening_cue_tick(&c,2));
+ TEST_ASSERT_EQUAL(2,count);TEST_ASSERT_EQUAL(1,closes);voice_listening_cue_cancel(&c);TEST_ASSERT_EQUAL(1,closes);
+ fail_decode=false;
+ TEST_ASSERT_TRUE(voice_listening_cue_start_opus(&c,fixture,sizeof(fixture),3,&ops,release_lease,&count));
+ voice_listening_cue_cancel(&c);TEST_ASSERT_EQUAL(3,count);TEST_ASSERT_EQUAL(2,closes);
+}
+int main(void){UNITY_BEGIN();RUN_TEST(test_opus_failures_release_and_fallback);RUN_TEST(test_leases_release_on_done_cancel_error_and_failed_start);RUN_TEST(test_waits_for_drain_and_stops);RUN_TEST(test_stall_timeout_cancel_and_input);return UNITY_END();}

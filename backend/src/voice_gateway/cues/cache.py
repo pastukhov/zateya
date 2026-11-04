@@ -17,6 +17,7 @@ from fastapi.responses import Response
 
 from backend.src.voice_gateway.jobs.auth import owns_device
 from backend.src.voice_gateway.tts.config import TTSConfig
+from backend.src.voice_gateway.cues import opus
 
 _LOG = logging.getLogger(__name__)
 _MAX_BYTES = 240000  # Five seconds of PCM16 mono, 24 kHz.
@@ -112,8 +113,12 @@ class CueCache:
         self._cues = {name: _Cue(root, provider, config, text) for name, text in CUE_TEXTS.items()}
         self._provider_lock = threading.Lock()
         self.version = self._cues['listening'].version
+        self._opus = {}
 
-    def manifest(self, name: str = 'listening') -> dict | None:
+    def manifest(self, name: str = 'listening', *, codec: str = 'pcm') -> dict | None:
+        if codec=='opus-v1':
+            item=self._opus.get(name)
+            return dict(item[0]) if item else None
         cue = self._cues.get(name)
         return cue.manifest() if cue else None
 
@@ -129,11 +134,47 @@ class CueCache:
         with self._provider_lock:
             self._cues[name].ensure()
 
+    def ensure_opus(self,name: str) -> None:
+        self.ensure(name)
+        with self._provider_lock:
+            if name in self._opus:return
+            cue=self._cues[name];pcm=cue._pcm
+            source=hashlib.sha256(pcm).hexdigest()
+            identity=dict(pcm_version=cue.version,source_sha256=source,codec='opus-v1',
+                          rate=24000,channels=1,bitrate=24000,frame=480,complexity=5,
+                          encoder=opus.library().opus_get_version_string().decode())
+            version=hashlib.sha256(json.dumps(identity,sort_keys=True).encode()).hexdigest()
+            audio_path=cue.root/(version+'.vop');meta_path=cue.root/(version+'.opus.json')
+            try:
+                if audio_path.stat().st_size>opus.MAX_BYTES:raise ValueError('Oversized Opus')
+                encoded=audio_path.read_bytes();stored=json.loads(meta_path.read_text())
+                if stored['sha256']!=hashlib.sha256(encoded).hexdigest():raise ValueError('Corrupt Opus')
+                opus.decode_container(encoded)
+                metadata,_=opus.parse_container(encoded)
+                if metadata['samples']!=len(pcm)//2:raise ValueError('Wrong Opus duration')
+            except (OSError,ValueError,KeyError,TypeError):
+                encoded=opus.encode_pcm(pcm);metadata,_=opus.parse_container(encoded)
+                # No TTS call: compression is derived from verified cached PCM.
+                opus.decode_container(encoded)
+                with tempfile.TemporaryDirectory(prefix='.opus-',dir=cue.root) as folder:
+                    audio_tmp=Path(folder)/'cue.vop';meta_tmp=Path(folder)/'cue.json'
+                    audio_tmp.write_bytes(encoded)
+                    meta_tmp.write_text(json.dumps({'sha256':hashlib.sha256(encoded).hexdigest()}))
+                    os.replace(audio_tmp,audio_path);os.replace(meta_tmp,meta_path)
+            manifest=dict(version=version,sha256=hashlib.sha256(encoded).hexdigest(),size=len(encoded),
+                          codec='opus-v1',container='vcopus1',sample_rate=24000,channels=1,
+                          bits_per_sample=16,bitrate=24000,**metadata)
+            self._opus[name]=(manifest,encoded)
+
+    def opus_audio(self,digest):
+        return next((data for manifest,data in self._opus.copy().values() if manifest['sha256']==digest),None)
+
     def ensure_all(self) -> bool:
         complete = True
         for name in self._cues:
             try:
                 self.ensure(name)
+                self.ensure_opus(name)
             except Exception:
                 complete = False
                 _LOG.warning('Device %s cue generation failed; retry in 60 seconds', name)
@@ -161,11 +202,13 @@ def install_cue_routes(app: FastAPI, cache: CueCache | None,
             raise HTTPException(status_code=401)
 
     @app.get('/api/device/cues/{name}')
-    def manifest(request: Request, name: str):
+    def manifest(request: Request, name: str, codec: str = 'pcm'):
         authenticate(request)
         if name not in CUE_TEXTS:
             raise HTTPException(status_code=404)
-        data = cache.manifest(name) if cache else None
+        if codec not in {'pcm','opus-v1'}:
+            raise HTTPException(status_code=400)
+        data = cache.manifest(name,codec=codec) if cache else None
         if data is None:
             return Response(status_code=503, headers={'Retry-After': '60'})
         return data
@@ -178,3 +221,11 @@ def install_cue_routes(app: FastAPI, cache: CueCache | None,
             raise HTTPException(status_code=404)
         return Response(data, media_type='application/octet-stream',
                         headers={'ETag': f'"{digest}"', 'Cache-Control': 'private, no-store'})
+
+    @app.get('/api/device/cues/audio/{digest}.vop')
+    def opus_audio(request: Request,digest: str):
+        authenticate(request)
+        data=cache.opus_audio(digest) if cache and re.fullmatch('[0-9a-f]{64}',digest) else None
+        if data is None:raise HTTPException(status_code=404)
+        return Response(data,media_type='application/vnd.zateya.vcopus',
+                        headers={'ETag':f'"{digest}"','Cache-Control':'private, no-store'})
