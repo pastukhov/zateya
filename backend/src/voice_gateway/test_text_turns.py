@@ -270,3 +270,42 @@ def test_git_busy_waits_within_turn_deadline(tmp_path, release):
                 await processor.process(request)
             assert not agent.requests
     asyncio.run(scenario())
+
+
+def test_rejected_dictation_available_to_next_turn_after_restart(tmp_path):
+    async def scenario():
+        vault = tmp_path / 'vault'
+        vault.mkdir()
+        knowledge = KnowledgeStore(vault, tmp_path / 'state')
+        failing = FakeAgent()
+        first = TextTurnProcessor(failing, knowledge=knowledge)
+        result = await first.process(make_request(1, 'Думаю про выпуск в январе', archive_dir=tmp_path / 'first'))
+        assert result.receipt['status'] == 'needs_review'
+        assert failing.recorded == []
+        agent = QueryAgent()
+        restarted = TextTurnProcessor(agent, knowledge=KnowledgeStore(vault, tmp_path / 'state'))
+        await restarted.process(make_request(2, 'Это отпуск в январе 2027', archive_dir=tmp_path / 'second'))
+        sources = agent.requests[0].knowledge_context['recent_sources']
+        assert sources[0]['transcript'] == 'Думаю про выпуск в январе'
+        assert sources[0]['publication_state'] == 'needs_review'
+        assert sources[1]['transcript'] == 'Это отпуск в январе 2027'
+    asyncio.run(scenario())
+
+
+def test_git_failure_preserves_raw_dictation_before_model_call(tmp_path):
+    class FailedSync:
+        def run_once(self):
+            return {'status': 'conflict'}
+    async def scenario():
+        vault = tmp_path / 'vault'
+        vault.mkdir()
+        knowledge = KnowledgeStore(vault, tmp_path / 'state')
+        agent = QueryAgent()
+        processor = TextTurnProcessor(agent, knowledge=knowledge, git_sync=FailedSync())
+        with pytest.raises(TextTurnError, match='knowledge_sync_failed'):
+            await processor.process(make_request(1, 'Отпуск в январе', archive_dir=tmp_path / 'first'))
+        assert not agent.requests
+        recent = knowledge.context('mic', '', '')['recent_sources']
+        assert recent[0]['transcript'] == 'Отпуск в январе'
+        assert recent[0]['publication_state'] == 'unpublished'
+    asyncio.run(scenario())

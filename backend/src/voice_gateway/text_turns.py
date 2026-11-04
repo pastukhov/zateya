@@ -191,6 +191,11 @@ class TextTurnProcessor:
         context: dict | None = None
         receipt: dict | None = None
         if self.knowledge is not None:
+            # Capture evidence before network refresh: a Git outage cannot erase dictation.
+            job = {"device_id": request.context_id, "request_id": request.request_id,
+                   "turn_id": request.turn_id, "created_at": request.created_at,
+                   "channel": request.channel, "client_id": request.client_id}
+            source_id = await asyncio.to_thread(self.knowledge.capture, job, request.transcript)
             if self.git_sync is not None:
                 sync_started = time.monotonic()
                 sync_result = await asyncio.to_thread(self.git_sync.run_once)
@@ -213,17 +218,6 @@ class TextTurnProcessor:
                     )
                     raise TextTurnError("knowledge_sync_failed")
                 await self._record_stage(request, "git_refresh", "success", sync_started)
-            # ``job`` mirrors the pipeline's capture() argument; channel and
-            # physical client are recorded as origin, context stays the key.
-            job = {
-                "device_id": request.context_id,
-                "request_id": request.request_id,
-                "turn_id": request.turn_id,
-                "created_at": request.created_at,
-                "channel": request.channel,
-                "client_id": request.client_id,
-            }
-            source_id = await asyncio.to_thread(self.knowledge.capture, job, request.transcript)
             receipt = await asyncio.to_thread(self.knowledge.receipt, source_id)
             if context_path.exists():
                 context = json.loads(context_path.read_text())
@@ -275,6 +269,7 @@ class TextTurnProcessor:
                 response.reply = receipt["reply"]
                 await self._record_stage(request, "publish", "success", publish_started)
             except KnowledgeConflict as exc:
+                await asyncio.to_thread(self.knowledge.mark_review, source_id)
                 await self._record_stage(request, "publish", "error", publish_started)
                 receipt = {"source_id": source_id, "status": "needs_review", "reason": str(exc)}
                 logger.warning("knowledge publication rejected for turn %s: %s", request.turn_id, exc)

@@ -120,15 +120,7 @@ def test_pipeline_rejects_wrong_reply_sample_rate(tmp_path):
     asyncio.run(scenario())
 
 
-def test_pipeline_refreshes_vault_before_capturing_source(tmp_path):
-    class Knowledge:
-        def __init__(self):
-            self.captured = False
-
-        def capture(self, *_):
-            self.captured = True
-            return 'source'
-
+def test_pipeline_keeps_source_evidence_when_git_refresh_fails(tmp_path):
     class Sync:
         def run_once(self):
             return {'status': 'conflict'}
@@ -136,7 +128,10 @@ def test_pipeline_refreshes_vault_before_capturing_source(tmp_path):
     async def scenario():
         audio = tmp_path / 'input.pcm'
         audio.write_bytes(b'\0\0' * 20)
-        knowledge = Knowledge()
+        from backend.src.voice_gateway.knowledge.store import KnowledgeStore
+        vault = tmp_path / 'vault'
+        vault.mkdir()
+        knowledge = KnowledgeStore(vault, tmp_path / 'state')
         pipeline = VoicePipeline(FakeSTT(), FakeAgent(), None, FakeTTS(),
                                  knowledge=knowledge, git_sync=Sync())
         with pytest.raises(VoicePipelineError) as error:
@@ -144,7 +139,10 @@ def test_pipeline_refreshes_vault_before_capturing_source(tmp_path):
                                 'device_id': 'mic-a', 'created_at': '2026-09-27',
                                 'audio_bytes': audio.stat().st_size})
         assert error.value.code == 'knowledge_sync_failed'
-        assert not knowledge.captured
+        recent = KnowledgeStore(vault, tmp_path / 'state').context('mic-a', '', '')['recent_sources']
+        assert recent[0]['transcript'] == 'тестовая фраза'
+        assert recent[0]['publication_state'] == 'unpublished'
+        assert len(list((knowledge.root / 'sources').glob('*.md'))) == 1
         assert (tmp_path / 'transcript.txt').read_text() == 'тестовая фраза'
 
     asyncio.run(scenario())
