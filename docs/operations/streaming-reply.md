@@ -84,3 +84,24 @@ change. Native firmware: 123 tests passed. StickS3 target build succeeded.
 Independent review found and verified the cancellation fix (including connection
 setup failures) and inner-loop deadline guard. Actual archived noisy WAV was
 split at nine chunk sizes, including individual bytes: extracted PCM was exact.
+
+## Production rollout
+
+Backend `d691c4e` deployed on 2026-11-04 with rollback image
+`zateya-voice-gateway:before-streaming-20261104`. External HTTPS test delivered
+first PCM in 0.132 seconds while a synthetic producer was still blocked; exact
+24000 samples, legacy download and replay rejection passed. Probe data was
+removed. A real provider call advertised audio at 1.456 seconds and completed at
+1.478 seconds, with a valid canonical 24 kHz WAV.
+
+OTA 27: 1607280 bytes, SHA-256
+`58904f74ce3f968ab8b1da85ce758b98659777f8a7b07c63f8bd17ea14372d50`.
+Signed candidate and copied image were verified. Public release files require
+read permissions for the backend UID; these were applied before final external
+manifest/signature/image verification. Physical installation and audible
+acceptance remain unconfirmed.
+
+Exploratory TTS comparison used identical Russian text, one request per model:
+Gemini 3.8 Flash Lite TTS first bytes 2.137 seconds, Grok Voice TTS 1.0 first bytes
+1.791 seconds. These are single observations, not a reliable latency ranking or
+a voice-quality evaluation. Production model and dynamic audio format unchanged.
