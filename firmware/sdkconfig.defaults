@@ -14,3 +14,7 @@ CONFIG_MBEDTLS_CERTIFICATE_BUNDLE_DEFAULT_FULL=y
 
 # Keep TLS buffers in PSRAM; internal RAM is reserved for audio DMA and tasks.
 CONFIG_MBEDTLS_EXTERNAL_MEM_ALLOC=y
+
+# Cue-only filesystem: no timestamps or additional mounted partitions.
+CONFIG_LITTLEFS_USE_MTIME=n
+CONFIG_LITTLEFS_MAX_PARTITIONS=1

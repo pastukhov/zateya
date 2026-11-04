@@ -1,4 +1,5 @@
 #include "voice_ota.h"
+#include "voice_activity_gate.h"
 
 #ifdef ESP_PLATFORM
 #include <stdatomic.h>
@@ -38,7 +39,7 @@ typedef struct {
 } ota_manifest_t;
 
 static const char *TAG = "voice_ota";
-/* 0=idle, 1=voice/boot, 2=OTA. Main task and OTA worker use one CAS gate. */
+/* 0=idle, 1=voice/boot, 2=OTA, 3=storage. Main task and OTA worker use one CAS gate. */
 static atomic_int activity = 1;
 static atomic_uint progress_percent;
 static atomic_bool boot_confirmed;
@@ -54,17 +55,19 @@ static int64_t last_self_test_us;
 static unsigned main_loop_ticks;
 
 bool voice_ota_voice_begin(void) {
-  int idle = 0;
-  return atomic_compare_exchange_strong(&activity, &idle, 1);
+  return voice_activity_claim(&activity,VOICE_ACTIVITY_VOICE);
 }
 
 void voice_ota_voice_end(void) {
-  if (!atomic_load(&boot_confirmed)) return;
-  int voice = 1;
-  (void)atomic_compare_exchange_strong(&activity, &voice, 0);
+  (void)voice_activity_release(&activity,VOICE_ACTIVITY_VOICE,atomic_load(&boot_confirmed));
 }
 
-bool voice_ota_busy(void) { return atomic_load(&activity) == 2; }
+bool voice_ota_busy(void) { return atomic_load(&activity) == VOICE_ACTIVITY_OTA; }
+bool voice_ota_storage_begin(void) {
+  return atomic_load(&boot_confirmed) && voice_activity_claim(&activity,VOICE_ACTIVITY_STORAGE);
+}
+void voice_ota_storage_end(void) {(void)voice_activity_release(&activity,VOICE_ACTIVITY_STORAGE,true);}
+bool voice_ota_storage_busy(void) {return atomic_load(&activity)==VOICE_ACTIVITY_STORAGE;}
 bool voice_ota_boot_pending(void) { return !atomic_load(&boot_confirmed); }
 unsigned voice_ota_percent(void) { return atomic_load(&progress_percent); }
 
@@ -391,15 +394,14 @@ static void ota_task(void *arg) {
     if (decision == VOICE_OTA_IGNORE || esp_timer_get_time() > deferred_deadline)
       goto done;
     if (decision == VOICE_OTA_INSTALL) {
-      int idle = 0;
-      if (atomic_compare_exchange_strong(&activity, &idle, 2)) break;
+      if (voice_activity_claim(&activity,VOICE_ACTIVITY_OTA)) break;
     }
     vTaskDelay(pdMS_TO_TICKS(1000));
   }
   atomic_store(&progress_percent, 0);
   if (!install_image(&manifest, next))
     ESP_LOGW(TAG, "update deferred after download/write failure");
-  atomic_store(&activity, 0);
+  (void)voice_activity_release(&activity,VOICE_ACTIVITY_OTA,true);
 done:
   vTaskDelete(NULL);
 }

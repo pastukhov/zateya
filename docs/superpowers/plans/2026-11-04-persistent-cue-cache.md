@@ -60,29 +60,29 @@ partition table, NVS or OTA-slot migration is needed.
 
 ## Sol implementation
 
-- [ ] Add pure layout/record validation and testable persistent store logic in
+- [x] Add pure layout/record validation and testable persistent store logic in
   `firmware/include/voice_cue_store.h`, `firmware/src/voice_cue_store.c`, and
   ESP adapter `firmware/src/voice_cue_store_esp.c` (adjust focused names if useful).
   Tests cover supported layout, small flash, overlapping/unknown partitions,
   corruption/truncation, bad digest/version/name/size, restart/offline read,
   failed replacement preserving old data, same-hash no-write, and full cache.
-- [ ] Add managed LittleFS dependency and explicit CMake requirement; pin lock
+- [x] Add managed LittleFS dependency and explicit CMake requirement; pin lock
   through target build. Keep native tests independent of ESP-only headers.
-- [ ] Extend activity gate in `voice_ota_esp.c`/`voice_ota.h` as needed and test
+- [x] Extend activity gate in `voice_ota_esp.c`/`voice_ota.h` as needed and test
   storage/voice/OTA exclusion, boot lease, manual input races and every release.
   Update `main.c` input handling narrowly; preserve feedback queue priority.
-- [ ] Integrate local startup load and deferred persistence in
+- [x] Integrate local startup load and deferred persistence in
   `voice_cue_cache_esp.c`, retaining existing server auth/hash checks and leases.
   Cache failures are nonfatal and observable; no unconditional downloads on boot.
-- [ ] Document storage layout/format, replacement protocol, limits, fallback and
+- [x] Document storage layout/format, replacement protocol, limits, fallback and
   how to verify offline reboot on real hardware. No compression implementation
   is required for this cache feature.
 
 ## Parent verification and release
 
-- [ ] Independently review flash-range guards, blank-only format, crash/ENOSPC
+- [x] Independently review flash-range guards, blank-only format, crash/ENOSPC
   handling, persistence retries, audio/OTA exclusion and input race handling.
-- [ ] Run full native suite and StickS3 build; exercise restart/offline persistence
+- [x] Run full native suite and StickS3 build; exercise restart/offline persistence
   in host tests and real LittleFS emulator if feasible. Run relevant release/
   dependency checks. Do not claim host tests validate physical flash/power cuts.
 - [ ] Commit/push scoped changes after checks. Build/sign next OTA using existing
@@ -95,3 +95,17 @@ partition table, NVS or OTA-slot migration is needed.
 References: ESP-IDF local components/esp_partition/partition.c and official
 https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-reference/storage/partition.html
 https://github.com/joltwallet/esp_littlefs (explicit partition pointer, LittleFS)
+
+## Verified implementation handoff
+
+Parent independently reviewed runtime bounds, storage/voice/OTA gating and input
+deferral. Native117/117 and host store/release11/11 passed. StickS3 target build
+succeeded in37.13s (reported flash1510325 bytes). Actual pinned LittleFS host
+emulation with record overhead passed14-cue capacity and532 torn-program/erase
+cutpoints, recovering old-or-new valid files. These do not verify physical flash,
+runtime registration/mount or offline reboot on the real recorder.
+
+Persistent backing does not block continuous background wake monitoring; that
+monitor is outside the dictation voice lease, so flash-latency effects on detector
+quality remain physical acceptance. OTA25 publication/installation are pending
+parent rollout and are separate from implementation checks.

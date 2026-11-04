@@ -1,4 +1,5 @@
 #include "voice_cue_cache.h"
+#include "voice_cue_store.h"
 #ifdef ESP_PLATFORM
 #include <stdatomic.h>
 #include <stdio.h>
@@ -22,6 +23,41 @@ static char base[192],device[32],auth[200],current_sha[VOICE_CUE_COUNT][65];
 static SemaphoreHandle_t mutex;
 static voice_cue_bank_t bank;
 static atomic_bool idle;
+static voice_cue_store_t *persistent;
+static bool pending_disk[VOICE_CUE_COUNT];
+static int64_t next_persist[VOICE_CUE_COUNT];
+static char disk_sha[VOICE_CUE_COUNT][65];
+static void preload(void){
+ persistent=voice_cue_store_mount();if(!persistent)return;
+ for(unsigned i=0;i<VOICE_CUE_COUNT;i++){
+  voice_cue_record_t record;
+  if(!voice_cue_store_info(persistent,(voice_cue_name_t)i,&record))continue;
+  uint8_t *pcm=heap_caps_malloc(record.size,MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT);
+  if(!pcm)continue;
+  if(!voice_cue_store_load(persistent,(voice_cue_name_t)i,pcm,record.size,&record)){free(pcm);continue;}
+  uint8_t *old=NULL;
+  if(!voice_cue_bank_publish(&bank,(voice_cue_name_t)i,pcm,record.size,&old)){free(pcm);continue;}
+  memcpy(current_sha[i],record.sha,65);memcpy(disk_sha[i],record.sha,65);free(old);
+  ESP_LOGI("cue_cache","%s cue loaded offline: %u bytes",voice_cue_name((voice_cue_name_t)i),(unsigned)record.size);
+ }
+}
+static void persist(unsigned i,int64_t now){
+ if(!persistent||!pending_disk[i]||now<next_persist[i])return;
+ next_persist[i]=now+1000000;
+ if(!atomic_load(&idle)||!voice_ota_storage_begin())return;
+ /* Whole filesystem mutation has its own owner, never the app voice lease. */
+ if(!atomic_load(&idle)){voice_ota_storage_end();return;}
+ size_t size=0;const uint8_t *pcm=voice_cue_cache_acquire_named((voice_cue_name_t)i,&size);
+ if(!pcm){voice_ota_storage_end();return;}
+ voice_cue_store_result_t result=voice_cue_store_put(persistent,(voice_cue_name_t)i,pcm,size,current_sha[i]);
+ voice_cue_cache_release_named((voice_cue_name_t)i);voice_ota_storage_end();
+ if(result!=VOICE_CUE_STORE_FAILED){
+  memcpy(disk_sha[i],current_sha[i],65);pending_disk[i]=false;
+  ESP_LOGI("cue_cache","%s cue persisted",voice_cue_name((voice_cue_name_t)i));
+ }else{
+  next_persist[i]=now+60000000;ESP_LOGW("cue_cache","persistent write deferred");
+ }
+}
 static bool allowed(void) {
  return atomic_load(&idle) && !voice_ota_busy() &&
         board_sticks3_network_ready() && voice_gateway_health_status()==200;
@@ -80,30 +116,37 @@ static void refresh(voice_cue_name_t name) {
  xSemaphoreTake(mutex,portMAX_DELAY);
  bool published=allowed() && voice_cue_bank_publish(&bank,name,pcm,(size_t)size,&old);
  xSemaphoreGive(mutex);
- if(published){memcpy(current_sha[name],sha,65);free(old);ESP_LOGI("cue_cache","%s cue cached: %d bytes",voice_cue_name(name),size);}
+ if(published){memcpy(current_sha[name],sha,65);
+  pending_disk[name]=strcmp(disk_sha[name],sha)!=0;next_persist[name]=0;
+  free(old);ESP_LOGI("cue_cache","%s cue cached: %d bytes",voice_cue_name(name),size);}
  else free(pcm);
 }
 static void worker(void *arg) {
  (void)arg;bool attempted[VOICE_CUE_COUNT]={0};int64_t previous[VOICE_CUE_COUNT]={0};
  for(;;){
-  for(unsigned i=0;i<VOICE_CUE_COUNT && allowed();i++){
+  for(unsigned i=0;i<VOICE_CUE_COUNT && atomic_load(&idle) && !voice_ota_busy();i++){
    int64_t now=esp_timer_get_time();
-   if(!attempted[i] || now-previous[i]>=60000000){
+   if(allowed() && (!attempted[i] || now-previous[i]>=60000000)){
     attempted[i]=true;previous[i]=now;refresh((voice_cue_name_t)i);
    }
+   persist(i,esp_timer_get_time());
   }
   vTaskDelay(pdMS_TO_TICKS(1000));
  }
 }
 bool voice_cue_cache_start(const char *gateway,const char *id,const char *token) {
- if(mutex || !gateway || !id || !token || !*gateway || !*id || !*token)return false;
+ if(mutex)return false;
+ mutex=xSemaphoreCreateMutex();if(!mutex)return false;
+ /* Boot guard still owns flash, before OTA worker/user capture. Local cache
+  * deliberately does not depend on configuration or network readiness. */
+ preload();
+ if(!gateway || !id || !token || !*gateway || !*id || !*token)return false;
  size_t len=strlen(gateway);while(len&&gateway[len-1]=='/')len--;
  int a=snprintf(base,sizeof(base),"%.*s",(int)len,gateway);
  int b=snprintf(device,sizeof(device),"%s",id);int c=snprintf(auth,sizeof(auth),"Bearer %s",token);
  if(a<=0||a>=sizeof(base)||b<=0||b>=sizeof(device)||c<=0||c>=sizeof(auth))return false;
- mutex=xSemaphoreCreateMutex();if(!mutex)return false;
  if(xTaskCreate(worker,"cue_cache",8192,NULL,2,NULL)==pdPASS)return true;
- vSemaphoreDelete(mutex);mutex=NULL;return false;
+ return false; /* retain preloaded bank even if networking task cannot start */
 }
 void voice_cue_cache_set_idle(bool value){atomic_store(&idle,value);}
 bool voice_cue_cache_ready_named(voice_cue_name_t name) {

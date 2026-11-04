@@ -57,12 +57,23 @@ dependencies:
     source:
       type: idf
     version: 5.5.3
+  joltwallet/littlefs:
+    component_hash: e1a0f4a6adf821759cb34703a91107bbdce5d7ff6f4728f40ab012bb87842974
+    dependencies:
+    - name: idf
+      require: private
+      version: '>=5.0'
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    version: 1.23.1
 direct_dependencies:
 - esphome/esp-micro-speech-features
 - espressif/esp-nn
 - espressif/esp-tflite-micro
 - espressif/esp_codec_dev
 - espressif/mdns
-manifest_hash: 011c525d141c34d11ac67f3362d93fd3c2492f21a51717ad728e5f7508927d8b
+- joltwallet/littlefs
+manifest_hash: 7c1e48bbf04227d5ab69574143283a0879ad93bf8a76e9da7a339823666926ca
 target: esp32s3
 version: 2.0.0

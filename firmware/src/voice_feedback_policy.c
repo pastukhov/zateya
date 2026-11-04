@@ -65,3 +65,7 @@ void voice_feedback_release_gate(voice_feedback_t *p,bool (*release)(void *),voi
 bool voice_feedback_cancel_complete(bool requested,bool worker_active,bool storage_failed){
  return requested && !worker_active && !storage_failed;
 }
+
+voice_capture_start_t voice_feedback_capture_result(bool eligible,bool acquired){
+ return !eligible?VOICE_CAPTURE_UNAVAILABLE:acquired?VOICE_CAPTURE_STARTED:VOICE_CAPTURE_RETRY;
+}

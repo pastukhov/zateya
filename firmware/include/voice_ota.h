@@ -7,6 +7,9 @@
 bool voice_ota_voice_begin(void);
 void voice_ota_voice_end(void);
 bool voice_ota_busy(void);
+bool voice_ota_storage_begin(void);
+void voice_ota_storage_end(void);
+bool voice_ota_storage_busy(void);
 bool voice_ota_boot_pending(void);
 unsigned voice_ota_percent(void);
 bool voice_ota_start(const char *gateway, const char *device_id,

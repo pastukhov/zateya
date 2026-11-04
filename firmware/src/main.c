@@ -188,7 +188,7 @@ static voice_settings_t voice_settings;
 #ifdef ESP_PLATFORM
 static voice_wake_t wake;
 static voice_listening_cue_t wake_cue;
-static bool wake_listening, wake_active, wake_recording, wake_speech;
+static bool wake_listening, wake_active, wake_recording, wake_speech,wake_pending;
 static unsigned wake_ui;
 static voice_listening_cue_t feedback_cue;
 static bool feedback_active;
@@ -247,7 +247,7 @@ static void wake_stop(void) {
   bool owned_gate=wake_active;
   if(wake_cue.status==CUE_BUSY)voice_listening_cue_cancel(&wake_cue);
   if(wake_listening || wake_active)hw_audio_capture_stop();
-  wake_listening=false;wake_active=false;wake_ui=0;capture_answer_to[0]=0;
+  wake_listening=false;wake_active=false;wake_pending=false;wake_ui=0;capture_answer_to[0]=0;
   if(owned_gate)voice_feedback_release_gate(&feedback,voice_gate_release,NULL);
   voice_wake_detector_reset();
   voice_wake_init(&wake,3000,MAX_RECORD_SECONDS_DEFAULT*1000U);
@@ -536,8 +536,13 @@ static void wake_pre_append(const uint8_t *pcm,size_t bytes) {
     if(wake_pre_used<WAKE_PREROLL_BYTES)wake_pre_used++;
   }
 }
-static bool capture_begin(uint32_t now,const char *answer_to,bool manual) {
-  if(!capture_eligible() || !voice_feedback_claim_gate(&feedback,voice_gate_acquire,NULL))return false;
+static voice_capture_start_t capture_begin(uint32_t now,const char *answer_to,bool manual) {
+  bool eligible=capture_eligible();
+  voice_capture_start_t outcome=voice_feedback_capture_result(eligible,
+    eligible && voice_feedback_claim_gate(&feedback,voice_gate_acquire,NULL));
+  /* A failed CAS is retryable even if storage releases before caller runs.
+   * Never derive that decision from a later busy snapshot. */
+  if(outcome!=VOICE_CAPTURE_STARTED)return outcome;
   app.turn_client.error=VOICE_TURN_ERROR_NONE;
   voice_cue_cache_set_idle(false);
   feedback_cancel_routine();
@@ -549,8 +554,8 @@ static bool capture_begin(uint32_t now,const char *answer_to,bool manual) {
   voice_wake_capture_init(&wake,voice_settings.wake_pause_ms,MAX_RECORD_SECONDS_DEFAULT*1000U,
                            manual,voice_settings.button_mode);
   (void)voice_wake_activate(&wake,true,now);
-  if(!local_cue_start(&wake_cue,VOICE_CUE_LISTENING,now)){wake_stop();return false;}
-  return true;
+  if(!local_cue_start(&wake_cue,VOICE_CUE_LISTENING,now)){wake_stop();return VOICE_CAPTURE_UNAVAILABLE;}
+  return VOICE_CAPTURE_STARTED;
 }
 static void wake_idle_tick(uint32_t now, button_event_t button) {
   bool pressed=button==BUTTON_EVENT_PRESSED;
@@ -566,7 +571,10 @@ static void wake_idle_tick(uint32_t now, button_event_t button) {
       size_t n=hw_audio_capture_read(chunk,sizeof(chunk));if(!n)break;
       voice_wake_detector_feed(chunk,n);
     }
-    if(voice_wake_detector_detected())(void)capture_begin(now,NULL,false);
+    if(wake_pending || voice_wake_detector_detected()){
+      voice_capture_start_t result=capture_begin(now,NULL,false);
+      wake_pending=result==VOICE_CAPTURE_RETRY;
+    }
     return;
   }
   if(voice_wake_button_finish(&wake,pressed,released) || !capture_eligible()) {
@@ -1051,6 +1059,9 @@ void app_tick(void) {
     case STATE_IDLE: {
       if (app.ignore_button_until_release) {
         if (!hw_button_raw()) {
+#ifdef ESP_PLATFORM
+          voice_feedback_release_button(&feedback);
+#endif
           app.ignore_button_until_release = false;
           button_reset(&app.btn);
         }
@@ -1080,7 +1091,10 @@ void app_tick(void) {
           wake_stop();feedback_request(FEEDBACK_ERROR,VOICE_TURN_ERROR_CONNECTION,false);
           app.ignore_button_until_release=true;break;
         }
-        if(!capture_begin(now,NULL,true))enter_state(STATE_ERROR,"voice capture unavailable");
+        voice_capture_start_t started=capture_begin(now,NULL,true);
+        if(started==VOICE_CAPTURE_RETRY)
+          voice_feedback_defer_press(&feedback,voice_settings.button_mode==VOICE_BUTTON_HOLD);
+        else if(started!=VOICE_CAPTURE_STARTED)enter_state(STATE_ERROR,"voice capture unavailable");
 #else
         if (recording_start()) enter_state(STATE_RECORDING, NULL);
         else enter_state(STATE_ERROR, "voice recording start failed");
@@ -1257,7 +1271,7 @@ void app_tick(void) {
             /* Suppress DONE before IDLE so the existing lease transfers directly
              * to listening; never consume follow-up behind a completion cue. */
             idle_followup=follow;enter_state(STATE_IDLE, NULL);idle_followup=false;
-            if(follow && !capture_begin(now,question_id,false))
+            if(follow && capture_begin(now,question_id,false)!=VOICE_CAPTURE_STARTED)
               enter_state(STATE_ERROR,"follow-up capture unavailable");
           }
         }
@@ -1365,7 +1379,7 @@ static void voice_main_loop(void) {
     voice_ota_confirm_boot();
 #endif
     board_sticks3_power_tick(
-      (app_state() != STATE_IDLE && app_state() != STATE_ERROR) || app.turn_task_active || wake_active || feedback_active || voice_feedback_pending(&feedback),
+      (app_state() != STATE_IDLE && app_state() != STATE_ERROR) || app.turn_task_active || wake_active || feedback_active || voice_feedback_pending(&feedback) || voice_ota_storage_busy(),
       hw_clock_ms(), voice_settings.sleep_timeout_seconds * 1000U);
     /* Keep the USB/Wi-Fi/I2S system tasks and watchdog serviced. */
     vTaskDelay(pdMS_TO_TICKS(10));

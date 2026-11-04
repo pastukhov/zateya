@@ -2,6 +2,8 @@
 #define VOICE_FEEDBACK_POLICY_H
 #include "voice_cue_cache.h"
 #include "voice_turn_client.h"
+typedef enum {VOICE_CAPTURE_UNAVAILABLE,VOICE_CAPTURE_STARTED,VOICE_CAPTURE_RETRY} voice_capture_start_t;
+voice_capture_start_t voice_feedback_capture_result(bool eligible,bool acquired);
 typedef enum {FEEDBACK_NONE,FEEDBACK_READY,FEEDBACK_CAPTURE,FEEDBACK_PROCESSING,
  FEEDBACK_TRANSCRIBING,FEEDBACK_THINKING,FEEDBACK_SYNTHESIZING,FEEDBACK_ANSWERING,
  FEEDBACK_DONE,FEEDBACK_CANCELLED,FEEDBACK_ERROR} voice_feedback_event_t;

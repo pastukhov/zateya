@@ -77,4 +77,14 @@ static void test_boot_guard_is_adopted_until_confirmation_and_resumed_turn_done(
  TEST_ASSERT_TRUE(voice_feedback_claim_gate(&p,acquire_gate,&gate));TEST_ASSERT_EQUAL(0,gate.calls);
  voice_feedback_release_gate(&p,release_gate,&gate);TEST_ASSERT_FALSE(p.gate_owned);TEST_ASSERT_EQUAL(0,gate.owner);
 }
-int main(void){UNITY_BEGIN();RUN_TEST(test_boot_guard_is_adopted_until_confirmation_and_resumed_turn_done);RUN_TEST(test_ready_cue_gate_transfers_to_press_and_never_bypasses_ota);RUN_TEST(test_cancel_after_ready_worker_exit_completes_locally);RUN_TEST(test_states_stages_duplicate_and_followup);RUN_TEST(test_error_waits_for_owner_and_survives_ready_and_cancel);RUN_TEST(test_error_classes_fallback_and_deferred_hold);return UNITY_END();}
+static void test_storage_race_defers_toggle_and_release_cancels_hold(void){
+ voice_feedback_t p;voice_feedback_init(&p);gate_fake_t gate={.owner=3,.can_release=true};
+ voice_capture_start_t result=voice_feedback_capture_result(true,voice_feedback_claim_gate(&p,acquire_gate,&gate));
+ gate.owner=0; /* storage finished before UI checks state; result stays retry */
+ TEST_ASSERT_EQUAL(VOICE_CAPTURE_RETRY,result);
+ voice_feedback_defer_press(&p,true);voice_feedback_release_button(&p);TEST_ASSERT_FALSE(voice_feedback_take_press(&p));
+ voice_feedback_defer_press(&p,false);voice_feedback_release_button(&p);TEST_ASSERT_TRUE(voice_feedback_take_press(&p));
+ TEST_ASSERT_EQUAL(VOICE_CAPTURE_STARTED,voice_feedback_capture_result(true,voice_feedback_claim_gate(&p,acquire_gate,&gate)));
+ TEST_ASSERT_EQUAL(VOICE_CAPTURE_UNAVAILABLE,voice_feedback_capture_result(false,false));
+}
+int main(void){UNITY_BEGIN();RUN_TEST(test_storage_race_defers_toggle_and_release_cancels_hold);RUN_TEST(test_boot_guard_is_adopted_until_confirmation_and_resumed_turn_done);RUN_TEST(test_ready_cue_gate_transfers_to_press_and_never_bypasses_ota);RUN_TEST(test_cancel_after_ready_worker_exit_completes_locally);RUN_TEST(test_states_stages_duplicate_and_followup);RUN_TEST(test_error_waits_for_owner_and_survives_ready_and_cancel);RUN_TEST(test_error_classes_fallback_and_deferred_hold);return UNITY_END();}
