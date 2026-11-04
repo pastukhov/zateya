@@ -34,41 +34,41 @@ commits/pushes and deploys backend before compatible firmware.
 
 ## Task 1 — Server cue catalog
 
-- [ ] Add failing tests in `backend/src/voice_gateway/cues/test_cache.py` for three
+- [x] Add failing tests in `backend/src/voice_gateway/cues/test_cache.py` for three
   independent cues, legacy URL, unknown name, auth, persistent reuse, config voice
   change, corrupt PCM, and one provider failure not blocking remaining cues.
-- [ ] Extend `cues/cache.py` with the fixed allowlist/text catalog and per-cue
+- [x] Extend `cues/cache.py` with the fixed allowlist/text catalog and per-cue
   manifests; share the existing bounded synthesis/validation implementation.
-- [ ] Keep startup/shutdown safe around the shared TTS provider in `app.py`.
+- [x] Keep startup/shutdown safe around the shared TTS provider in `app.py`.
   Use sequential synthesis if provider concurrency is not guaranteed.
-- [ ] Run targeted backend tests and verify requests never trigger synthesis.
+- [x] Run targeted backend tests and verify requests never trigger synthesis.
 
 ## Task 2 — Recorder cache and playback ownership
 
-- [ ] Add failing native tests for independent slots, invalid indexes/metadata,
+- [x] Add failing native tests for independent slots, invalid indexes/metadata,
   acquired-buffer publication rejection, missing cue fallback and cancellation.
-- [ ] Extend `voice_cue_cache.{h,c}` and `voice_cue_cache_esp.c` to three bounded
+- [x] Extend `voice_cue_cache.{h,c}` and `voice_cue_cache_esp.c` to three bounded
   slots with per-cue acquisition/release and independent refresh state.
-- [ ] Wire `main.c` startup, idle gating, listening and feedback paths to acquire
+- [x] Wire `main.c` startup, idle gating, listening and feedback paths to acquire
   downloaded PCM, releasing on completion, cancellation, start failure and error.
   Account for worker/playback races; no I2S access from downloader.
-- [ ] Retain a small tone for unavailable speech. Remove static speech lookups,
+- [x] Retain a small tone for unavailable speech. Remove static speech lookups,
   embedded assets, generated CRC manifest and their build/import-only machinery.
   Keep or replace meaningful tests; do not leave a second unused delivery path.
-- [ ] Run native tests and build StickS3; inspect ELF symbols/image to ensure no
+- [x] Run native tests and build StickS3; inspect ELF symbols/image to ensure no
   embedded speech payload remains. Compare final signed image with release 22.
 
 ## Task 3 — Verification and rollout
 
-- [ ] Update `docs/operations/listening-cue.md`, `recorder-dialogue.md`, protocol
+- [x] Update `docs/operations/listening-cue.md`, `recorder-dialogue.md`, protocol
   and wake-word docs where their current behavior would otherwise be misleading.
-- [ ] Parent independently reviews backend compatibility and every acquire/release
+- [x] Parent independently reviews backend compatibility and every acquire/release
   path; run full relevant backend, native, UI and release tests and target build.
-- [ ] Commit/push only task changes. Deploy backend with previous image retained.
-- [ ] Verify all three manifests/audio on the actual authenticated server,
+- [x] Commit/push only task changes. Deploy backend with previous image retained.
+- [x] Verify all three manifests/audio on the actual authenticated server,
   including hashes, no-token rejection and existing listening URL compatibility.
-- [ ] Build/sign the next OTA from isolated committed sources; verify signature,
+- [x] Build/sign the next OTA from isolated committed sources; verify signature,
   hash, slot size and reduced image size, then publish public artifacts only.
-- [ ] Report installation/physical verification separately: cold boot download,
+- [ ] Complete physical verification (publication is confirmed; installation is not): cold boot download,
   subsequent offline playback, tone before initial download, abort while fetching,
   voice change without firmware rebuild, button modes and clarification response.
