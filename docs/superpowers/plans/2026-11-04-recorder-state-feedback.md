@@ -51,11 +51,11 @@ error. A completion cue must not delay/obscure automatic follow-up listening.
 - [x] Independently review speaker/microphone ownership, error queue, OTA lease,
   cancellation and all transition paths. Run backend/deploy suite, native tests
   and StickS3 build. Verify raw audio/transcript from incident remain archived.
-- [ ] Commit/push scoped changes. Deploy backend/catalog first; verify every cue
+- [x] Commit/push scoped changes. Deploy backend/catalog first; verify every cue
   manifest/PCM over HTTPS with auth, correct format/hash and cold fallback.
-- [ ] Build/sign/publish next OTA using existing key and rollback policy. Preserve
+- [x] Build/sign/publish next OTA using existing key and rollback policy. Preserve
   old backend image. Never conflate publication with device installation.
-- [ ] Inspect accessible device diagnostics/version; physical listening and real
+- [x] Inspect accessible device diagnostics/version; physical listening and real
   error acknowledgement remain explicit acceptance if no device access exists.
 
 User confirmed the device is currently unavailable for USB/physical testing.
@@ -72,3 +72,27 @@ cancellation after a READY worker ended, initial boot lease adoption (including
 resumed turn), and clearing prior error classification before VAD/capture.
 Final read-only review found no further confirmed integration defects. These
 checks do not execute physical I2S playback or prove installed firmware.
+
+## Release 24
+
+Implementation `d339761` committed and pushed. Backend rebuilt, healthy and
+nginx recreated; rollback image retained as
+`zateya-voice-gateway:before-state-feedback-20261104`. Signed OTA 24 published:
+1480448 bytes, SHA256
+`6ed81b4eacf8d4b057a95d7a2bcd858a596314057e7fbe3b1a94c37c8c3ce6e4`.
+External HTTPS verified manifest signature, complete image length/hash, 401
+without authorization and 204 when current_seq=24. Public stable.json needs
+read permission for the backend after atomic replacement; corrected before the
+successful external check. No private signing key was transferred.
+
+Device is unavailable per user; local discovery did not locate it. Firmware
+installation and physical sound/microphone behaviour remain unverified. Install
+via existing OTA flow: USB power, connected Wi-Fi, idle, restart/check once per
+boot. A successful publication is not a physical acceptance result.
+
+All 14 cue manifests and PCM bodies passed external HTTPS auth/format/length/
+SHA256 checks; total PCM cache is 1146604 bytes. Initial synthesis of cancelled
+and synthesis_error hit provider read timeouts; existing background retries
+completed both successfully. Verification traffic was paced below nginx limits.
+No phrase change or provider switch was needed. The cold fallback remains
+available independently of server voice generation and connectivity.
