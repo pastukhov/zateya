@@ -274,11 +274,16 @@ class TextTurnProcessor:
                 )
                 response.reply = receipt["reply"]
                 await self._record_stage(request, "publish", "success", publish_started)
-            except KnowledgeConflict:
+            except KnowledgeConflict as exc:
                 await self._record_stage(request, "publish", "error", publish_started)
-                receipt = {"source_id": source_id, "status": "needs_review"}
-                response.reply = ("Исходная запись сохранена. Обновление заметок требует проверки; "
-                                  "существующие правки не перезаписаны.")
+                receipt = {"source_id": source_id, "status": "needs_review", "reason": str(exc)}
+                logger.warning("knowledge publication rejected for turn %s: %s", request.turn_id, exc)
+                if str(exc) in {"broken wiki link", "links must use Затея paths"}:
+                    response.reply = ("Исходная запись сохранена. Заметка не опубликована: "
+                                      "в подготовленном тексте неверная ссылка.")
+                else:
+                    response.reply = ("Исходная запись сохранена. Обновление заметок требует проверки; "
+                                      "существующие правки не перезаписаны.")
             atomic_write_json(archive_dir / "knowledge-result.json", receipt)
 
         if self.agent is not None and hasattr(self.agent, "record_turn"):

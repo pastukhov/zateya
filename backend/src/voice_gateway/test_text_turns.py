@@ -217,6 +217,7 @@ def test_needs_review_on_manual_edit_keeps_source_and_reply(tmp_path):
         archive = tmp_path / "a1"
         result = await processor.process(make_request(1, "первая", archive_dir=archive))
         assert result.receipt["status"] == "needs_review"
+        assert result.receipt["reason"] == "agent omitted knowledge proposal"
         assert result.reply.startswith("Исходная запись сохранена")
         assert (archive / "reply.txt").exists()
         assert (vault / "Затея/sources").exists()

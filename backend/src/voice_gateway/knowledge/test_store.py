@@ -49,7 +49,7 @@ def test_amend_preserves_sources_and_uses_same_idea(store):
     first, context, _ = capture(store)
     store.publish(first, 'mic', note(first), context, '')
     second, context, _ = capture(store, 2, 'Не 1000, а 2000')
-    result = store.publish(second, 'mic', note(second, 'amend', first), context, '')
+    result = store.publish(second, 'mic', note(second, 'amend', first, pages=False), context, '')
     assert result['idea_id'] == first
     assert len(list((store.root / 'ideas').glob('*.md'))) == 1
     body = (store.root / 'ideas/Идеи.md').read_text()
@@ -60,13 +60,13 @@ def test_same_title_gets_numbered_filename_and_stable_idea_id(store):
     first, context, _ = capture(store)
     store.publish(first, 'mic', note(first), context, '')
     second, context, _ = capture(store, 2, 'Ещё одна идея')
-    store.publish(second, 'mic', note(second), context, '')
+    store.publish(second, 'mic', note(second, pages=False), context, '')
     assert (store.root / 'ideas/Идеи.md').exists()
     second_path = store.root / 'ideas/Идеи (2).md'
     assert second_path.exists()
     assert f'idea_id: {second}' in second_path.read_text()
     third, context, _ = capture(store, 3, 'Дополни вторую идею')
-    store.publish(third, 'mic', note(third, 'amend', second), context, '')
+    store.publish(third, 'mic', note(third, 'amend', second, pages=False), context, '')
     assert len(list((store.root / 'ideas').glob('*.md'))) == 2
     assert third in second_path.read_text()
 
@@ -184,3 +184,28 @@ def test_publication_emits_git_outbox_after_files_with_exact_hashes(store):
     for path, expected in task['files'].items():
         assert hashlib.sha256((store.vault / path).read_bytes()).hexdigest() == expected
     assert (store.root / '.sync/writer.lock').exists()
+
+
+def test_context_excludes_unrelated_pages_and_metadata_matches(store):
+    from backend.src.voice_gateway.knowledge.store import markdown
+    store._write('wiki/concepts/firmware.md', markdown(
+        {'title': 'Прошивка', 'type': 'concept', 'sources': []}, 'Прошивка',
+        'Проверка устройства. [[Затея/ideas/Путешествие]]'))
+    store._write('wiki/concepts/travel.md', markdown(
+        {'title': 'Путешествие', 'type': 'concept'}, 'Путешествие', 'Маршрут Хайнань.'))
+    source, context, _ = capture(store, text='Еще вариант путешествия на Хайнань')
+    assert [p['path'] for p in context['pages']] == ['wiki/concepts/travel.md']
+
+
+def test_latin_vault_alias_is_normalized_with_link_validation(store):
+    source, context, _ = capture(store)
+    proposed = note(source)
+    proposed.content = '[[Zateya/wiki/concepts/ideas|Идеи]]'
+    store.publish(source, 'mic', proposed, context, '')
+    assert '[[Затея/wiki/concepts/ideas|Идеи]]' in (store.root / 'ideas/Идеи.md').read_text()
+    second, context, _ = capture(store, 2)
+    proposed = note(second)
+    proposed.content = '[[Zateya/wiki/concepts/missing]]'
+    with pytest.raises(KnowledgeConflict, match='broken wiki link'):
+        store.publish(second, 'mic', proposed, context, '')
+    assert store.receipt(second) is None

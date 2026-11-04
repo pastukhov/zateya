@@ -207,7 +207,8 @@ class KnowledgeStore:
             active = db.execute("SELECT idea FROM commits WHERE device=? AND status='done' "
                                 "AND idea IS NOT NULL ORDER BY rowid DESC LIMIT 1", (device,)).fetchone()
             active_id = active[0] if active else None
-            tokens = set(re.findall(r"\w{3,}", transcript.lower()))
+            stopwords = {"это", "как", "для", "или", "еще", "ещё", "вот", "так", "что", "уже", "при", "его", "она", "они", "новая", "заметка", "вариант"}
+            tokens = set(re.findall(r"\w{3,}", transcript.lower())) - stopwords
             candidates = []
             for folder in ("ideas", "wiki", "builds"):
                 directory = self._path(folder)
@@ -219,14 +220,17 @@ class KnowledgeStore:
                     if data is None or len(data) > 90000:
                         continue
                     text = data.decode()
-                    score = len(tokens & set(re.findall(r"\w{3,}", text.lower())))
+                    body = text.split("\n---\n", 1)[-1] if text.startswith("---\n") else text
+                    body = re.sub(r"\[\[[^\]]+\]\]", "", body)
+                    score = len(tokens & set(re.findall(r"\w{3,}", body.lower())))
                     if relative.startswith('ideas/') and active_id:
                         try:
                             if metadata(data).get('idea_id') == active_id:
                                 score += 10000
                         except KnowledgeConflict:
                             pass
-                    candidates.append((score, relative, text, digest(data)))
+                    if score > 0:
+                        candidates.append((score, relative, text, digest(data)))
             pages, budget = [], 60000
             for score, path, text, sha in sorted(candidates, reverse=True):
                 if len(pages) >= 12:
@@ -276,6 +280,7 @@ class KnowledgeStore:
             date = source_meta["created"]
 
             def add(relative, title, body, sources, kind, extra=None):
+                body = body.replace("[[Zateya/", "[[Затея/")
                 for placeholder in (source_id, target):
                     if placeholder:
                         body = body.replace(f'Затея/ideas/{placeholder}', f'Затея/{path[:-3]}')
