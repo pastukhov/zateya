@@ -41,3 +41,21 @@ raw PCM. The actual incident's inner container extracts to exactly213120bytes.
 Physical listening after deployment remains required to confirm all reported
 noise symptoms are resolved. The separate DMA investigation is deferred and is
 not part of this backend correction or a new firmware release.
+
+## Release verification
+
+Released backend fix `605cff1` on 2026-11-04; firmware remains OTA 26.
+The full backend/deployment suite passed: 624 tests (97 existing warnings).
+An independent review and the real archived response through the production TTS
+adapter confirmed exact preservation of 213120 PCM bytes, excluding 7708 bytes
+of container/metadata. The previous Docker image is retained as
+`zateya-voice-gateway:before-wav-noise-20261104`.
+
+After deployment, external HTTPS checks passed for all 14 PCM and Opus cues,
+including authentication, SHA, size, metadata and decoded sample count. None of
+the PCM payloads begins with an embedded RIFF container. Corrected totals are
+1046400 PCM bytes and 70252 Opus bytes. A fresh cache instance loaded all entries
+without synthesis or file modification. A real provider request produced a
+canonical 24 kHz WAV with 55680 samples and no embedded container. Device cue
+refresh retries each entry after 60 seconds while idle; physical listening is
+still pending user confirmation.
