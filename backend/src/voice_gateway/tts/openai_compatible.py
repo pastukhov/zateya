@@ -21,6 +21,7 @@ from __future__ import annotations
 import logging
 import time
 import wave
+import tempfile
 from io import BytesIO
 from email.message import Message
 from pathlib import Path
@@ -33,6 +34,7 @@ from backend.src.voice_gateway.models import TTSResult
 from backend.src.voice_gateway.tts.base import TTSProvider, TTSProviderError
 from backend.src.voice_gateway.tts.config import TTSConfig
 from backend.src.voice_gateway.tts.wav import normalize_wav
+from backend.src.voice_gateway.tts.streaming import FiniteWavWriter,MAX_TTS_BYTES
 from backend.src.voice_gateway.usage.models import CallContext, Cost, UsageObservation
 from backend.src.voice_gateway.usage.recorder import UsageRecorder
 
@@ -66,6 +68,8 @@ class OpenAICompatibleTTS(TTSProvider):
         turn_id: str | None = None,
         device_id: str | None = None,
         context: CallContext | None = None,
+        audio_ready=None,
+        cancel_event=None,
     ) -> TTSResult:
         actual_context = context or CallContext(turn_id or "unknown", "recorder", "tts",
                                                 self._config.model)
@@ -74,7 +78,8 @@ class OpenAICompatibleTTS(TTSProvider):
         started_at = time.monotonic()
         try:
             result = self._synthesize_untracked(
-                text, out_path, turn_id=turn_id, device_id=device_id
+                text, out_path, turn_id=turn_id, device_id=device_id,
+                audio_ready=audio_ready,cancel_event=cancel_event
             )
         except TTSProviderError as exc:
             if self._usage_recorder is not None:
@@ -98,6 +103,8 @@ class OpenAICompatibleTTS(TTSProvider):
         *,
         turn_id: str | None = None,
         device_id: str | None = None,
+        audio_ready=None,
+        cancel_event=None,
     ) -> TTSResult:
         """Synthesize ``text`` into the WAV file at ``out_path``.
 
@@ -126,6 +133,8 @@ class OpenAICompatibleTTS(TTSProvider):
         }
         if self._config.instructions:
             payload["instructions"] = self._config.instructions
+        if audio_ready is not None:
+            return self._stream_synthesize(payload,headers,out_path,audio_ready,cancel_event,turn_id,device_id,stage_start)
         try:
             response = self._client.post(
                 self._config.base_url,
@@ -186,6 +195,43 @@ class OpenAICompatibleTTS(TTSProvider):
             status="success",
         )
         return TTSResult(wav_path=out_path, sample_rate=sample_rate)
+
+    def _stream_synthesize(self,payload,headers,out_path,audio_ready,cancel_event,turn_id,device_id,stage_start):
+        writer=FiniteWavWriter(out_path,audio_ready)
+        try:
+            with tempfile.SpooledTemporaryFile(max_size=65536) as raw:
+                with self._client.stream("POST",self._config.base_url,json=payload,headers=headers,
+                        timeout=httpx.Timeout(self._config.timeout)) as response:
+                    if response.status_code>=400:raise TTSProviderError(f"tts returned HTTP {response.status_code}")
+                    if self._config.response_format=="pcm":
+                        media=Message();media['content-type']=response.headers.get('content-type','')
+                        if media.get_content_type() not in {'audio/pcm','application/octet-stream','audio/wav','audio/x-wav','audio/wave'}:
+                            raise TTSProviderError('tts returned an unexpected PCM content type')
+                    total=0
+                    for block in response.iter_bytes():
+                        if cancel_event is not None and cancel_event.is_set():raise TTSProviderError("tts cancelled")
+                        total+=len(block)
+                        if total>MAX_TTS_BYTES:raise TTSProviderError("tts response exceeds size limit")
+                        raw.write(block);writer.feed(block)
+                    if cancel_event is not None and cancel_event.is_set():raise TTSProviderError("tts cancelled")
+                    if not total:raise TTSProviderError("tts returned an empty response body")
+                    early=writer.finish()
+                    if not early:
+                        raw.seek(0);body=raw.read()
+                        if self._config.response_format=="pcm":body=self._pcm_to_wav(body,response.headers.get("content-type",""))
+                        body=normalize_wav(body);out_path.parent.mkdir(parents=True,exist_ok=True);out_path.write_bytes(body)
+                rate=24000 if early else self._validate_wav(body)
+        except (httpx.HTTPError,TTSProviderError,OSError) as exc:
+            writer.abort()
+            log_stage_event(logger,"tts",turn_id=turn_id,device_id=device_id,
+                duration_ms=int((time.perf_counter()-stage_start)*1000),status=ErrorCode.TTS_FAILED.value,error=exc.__class__.__name__)
+            if isinstance(exc,TTSProviderError):raise
+            raise TTSProviderError(f"tts request failed: {exc.__class__.__name__}") from exc
+        except BaseException:
+            writer.abort();raise
+        log_stage_event(logger,"tts",turn_id=turn_id,device_id=device_id,
+            duration_ms=int((time.perf_counter()-stage_start)*1000),status="success")
+        return TTSResult(wav_path=out_path,sample_rate=rate)
 
     @staticmethod
     def _pcm_to_wav(body: bytes, content_type: str) -> bytes:

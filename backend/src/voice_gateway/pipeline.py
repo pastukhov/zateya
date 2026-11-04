@@ -7,6 +7,7 @@ import logging
 import os
 import json
 import time
+import threading
 import wave
 from datetime import UTC, datetime
 from pathlib import Path
@@ -84,6 +85,12 @@ class VoicePipeline:
         output_part = turn_dir / "reply.wav.part"
         output_wav = turn_dir / "reply.wav"
         deferred_cancel_accounting = False
+        synthesis_cancel=threading.Event()
+        stream_marker=turn_dir/"reply-stream.json"
+        stream_marker.unlink(missing_ok=True)
+        def audio_ready(size):
+            if synthesis_cancel.is_set():raise TTSProviderError("tts cancelled")
+            atomic_write_json(stream_marker,{"size":size})
         try:
             async with asyncio.timeout(self.deadline_seconds):
                 await asyncio.to_thread(self._pcm_to_wav, Path(job["audio_path"]), input_wav)
@@ -128,6 +135,8 @@ class VoicePipeline:
                 logger.info("starting speech synthesis for turn %s", job["turn_id"])
                 synthesis_kwargs = {}
                 if isinstance(self.tts, OpenAICompatibleTTS):
+                    synthesis_kwargs["audio_ready"]=audio_ready
+                    synthesis_kwargs["cancel_event"]=synthesis_cancel
                     synthesis_kwargs["context"] = CallContext(
                         job["turn_id"], "recorder", "tts", self.tts._config.model
                     )
@@ -137,6 +146,7 @@ class VoicePipeline:
                 try:
                     await asyncio.shield(synthesis)
                 except asyncio.CancelledError:
+                    synthesis_cancel.set();stream_marker.unlink(missing_ok=True)
                     # The provider call may already be billable, while a
                     # to_thread operation cannot be stopped. Finalize the turn
                     # from the event loop when that call and its accounting end.
@@ -236,6 +246,10 @@ class VoicePipeline:
             }:
                 raise VoicePipelineError(code) from None
             raise VoicePipelineError("agent_unavailable") from None
+
+        finally:
+            synthesis_cancel.set()
+            if not output_wav.exists():stream_marker.unlink(missing_ok=True)
 
     async def _finish_usage(self, job: dict[str, Any], outcome: str) -> None:
         if self.usage_recorder is not None:

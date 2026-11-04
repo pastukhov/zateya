@@ -4,13 +4,15 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import json
+import time
 import os
 import uuid
 from pathlib import Path
 from typing import Callable
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, JSONResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 
 from .auth import owns_device
 from .store import JobConflict, VoiceJobStore
@@ -39,12 +41,38 @@ def install_voice_job_routes(
         await authenticate(request)
         return Response(status_code=204)
 
+    def stream_info(job: dict):
+        if job['status'] not in ('synthesizing','ready') or not job.get('audio_path'):return None
+        folder=Path(job['audio_path']).resolve().parent
+        if store.archive_root.resolve() not in folder.parents:return None
+        try:
+            marker=folder/'reply-stream.json'
+            if marker.stat().st_size>128:return None
+            size=json.loads(marker.read_text())['size']
+            if type(size) is not int or not 44<size<=16*1024*1024:return None
+            path=folder/('reply.wav' if job['status']=='ready' else 'reply.wav.part')
+            # Rename may precede the durable READY update; retain availability.
+            if not path.exists() and (folder/'reply.wav').exists():path=folder/'reply.wav'
+            if path.stat().st_size<=44:return None
+            return path,size
+        except (OSError,ValueError,KeyError,TypeError):
+            # Raw/unknown-length TTS falls back to a complete canonical file.
+            # Opt-in clients still claim it durably before any playback bytes.
+            if job['status']=='ready' and job.get('result_json'):
+                try:
+                    path=Path(job['result_json']).resolve();size=path.stat().st_size
+                    if store.archive_root.resolve() in path.parents and 44<size<=16*1024*1024:return path,size
+                except OSError:pass
+            return None
+
     def status_payload(job: dict) -> dict:
         payload = {
             "turn_id": job["turn_id"],
             "request_id": job["request_id"],
             "status": job["status"],
         }
+        if job.get('audio_stream_claimed'):payload['audio_stream_consumed']=True
+        elif stream_info(job):payload['audio_stream_ready']=True
         if job.get("error_code"):
             payload["error"] = job["error_code"]
         if job["status"] == "ready" and job.get("follow_up"):
@@ -170,6 +198,33 @@ def install_voice_job_routes(
         job = store.get_owned(device_id, turn_id)
         if job is None:
             raise HTTPException(status_code=404, detail={"error": "not_found"})
+        if request.query_params.get('stream')=='1':
+            info=stream_info(job)
+            if info is None:raise HTTPException(status_code=409,detail={"error":"audio_not_ready"})
+            path,expected=info
+            try:source=path.open('rb')
+            except OSError:raise HTTPException(status_code=409,detail={"error":"audio_not_ready"}) from None
+            if not store.claim_audio_stream(device_id,turn_id):
+                source.close();raise HTTPException(status_code=409,detail={"error":"audio_stream_consumed"})
+            async def chunks():
+                sent=0;deadline=time.monotonic()+180
+                try:
+                    while True:
+                        current=store.get_owned(device_id,turn_id)
+                        if not current or current['status'] not in ('synthesizing','ready'):
+                            raise RuntimeError('audio stream interrupted')
+                        if time.monotonic()>deadline:raise RuntimeError('audio stream deadline')
+                        if await request.is_disconnected():return
+                        if sent<expected:
+                            data=await asyncio.to_thread(source.read,min(4096,expected-sent))
+                            if data:sent+=len(data);yield data;continue
+                        if current['status']=='ready':
+                            if sent!=expected or source.read(1):raise RuntimeError('audio stream length mismatch')
+                            return
+                        await asyncio.sleep(.02)
+                finally:source.close()
+            return StreamingResponse(chunks(),media_type='audio/wav',headers={
+                'Cache-Control':'private, no-store','X-Accel-Buffering':'no'})
         if job["status"] != "ready" or not job.get("result_json"):
             raise HTTPException(status_code=409, detail={"error": "audio_not_ready"})
         path = Path(job["result_json"]).resolve()

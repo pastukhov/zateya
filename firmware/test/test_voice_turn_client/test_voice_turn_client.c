@@ -82,6 +82,7 @@ typedef struct {
   unsigned cleared_ids;
   bool bad_audio_metadata;
   bool follow_up;
+  bool early,consumed,cancel_download;
   voice_turn_io_result_t lookup_result;
   voice_turn_io_result_t poll_result;
   voice_turn_io_result_t cancel_result;
@@ -94,6 +95,7 @@ static voice_turn_io_result_t fake_lookup(void *ctx, const char *request_id,
   fake->lookups++;
   TEST_ASSERT_EQUAL_STRING("9b69da5b-bd5d-44a3-9391-15e8dac36733", request_id);
   response->status = fake->status;
+  response->audio_stream_ready=fake->early;response->audio_stream_consumed=fake->consumed;
   strcpy(response->turn_id, "9b69da5b-bd5d-44a3-9391-15e8dac36734");
   return fake->lookup_result;
 }
@@ -104,6 +106,7 @@ static voice_turn_io_result_t fake_poll(void *ctx, const char *turn_id,
   fake->polls++;
   TEST_ASSERT_EQUAL_STRING("9b69da5b-bd5d-44a3-9391-15e8dac36734", turn_id);
   response->status = fake->status;
+  response->audio_stream_ready=fake->early;response->audio_stream_consumed=fake->consumed;
   response->follow_up_listen = fake->follow_up;
   if(fake->follow_up)strcpy(response->question_id,"9b69da5b-bd5d-44a3-9391-15e8dac36735");
   return fake->poll_result;
@@ -120,7 +123,7 @@ static voice_turn_io_result_t fake_download(void *ctx, const char *turn_id,
   response->channels = 1;
   response->bits_per_sample = 16;
   if (fake->bad_audio_metadata) response->http_status = 202;
-  return VOICE_TURN_IO_OK;
+  return fake->cancel_download?VOICE_TURN_IO_CANCELLED:VOICE_TURN_IO_OK;
 }
 
 static voice_turn_io_result_t fake_cancel(void *ctx, const char *turn_id) {
@@ -315,8 +318,49 @@ void test_server_error_metadata_is_root_only_bounded_and_classified(void){
  TEST_ASSERT_FALSE(voice_turn_parse_metadata("{\"error\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}",id,sizeof(id),&listen,&error));
 }
 
+static void test_early_audio_waits_terminal_and_never_downloads_twice(void){
+ turn_fake_t fake={.status=VOICE_TURN_STATUS_SYNTHESIZING,.early=true};voice_turn_client_t client;
+ voice_turn_client_init(&client,&TURN_OPS,&fake,"9b69da5b-bd5d-44a3-9391-15e8dac36733","9b69da5b-bd5d-44a3-9391-15e8dac36734",0);
+ TEST_ASSERT_EQUAL(VOICE_TURN_WAITING,voice_turn_client_tick(&client,1000));TEST_ASSERT_EQUAL(1,fake.downloads);
+ fake.early=false;fake.consumed=true;
+ TEST_ASSERT_EQUAL(VOICE_TURN_WAITING,voice_turn_client_tick(&client,2000));TEST_ASSERT_EQUAL(1,fake.downloads);
+ fake.status=VOICE_TURN_STATUS_READY;fake.follow_up=true;
+ TEST_ASSERT_EQUAL(VOICE_TURN_READY,voice_turn_client_tick(&client,3000));TEST_ASSERT_EQUAL(1,fake.downloads);
+ TEST_ASSERT_TRUE(client.follow_up_listen);
+}
+static void test_consumed_stream_after_reboot_and_late_error_never_replays(void){
+ turn_fake_t fake={.status=VOICE_TURN_STATUS_READY,.consumed=true};voice_turn_client_t client;
+ voice_turn_client_init(&client,&TURN_OPS,&fake,"9b69da5b-bd5d-44a3-9391-15e8dac36733","9b69da5b-bd5d-44a3-9391-15e8dac36734",0);
+ TEST_ASSERT_EQUAL(VOICE_TURN_FAILED,voice_turn_client_tick(&client,1000));TEST_ASSERT_EQUAL(0,fake.downloads);
+ fake=(turn_fake_t){.status=VOICE_TURN_STATUS_SYNTHESIZING,.early=true};
+ voice_turn_client_init(&client,&TURN_OPS,&fake,"9b69da5b-bd5d-44a3-9391-15e8dac36733","9b69da5b-bd5d-44a3-9391-15e8dac36734",0);
+ TEST_ASSERT_EQUAL(VOICE_TURN_WAITING,voice_turn_client_tick(&client,1000));
+ fake.status=VOICE_TURN_STATUS_FAILED;
+ TEST_ASSERT_EQUAL(VOICE_TURN_FAILED,voice_turn_client_tick(&client,2000));TEST_ASSERT_EQUAL(1,fake.downloads);
+ TEST_ASSERT_FALSE(client.follow_up_listen);
+}
+static void test_cancel_early_download_preserves_id_until_backend_cancel(void){
+ turn_fake_t fake={.status=VOICE_TURN_STATUS_SYNTHESIZING,.early=true,.cancel_download=true};voice_turn_client_t client;
+ voice_turn_client_init(&client,&TURN_OPS,&fake,"9b69da5b-bd5d-44a3-9391-15e8dac36733","9b69da5b-bd5d-44a3-9391-15e8dac36734",0);
+ TEST_ASSERT_EQUAL(VOICE_TURN_WAITING,voice_turn_client_tick(&client,1000));
+ TEST_ASSERT_EQUAL(1,fake.downloads);TEST_ASSERT_TRUE(client.cancel_requested);
+ TEST_ASSERT_NOT_EQUAL(0,strlen(client.turn_id));TEST_ASSERT_EQUAL(0,fake.cleared_ids);
+ TEST_ASSERT_EQUAL(VOICE_TURN_CANCELLED,voice_turn_client_tick(&client,1050));
+ TEST_ASSERT_EQUAL(1,fake.cancels);TEST_ASSERT_EQUAL(1,fake.cleared_ids);
+}
+static void test_stream_metadata_is_root_boolean_and_unique(void){
+ bool ready,consumed;
+ TEST_ASSERT_TRUE(voice_turn_parse_stream_flags("{\"audio_stream_ready\":true}",&ready,&consumed));TEST_ASSERT_TRUE(ready);TEST_ASSERT_FALSE(consumed);
+ TEST_ASSERT_TRUE(voice_turn_parse_stream_flags("{\"nested\":{\"audio_stream_ready\":true}}",&ready,&consumed));TEST_ASSERT_FALSE(ready);
+ TEST_ASSERT_FALSE(voice_turn_parse_stream_flags("{\"audio_stream_ready\":1}",&ready,&consumed));
+ TEST_ASSERT_FALSE(voice_turn_parse_stream_flags("{\"audio_stream_ready\":true,\"audio_stream_ready\":false}",&ready,&consumed));
+}
 int main(void) {
   UNITY_BEGIN();
+  RUN_TEST(test_cancel_early_download_preserves_id_until_backend_cancel);
+  RUN_TEST(test_early_audio_waits_terminal_and_never_downloads_twice);
+  RUN_TEST(test_consumed_stream_after_reboot_and_late_error_never_replays);
+  RUN_TEST(test_stream_metadata_is_root_boolean_and_unique);
   RUN_TEST(test_server_error_metadata_is_root_only_bounded_and_classified);
   RUN_TEST(test_ready_question_intent_survives_download_and_failed_audio_never_listens);
   RUN_TEST(test_follow_up_is_optional_strict_and_consumed_only_once);

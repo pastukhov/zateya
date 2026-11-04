@@ -100,6 +100,8 @@ server {
         limit_conn recorder_connections 4;
         set $gateway backend:${VOICE_BIND_PORT};
         proxy_pass http://$gateway;
+        # Live WAV replies must leave upstream buffers before synthesis ends.
+        proxy_buffering off;
         proxy_http_version 1.1;
         proxy_set_header Connection "";
         proxy_set_header Authorization $http_authorization;

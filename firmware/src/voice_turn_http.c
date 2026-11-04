@@ -106,6 +106,7 @@ static voice_turn_io_result_t read_json(esp_http_client_handle_t client,
   body[used] = '\0';
   if (!voice_turn_parse_metadata(body,response->question_id,sizeof(response->question_id),
                                   &response->follow_up_listen,&response->error)) return VOICE_TURN_IO_FATAL;
+  if(!voice_turn_parse_stream_flags(body,&response->audio_stream_ready,&response->audio_stream_consumed))return VOICE_TURN_IO_FATAL;
   if (!voice_turn_parse_status(body, &response->status)) return VOICE_TURN_IO_FATAL;
   if (needs_turn_id && !voice_turn_parse_turn_id(body, response->turn_id,
                                                   sizeof(response->turn_id)))
@@ -123,6 +124,7 @@ static voice_turn_io_result_t lookup_request(void *ctx, const char *request_id,
   esp_http_client_handle_t client = open_request(http, "GET", path, &status);
   if (!client) return VOICE_TURN_IO_RETRY;
   voice_turn_io_result_t result = read_json(client, status, body, sizeof(body), true, response);
+  if(result==VOICE_TURN_IO_OK)http->stream_requested=response->audio_stream_ready || response->status==VOICE_TURN_STATUS_READY;
   close_request(client);
   return result;
 }
@@ -137,6 +139,7 @@ static voice_turn_io_result_t poll_turn(void *ctx, const char *turn_id,
   esp_http_client_handle_t client = open_request(http, "GET", path, &status);
   if (!client) return VOICE_TURN_IO_RETRY;
   voice_turn_io_result_t result = read_json(client, status, body, sizeof(body), false, response);
+  if(result==VOICE_TURN_IO_OK)http->stream_requested=response->audio_stream_ready || response->status==VOICE_TURN_STATUS_READY;
   close_request(client);
   return result;
 }
@@ -163,11 +166,11 @@ static voice_turn_io_result_t download_audio(void *ctx, const char *turn_id,
                                               voice_turn_response_t *response) {
   voice_turn_http_t *http = ctx;
   char path[104];
-  int n = snprintf(path, sizeof(path), "/api/voice/turns/%s/audio", turn_id);
+  int n = snprintf(path, sizeof(path), "/api/voice/turns/%s/audio%s", turn_id,http->stream_requested?"?stream=1":"");
   if (n <= 0 || (size_t)n >= sizeof(path)) return VOICE_TURN_IO_FATAL;
   int status = 0;
   esp_http_client_handle_t client = open_request(http, "GET", path, &status);
-  if (!client) return VOICE_TURN_IO_RETRY;
+  if (!client) return http->cancel_requested && *http->cancel_requested?VOICE_TURN_IO_CANCELLED:VOICE_TURN_IO_RETRY;
   response->http_status = status;
   const char *content_type = http->response_content_type;
   strlcpy(response->content_type, content_type, sizeof(response->content_type));
@@ -177,6 +180,7 @@ static voice_turn_io_result_t download_audio(void *ctx, const char *turn_id,
     ESP_LOGE("voice_http", "invalid audio response: HTTP %d, type %s",
              status, content_type);
     close_request(client);
+    if(http->cancel_requested && *http->cancel_requested)return VOICE_TURN_IO_CANCELLED;
     return status >= 500 ? VOICE_TURN_IO_RETRY : VOICE_TURN_IO_FATAL;
   }
   wav_parser_t parser;
@@ -186,6 +190,7 @@ static voice_turn_io_result_t download_audio(void *ctx, const char *turn_id,
   voice_turn_io_result_t result = VOICE_TURN_IO_OK;
   size_t received_bytes = 0;
   for (;;) {
+    if(http->deadline_ms && (uint64_t)(esp_timer_get_time()/1000ULL)>=http->deadline_ms){result=VOICE_TURN_IO_FATAL;break;}
     if (http->cancel_requested && *http->cancel_requested) {
       result = VOICE_TURN_IO_RETRY;
       break;
@@ -201,6 +206,7 @@ static voice_turn_io_result_t download_audio(void *ctx, const char *turn_id,
     received_bytes += (size_t)got;
     size_t offset = 0;
     while (offset < (size_t)got) {
+      if(http->deadline_ms && (uint64_t)(esp_timer_get_time()/1000ULL)>=http->deadline_ms){result=VOICE_TURN_IO_FATAL;break;}
       if (http->cancel_requested && *http->cancel_requested) {
         result = VOICE_TURN_IO_RETRY;
         break;
@@ -219,6 +225,7 @@ static voice_turn_io_result_t download_audio(void *ctx, const char *turn_id,
     }
     if (result != VOICE_TURN_IO_OK) break;
   }
+  if(result==VOICE_TURN_IO_OK && !esp_http_client_is_complete_data_received(client))result=VOICE_TURN_IO_FATAL;
   if (result == VOICE_TURN_IO_OK && wav_parser_finish(&parser) != WAV_OK) {
     ESP_LOGE("voice_http", "WAV incomplete after %lu bytes",
              (unsigned long)received_bytes);
@@ -231,6 +238,7 @@ static voice_turn_io_result_t download_audio(void *ctx, const char *turn_id,
     ESP_LOGI("voice_http", "audio download complete: %lu Hz, %u channel(s)",
              (unsigned long)response->sample_rate, response->channels);
   }
+  if(http->cancel_requested && *http->cancel_requested)result=VOICE_TURN_IO_CANCELLED;
   close_request(client);
   if (result == VOICE_TURN_IO_RETRY && http->audio_started &&
       *http->audio_started &&

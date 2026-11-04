@@ -13,6 +13,8 @@ typedef struct {
   char token[192];
   char response_content_type[64];
   StreamBufferHandle_t audio_stream;
+  bool stream_requested;
+  uint64_t deadline_ms;
   volatile bool *cancel_requested;
   volatile bool *audio_started;
 } voice_turn_http_t;

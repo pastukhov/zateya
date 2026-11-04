@@ -26,27 +26,27 @@ status before follow-up listening. Raw/unknown-length inputs retain fallback.
 ## Task 1: Incremental provider normalization and publication (Sol)
 Files: tts/openai_compatible.py, tts/wav.py or focused new streaming helper,
 pipeline.py and corresponding TTS/pipeline tests.
-- [ ] Add failing delayed-upstream tests proving first normalized PCM before EOF,
+- [x] Add failing delayed-upstream tests proving first normalized PCM before EOF,
   plus finite metadata exclusion, fragmented headers, truncation, cancellation,
   bounded size, and unchanged raw/unknown-length fallback.
-- [ ] Implement streaming httpx reads, canonical finite WAV output with flushed
+- [x] Implement streaming httpx reads, canonical finite WAV output with flushed
   PCM, and safe availability metadata. Preserve usage accounting and final
   archive validation; cleanup partial state on every terminal failure.
-- [ ] Run targeted tests; document the interface consumed by Task 2.
+- [x] Run targeted tests; document the interface consumed by Task 2.
 
 ## Task 2: Early authenticated delivery and firmware consumption (Sol)
 Files: jobs/api.py, jobs worker/store only as needed, app.py if needed,
 firmware/include/voice_turn_client.h, firmware/src/voice_turn_client.c,
 firmware/src/voice_turn_http.c, firmware protocol JSON parser, main.c only as
 needed, deploy/alice.nginx.conf.template; corresponding API/native/proxy tests.
-- [ ] Add tests for separate audio availability, old clients, ownership,
+- [x] Add tests for separate audio availability, old clients, ownership,
   cancellation/error on growing streams, terminal confirmation and follow-up,
   no second download after early consumption, and no prefix replay on failure.
-- [ ] Serve authenticated growing canonical WAV using opt-in stream query with
+- [x] Serve authenticated growing canonical WAV using opt-in stream query with
   buffering disabled and bounded reads. Keep ready-only legacy behavior.
-- [ ] Firmware parses availability, downloads once, then polls terminal result;
+- [x] Firmware parses availability, downloads once, then polls terminal result;
   ensure HTTP completion and parser success do not mask backend failure.
-- [ ] Run targeted backend and native tests; build StickS3 firmware.
+- [ ] Run targeted backend and native tests; build StickS3 firmware. (Final parent rerun after review fixes.)
 
 ## Task 3: Independent review, verification and release (parent)
 - [ ] Review full diff and have independent reviewer inspect completion,
@@ -64,3 +64,5 @@ needed, deploy/alice.nginx.conf.template; corresponding API/native/proxy tests.
 User already authorized implementation and established Sol execution with parent
 verification. Continue without repeated design permission. Source workspace is
 shared with the established Sol agent; preserve unrelated untracked user files.
+
+Implementation contract and limitations: [streaming reply operations](../../operations/streaming-reply.md). Parent initial checks: backend633/native122 passed; latest cancellation/MIME regressions and target build receive final parent verification before release.

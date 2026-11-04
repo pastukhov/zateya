@@ -77,6 +77,8 @@ class VoiceJobStore:
             )
 
             columns = {row[1] for row in connection.execute("PRAGMA table_info(voice_jobs)")}
+            if "audio_stream_claimed" not in columns:
+                connection.execute("ALTER TABLE voice_jobs ADD COLUMN audio_stream_claimed INTEGER NOT NULL DEFAULT 0")
             for name in ("answer_to", "follow_up", "answer_json"):
                 if name not in columns:
                     connection.execute(f"ALTER TABLE voice_jobs ADD COLUMN {name} TEXT")
@@ -238,6 +240,16 @@ class VoiceJobStore:
                 (status, _now(), turn_id),
             )
             return cursor.rowcount == 1
+
+    def claim_audio_stream(self,device_id: str,turn_id: str) -> bool:
+        # Durable before first response byte; a lost connection may forfeit
+        # playback, but automatic reconnect/reboot can never replay a prefix.
+        with self._connect() as connection:
+            cursor=connection.execute(
+                "UPDATE voice_jobs SET audio_stream_claimed=1 WHERE device_id=? AND turn_id=? "
+                "AND audio_stream_claimed=0 AND status IN ('synthesizing','ready')",
+                (device_id,turn_id))
+            return cursor.rowcount==1
 
     def recover_after_restart(self) -> None:
         with self._connect() as connection:

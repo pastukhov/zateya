@@ -203,7 +203,10 @@ static voice_turn_result_t download_ready_audio(voice_turn_client_t *client,
   voice_turn_response_t response = {0};
   const voice_turn_io_result_t io = client->ops->download_audio(
       client->ctx, client->turn_id, &response);
-  if (io == VOICE_TURN_IO_RETRY) return retry_later(client, now_ms);
+  if(io==VOICE_TURN_IO_CANCELLED){
+    client->cancel_requested=true;client->next_poll_ms=now_ms;return VOICE_TURN_WAITING;
+  }
+  if (io == VOICE_TURN_IO_RETRY) return client->audio_early?finish(client,VOICE_TURN_FAILED):retry_later(client, now_ms);
   if (io != VOICE_TURN_IO_OK ||
       !voice_turn_audio_response_valid(response.http_status,
                                        response.content_type,
@@ -212,6 +215,8 @@ static voice_turn_result_t download_ready_audio(voice_turn_client_t *client,
                                        response.bits_per_sample)) {
     return finish(client, VOICE_TURN_FAILED);
   }
+  client->audio_pending=false;client->audio_downloaded=true;
+  if(client->audio_early){client->next_poll_ms=now_ms+VOICE_TURN_POLL_INTERVAL_MS;return VOICE_TURN_WAITING;}
   return finish(client, VOICE_TURN_READY);
 }
 
@@ -262,7 +267,11 @@ voice_turn_result_t voice_turn_client_tick(voice_turn_client_t *client,
   client->retry_attempt = 0;
   client->status = response.status;
   client->error = response.error;
+  if(response.audio_stream_consumed && !client->audio_downloaded)return finish(client,VOICE_TURN_FAILED);
   if (pending_status(response.status)) {
+    if(response.audio_stream_ready && response.status==VOICE_TURN_STATUS_SYNTHESIZING && !client->audio_downloaded){
+      client->audio_early=true;client->audio_pending=true;return download_ready_audio(client,now_ms);
+    }
     client->next_poll_ms = now_ms + VOICE_TURN_POLL_INTERVAL_MS;
     return VOICE_TURN_WAITING;
   }
@@ -274,6 +283,7 @@ voice_turn_result_t voice_turn_client_tick(voice_turn_client_t *client,
     return finish(client, VOICE_TURN_FAILED);
   client->follow_up_listen = response.follow_up_listen &&
     copy_uuid(client->question_id, sizeof(client->question_id), response.question_id);
+  if(client->audio_downloaded)return finish(client,VOICE_TURN_READY);
   client->audio_pending = true;
   return download_ready_audio(client, now_ms);
 }

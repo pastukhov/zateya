@@ -377,6 +377,7 @@ static void turn_worker(void *arg) {
       voice_settings.request_id,
       voice_settings.turn_id[0] ? voice_settings.turn_id : NULL,
       (uint64_t)(esp_timer_get_time() / 1000ULL));
+  a->turn_http.deadline_ms=a->turn_client.deadline_ms;
   if (a->turn_client.result == VOICE_TURN_FAILED) {
     a->turn_result = VOICE_TURN_FAILED;
     a->turn_task_active = false;
