@@ -22,7 +22,14 @@ _LOG = logging.getLogger(__name__)
 _MAX_BYTES = 240000  # Five seconds of PCM16 mono, 24 kHz.
 
 
-CUE_TEXTS = {'listening': 'Слушаю.', 'processing': 'Обрабатываю.', 'offline': 'Нет связи.'}
+CUE_TEXTS = {
+    'listening': 'Слушаю.', 'processing': 'Обрабатываю.', 'offline': 'Нет связи.',
+    'ready': 'Готова к записи.', 'done': 'Готово.', 'cancelled': 'Отменено.',
+    'transcribing': 'Распознаю.', 'thinking': 'Думаю.', 'synthesizing': 'Готовлю ответ.',
+    'answering': 'Отвечаю.', 'error': 'Произошла ошибка.',
+    'timeout': 'Не дождалась ответа.', 'recognition_error': 'Не удалось распознать речь.',
+    'synthesis_error': 'Не удалось озвучить ответ.',
+}
 
 
 class _Cue:

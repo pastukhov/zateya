@@ -301,8 +301,23 @@ void test_ready_question_intent_survives_download_and_failed_audio_never_listens
  TEST_ASSERT_FALSE(voice_turn_client_take_follow_up(&client,true,id,sizeof(id)));
 }
 
+void test_server_error_metadata_is_root_only_bounded_and_classified(void){
+ char id[37];bool listen;voice_turn_error_t error;
+ TEST_ASSERT_TRUE(voice_turn_parse_metadata("{\"status\":\"failed\",\"error\":\"agent_timeout\"}",id,sizeof(id),&listen,&error));
+ TEST_ASSERT_EQUAL(VOICE_TURN_ERROR_AGENT_TIMEOUT,error);
+ TEST_ASSERT_TRUE(voice_turn_parse_metadata("{\"error\":\"stt_failed\"}",id,sizeof(id),&listen,&error));TEST_ASSERT_EQUAL(VOICE_TURN_ERROR_STT_FAILED,error);
+ TEST_ASSERT_TRUE(voice_turn_parse_metadata("{\"error\":\"tts_failed\"}",id,sizeof(id),&listen,&error));TEST_ASSERT_EQUAL(VOICE_TURN_ERROR_TTS_FAILED,error);
+ TEST_ASSERT_TRUE(voice_turn_parse_metadata("{\"error\":\"new_error\"}",id,sizeof(id),&listen,&error));TEST_ASSERT_EQUAL(VOICE_TURN_ERROR_UNKNOWN,error);
+ TEST_ASSERT_TRUE(voice_turn_parse_metadata("{\"nested\":{\"error\":\"agent_timeout\"}}",id,sizeof(id),&listen,&error));TEST_ASSERT_EQUAL(VOICE_TURN_ERROR_NONE,error);
+ TEST_ASSERT_FALSE(voice_turn_parse_metadata("{\"error\":42}",id,sizeof(id),&listen,&error));
+ TEST_ASSERT_FALSE(voice_turn_parse_metadata("{\"error\":\"agent_timeout\",\"error\":\"tts_failed\"}",id,sizeof(id),&listen,&error));
+ TEST_ASSERT_FALSE(voice_turn_parse_metadata("{\"error\":\"arbitrary sentence with spaces\"}",id,sizeof(id),&listen,&error));
+ TEST_ASSERT_FALSE(voice_turn_parse_metadata("{\"error\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}",id,sizeof(id),&listen,&error));
+}
+
 int main(void) {
   UNITY_BEGIN();
+  RUN_TEST(test_server_error_metadata_is_root_only_bounded_and_classified);
   RUN_TEST(test_ready_question_intent_survives_download_and_failed_audio_never_listens);
   RUN_TEST(test_follow_up_is_optional_strict_and_consumed_only_once);
   RUN_TEST(test_poll_retry_uses_bounded_backoff);

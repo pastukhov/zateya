@@ -156,6 +156,7 @@ static void clear_ids(voice_turn_client_t *client) {
 static voice_turn_result_t finish(voice_turn_client_t *client,
                                   voice_turn_result_t result) {
   client->result = result;
+  if(result==VOICE_TURN_FAILED && client->error==VOICE_TURN_ERROR_NONE)client->error=VOICE_TURN_ERROR_UNKNOWN;
   clear_ids(client);
   return result;
 }
@@ -218,8 +219,10 @@ voice_turn_result_t voice_turn_client_tick(voice_turn_client_t *client,
                                            uint64_t now_ms) {
   if (!client) return VOICE_TURN_FAILED;
   if (client->result != VOICE_TURN_WAITING) return client->result;
-  if (!client->ops || now_ms >= client->deadline_ms)
+  if (!client->ops || now_ms >= client->deadline_ms){
+    if(now_ms>=client->deadline_ms)client->error=VOICE_TURN_ERROR_DEADLINE;
     return finish(client, VOICE_TURN_FAILED);
+  }
   if (now_ms < client->next_poll_ms) return VOICE_TURN_WAITING;
   if (client->cancel_requested && client->turn_id[0]) {
     if (!client->ops->cancel_turn)
@@ -247,6 +250,7 @@ voice_turn_result_t voice_turn_client_tick(voice_turn_client_t *client,
     }
     client->retry_attempt = 0;
     client->status = response.status;
+    client->error = response.error;
     client->next_poll_ms = now_ms + VOICE_TURN_POLL_INTERVAL_MS;
     return VOICE_TURN_WAITING;
   }
@@ -257,6 +261,7 @@ voice_turn_result_t voice_turn_client_tick(voice_turn_client_t *client,
   if (io != VOICE_TURN_IO_OK) return finish(client, VOICE_TURN_FAILED);
   client->retry_attempt = 0;
   client->status = response.status;
+  client->error = response.error;
   if (pending_status(response.status)) {
     client->next_poll_ms = now_ms + VOICE_TURN_POLL_INTERVAL_MS;
     return VOICE_TURN_WAITING;

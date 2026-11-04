@@ -34,21 +34,21 @@ error. A completion cue must not delay/obscure automatic follow-up listening.
 
 ## Implementation (Sol)
 
-- [ ] Add focused failing tests for state-to-cue coverage, duplicate suppression,
+- [x] Add focused failing tests for state-to-cue coverage, duplicate suppression,
   error priority, fallback distinction and cancellation/follow-up interaction.
-- [ ] Extend `backend/src/voice_gateway/cues/cache.py` catalog and its tests;
+- [x] Extend `backend/src/voice_gateway/cues/cache.py` catalog and its tests;
   extend firmware cue names/cache and fixed nginx routes if required.
-- [ ] Add pure feedback policy and integrate `firmware/src/main.c`, stage/error
+- [x] Add pure feedback policy and integrate `firmware/src/main.c`, stage/error
   transport in voice_turn client/HTTP code as needed. Preserve existing button
   modes, cancellation, OTA gate, microphone settle and audio leases.
-- [ ] Test invalid/unknown server error fields, cold-cache/offline failure,
+- [x] Test invalid/unknown server error fields, cold-cache/offline failure,
   repeated stage polls, fast transitions and resource release. Native tests must
   test policy; explicitly identify ESP-only integration not exercised by native.
-- [ ] Document phrases/state coverage, observed incident and verification limits.
+- [x] Document phrases/state coverage, observed incident and verification limits.
 
 ## Parent verification and release
 
-- [ ] Independently review speaker/microphone ownership, error queue, OTA lease,
+- [x] Independently review speaker/microphone ownership, error queue, OTA lease,
   cancellation and all transition paths. Run backend/deploy suite, native tests
   and StickS3 build. Verify raw audio/transcript from incident remain archived.
 - [ ] Commit/push scoped changes. Deploy backend/catalog first; verify every cue
@@ -59,3 +59,16 @@ error. A completion cue must not delay/obscure automatic follow-up listening.
   error acknowledgement remain explicit acceptance if no device access exists.
 
 User confirmed the device is currently unavailable for USB/physical testing.
+
+## Independent verification
+
+Parent full backend/deploy suite: 594 passed; full native firmware suite:
+113 passed; StickS3 target build successful (35.98 seconds). A separate native
+harness fed the incident failed/agent_timeout JSON through metadata parser,
+voice-turn client and feedback policy; it produced the queued timeout cue.
+
+Review required and verified corrections for ready-cue lease transfer, local
+cancellation after a READY worker ended, initial boot lease adoption (including
+resumed turn), and clearing prior error classification before VAD/capture.
+Final read-only review found no further confirmed integration defects. These
+checks do not execute physical I2S playback or prove installed firmware.

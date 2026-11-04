@@ -4,7 +4,10 @@
 #include <stddef.h>
 #include <stdint.h>
 #define VOICE_CUE_MAX_BYTES 240000
-typedef enum {VOICE_CUE_LISTENING,VOICE_CUE_PROCESSING,VOICE_CUE_OFFLINE,VOICE_CUE_COUNT} voice_cue_name_t;
+typedef enum {VOICE_CUE_LISTENING,VOICE_CUE_PROCESSING,VOICE_CUE_OFFLINE,
+ VOICE_CUE_READY,VOICE_CUE_DONE,VOICE_CUE_CANCELLED,VOICE_CUE_TRANSCRIBING,
+ VOICE_CUE_THINKING,VOICE_CUE_SYNTHESIZING,VOICE_CUE_ANSWERING,VOICE_CUE_ERROR,
+ VOICE_CUE_TIMEOUT,VOICE_CUE_RECOGNITION_ERROR,VOICE_CUE_SYNTHESIS_ERROR,VOICE_CUE_COUNT} voice_cue_name_t;
 /* Pure slot policy; caller serializes access and owns buffer allocation/free. */
 typedef struct {uint8_t *pcm;size_t size;unsigned readers;} voice_cue_slot_t;
 bool voice_cue_metadata_valid(size_t size, int rate, int channels, int bits, const char *sha);
@@ -16,6 +19,7 @@ bool voice_cue_bank_publish(voice_cue_bank_t *bank,voice_cue_name_t name,uint8_t
 const uint8_t *voice_cue_bank_acquire(voice_cue_bank_t *bank,voice_cue_name_t name,size_t *size);
 void voice_cue_bank_release(voice_cue_bank_t *bank,voice_cue_name_t name);
 const uint8_t *voice_cue_fallback(size_t *size);
+const uint8_t *voice_cue_fallback_named(voice_cue_name_t name,size_t *size);
 const char *voice_cue_name(voice_cue_name_t name);
 bool voice_cue_cache_ready_named(voice_cue_name_t name);
 const uint8_t *voice_cue_cache_acquire_named(voice_cue_name_t name,size_t *size);

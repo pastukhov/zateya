@@ -9,7 +9,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from backend.src.voice_gateway.tts.config import TTSConfig
-from backend.src.voice_gateway.cues.cache import CueCache, install_cue_routes
+from backend.src.voice_gateway.cues.cache import CUE_TEXTS, CueCache, install_cue_routes
 
 CONFIG = TTSConfig(base_url='https://secret-provider/audio/speech', model='m', voice='v', api_key='secret')
 
@@ -117,7 +117,7 @@ def test_three_cues_independent_failure_retry_restart_and_voice(tmp_path):
     assert cache.manifest('offline')
     synth.fail = None
     assert cache.ensure_all() is True
-    assert synth.calls == ['Слушаю.', 'Обрабатываю.', 'Нет связи.', 'Обрабатываю.']
+    assert synth.calls == list(CUE_TEXTS.values()) + ['Обрабатываю.']
     calls = len(synth.calls)
     restarted = CueCache(tmp_path, synth, CONFIG)
     assert restarted.ensure_all()
@@ -126,8 +126,8 @@ def test_three_cues_independent_failure_retry_restart_and_voice(tmp_path):
     assert len({restarted.manifest(name)['version'] for name in ('listening', 'processing', 'offline')}) == 3
     changed = CueCache(tmp_path, synth, replace(CONFIG, voice='new'))
     assert changed.ensure_all()
-    assert len(synth.calls) == calls + 3
-    for name in ('listening','processing','offline'):
+    assert len(synth.calls) == calls + len(CUE_TEXTS)
+    for name in CUE_TEXTS:
         assert changed.manifest(name)['version'] != restarted.manifest(name)['version']
     assert cache.manifest('invented') is None
 
@@ -138,19 +138,19 @@ def test_named_cue_routes_auth_unknown_and_no_request_synthesis(tmp_path):
     app = FastAPI(); install_cue_routes(app, cache, {'device': 'token'})
     with TestClient(app) as client:
         headers = {'X-Device-Id': 'device', 'Authorization': 'Bearer token'}
-        for name in ('listening','processing','offline'):
+        for name in CUE_TEXTS:
             assert client.get('/api/device/cues/'+name).status_code == 401
             assert client.get('/api/device/cues/'+name,headers=headers).status_code == 503
         assert not synth.calls
         assert client.get('/api/device/cues/invented',headers=headers).status_code == 404
         assert cache.ensure_all()
-        for name in ('listening','processing','offline'):
+        for name in CUE_TEXTS:
             manifest = client.get('/api/device/cues/'+name,headers=headers).json()
             audio = client.get('/api/device/cues/audio/'+manifest['sha256']+'.pcm',headers=headers)
             assert audio.status_code == 200
             assert len(audio.content) == manifest['size']
             assert hashlib.sha256(audio.content).hexdigest() == manifest['sha256']
-        assert len(synth.calls) == 3
+        assert len(synth.calls) == len(CUE_TEXTS)
 
 
 def test_listening_reuses_pre_catalog_persistent_key(tmp_path):

@@ -77,15 +77,33 @@ static bool follow(reader_t *r,char *id,bool *listen){
  }
  return got_id&&got_listen;
 }
-bool voice_turn_parse_follow_up(const char *json,char *question_id,size_t capacity,bool *listen){
- if(!json||!question_id||capacity<37||!listen||strlen(json)>1024)return false;
+bool voice_turn_parse_metadata(const char *json,char *question_id,size_t capacity,bool *listen,voice_turn_error_t *error){
+ if(!json||!question_id||capacity<37||!listen||!error||strlen(json)>1024)return false;
+ *error=VOICE_TURN_ERROR_NONE;
  question_id[0]='\0';*listen=false;reader_t r={.p=json};ws(&r);if(*r.p++!='{')return false;ws(&r);
- bool seen=false;
+ bool seen=false,seen_error=false;
  if(*r.p!='}')for(;;){char key[64];if(*r.p!='"'||!string(&r,key,sizeof(key)))return false;ws(&r);if(*r.p++!=':')return false;ws(&r);
   if(!strcmp(key,"follow_up")){if(seen||!follow(&r,question_id,listen))return false;seen=true;}
+  else if(!strcmp(key,"error")){
+   if(seen_error)return false;
+   seen_error=true;
+   if(!strncmp(r.p,"null",4))r.p+=4;
+   else {
+    char code[48];if(*r.p!='"'||!string(&r,code,sizeof(code))||!code[0])return false;
+    for(const char *c=code;*c;c++)if(!((*c>='a'&&*c<='z')||(*c>='0'&&*c<='9')||*c=='_'))return false;
+    *error=!strcmp(code,"agent_timeout")?VOICE_TURN_ERROR_AGENT_TIMEOUT:
+     !strcmp(code,"stt_failed")||!strcmp(code,"empty_transcript")?VOICE_TURN_ERROR_STT_FAILED:
+     !strcmp(code,"tts_failed")?VOICE_TURN_ERROR_TTS_FAILED:
+     !strcmp(code,"audio_receive_failed")?VOICE_TURN_ERROR_CONNECTION:VOICE_TURN_ERROR_UNKNOWN;
+   }
+  }
   else if(!value(&r))return false;
   ws(&r);if(*r.p=='}')break;if(*r.p++!=',')return false;ws(&r);
  }
  if(*r.p++!='}')return false;
  ws(&r);return *r.p=='\0';
+}
+
+bool voice_turn_parse_follow_up(const char *json,char *id,size_t capacity,bool *listen){
+ voice_turn_error_t error;return voice_turn_parse_metadata(json,id,capacity,listen,&error);
 }

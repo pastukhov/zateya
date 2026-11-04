@@ -16,7 +16,8 @@ const uint8_t *voice_cue_slot_acquire(voice_cue_slot_t *s,size_t *size) {
 void voice_cue_slot_release(voice_cue_slot_t *s){if(s->readers)s->readers--;}
 
 const char *voice_cue_name(voice_cue_name_t name) {
- static const char *names[]={"listening","processing","offline"};
+ static const char *names[]={"listening","processing","offline","ready","done","cancelled",
+  "transcribing","thinking","synthesizing","answering","error","timeout","recognition_error","synthesis_error"};
  return (unsigned)name<VOICE_CUE_COUNT ? names[name] : NULL;
 }
 bool voice_cue_bank_publish(voice_cue_bank_t *bank,voice_cue_name_t name,uint8_t *pcm,size_t size,uint8_t **old) {
@@ -30,12 +31,18 @@ const uint8_t *voice_cue_bank_acquire(voice_cue_bank_t *bank,voice_cue_name_t na
 void voice_cue_bank_release(voice_cue_bank_t *bank,voice_cue_name_t name) {
  if(bank && voice_cue_name(name))voice_cue_slot_release(&bank->slots[name]);
 }
-const uint8_t *voice_cue_fallback(size_t *size) {
- /* Small generated 80 ms signal, PCM16 mono24k. No speech payload. */
- static uint8_t signal[3840];static bool initialized;
- if(!initialized){for(unsigned i=0;i<sizeof(signal)/2;i++){
-  int16_t sample=(i%24)<12?1000:-1000;
-  signal[2*i]=(uint8_t)sample;signal[2*i+1]=(uint8_t)(sample>>8);
+const uint8_t *voice_cue_fallback_named(voice_cue_name_t name,size_t *size) {
+ /* Three generated80ms patterns: rising ready, low error trill, progress.
+  * No speech, dynamic allocation or shared mutable playback buffer. */
+ static uint8_t pcm[3][3840];static bool initialized;
+ if(!initialized){for(unsigned kind=0;kind<3;kind++)for(unsigned i=0;i<1920;i++){
+  unsigned period=kind==1?(i<960?40:20):kind==2?80:24;
+  bool audible=kind!=2 || (i/240)%2==0;
+  int16_t sample=audible?((i%period)<period/2?4000:-4000):0;
+  pcm[kind][2*i]=(uint8_t)sample;pcm[kind][2*i+1]=(uint8_t)(sample>>8);
  }initialized=true;}
- *size=sizeof(signal);return signal;
+ unsigned kind=(name==VOICE_CUE_READY||name==VOICE_CUE_DONE)?1:
+  (name==VOICE_CUE_OFFLINE||name>=VOICE_CUE_ERROR)?2:0;
+ *size=sizeof(pcm[0]);return pcm[kind];
 }
+const uint8_t *voice_cue_fallback(size_t *size){return voice_cue_fallback_named(VOICE_CUE_LISTENING,size);}

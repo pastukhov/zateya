@@ -93,7 +93,7 @@ server {
         proxy_read_timeout 30s;
         proxy_send_timeout 15s;
     }
-    location ~ "^/api/(voice/(history|requests/[0-9a-f-]{36}|turns/[0-9a-f-]{36}(/(audio|answer))?)|firmware/(manifest|images/[0-9a-f]{64}\.bin)|device/cues/(listening|processing|offline|audio/[0-9a-f]{64}\.pcm))$" {
+    location ~ "^/api/(voice/(history|requests/[0-9a-f-]{36}|turns/[0-9a-f-]{36}(/(audio|answer))?)|firmware/(manifest|images/[0-9a-f]{64}\.bin)|device/cues/(listening|processing|offline|ready|done|cancelled|transcribing|thinking|synthesizing|answering|error|timeout|recognition_error|synthesis_error|audio/[0-9a-f]{64}\.pcm))$" {
         if ($request_method != GET) { return 405; }
         auth_request /_device_auth;
         limit_req zone=recorder_reads burst=20 nodelay;
