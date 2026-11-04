@@ -85,7 +85,7 @@ class VoiceJobWorker:
                 self._active[turn_id] = current
                 try:
                     output_path = Path(await current)
-                    if not self._valid_reply_wav(output_path):
+                    if not self._valid_reply(output_path, job.get("audio_codec") or "wav"):
                         self._archive_failure(job, "tts_failed")
                         self.store.finish(turn_id, "failed", error_code="tts_failed")
                     else:
@@ -114,6 +114,24 @@ class VoiceJobWorker:
                 raise
             finally:
                 self.queue.task_done()
+
+    @staticmethod
+    def _valid_reply(path: Path, codec: str) -> bool:
+        if codec == 'wav':
+            return VoiceJobWorker._valid_reply_wav(path)
+        if codec != 'mp3':
+            return False
+        from backend.src.voice_gateway.tts.mp3 import MP3Parser
+        from backend.src.voice_gateway.tts.base import TTSProviderError
+        try:
+            parser = MP3Parser()
+            with path.open('rb') as audio:
+                while block := audio.read(4096):
+                    parser.feed(block)
+            parser.finish()
+            return True
+        except (OSError, TTSProviderError):
+            return False
 
     @staticmethod
     def _valid_reply_wav(path: Path) -> bool:

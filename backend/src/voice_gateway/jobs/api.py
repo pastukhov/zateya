@@ -27,6 +27,7 @@ def install_voice_job_routes(
     *,
     reset_device: Callable[[str], object] | None = None,
     git_status: Callable[[], dict] | None = None,
+    resolve_mp3_profile: Callable[[str], object] | None = None,
 ) -> None:
     async def authenticate(request: Request) -> str:
         device_id = request.headers.get("X-Device-Id", "")
@@ -41,28 +42,51 @@ def install_voice_job_routes(
         await authenticate(request)
         return Response(status_code=204)
 
-    def stream_info(job: dict):
-        if job['status'] not in ('synthesizing','ready') or not job.get('audio_path'):return None
-        folder=Path(job['audio_path']).resolve().parent
-        if store.archive_root.resolve() not in folder.parents:return None
+    def stream_info(job: dict, source=None):
+        if job['status'] not in ('synthesizing','ready') or not job.get('audio_path'):
+            return None
+        folder = Path(job['audio_path']).resolve().parent
+        if store.archive_root.resolve() not in folder.parents:
+            return None
         try:
-            marker=folder/'reply-stream.json'
-            if marker.stat().st_size>128:return None
-            size=json.loads(marker.read_text())['size']
-            if type(size) is not int or not 44<size<=16*1024*1024:return None
-            path=folder/('reply.wav' if job['status']=='ready' else 'reply.wav.part')
-            # Rename may precede the durable READY update; retain availability.
-            if not path.exists() and (folder/'reply.wav').exists():path=folder/'reply.wav'
-            if path.stat().st_size<=44:return None
-            return path,size
-        except (OSError,ValueError,KeyError,TypeError):
-            # Raw/unknown-length TTS falls back to a complete canonical file.
-            # Opt-in clients still claim it durably before any playback bytes.
-            if job['status']=='ready' and job.get('result_json'):
+            marker = folder / 'reply-stream.json'
+            if marker.stat().st_size > 512:
+                return None
+            data = json.loads(marker.read_text())
+            codec = data.get('codec', 'wav')
+            if codec not in ('wav', 'mp3'):
+                return None
+            available = data.get('available_bytes') if codec == 'mp3' else data['size']
+            if type(available) is not int or not 0 < available <= 16*1024*1024:
+                return None
+            expected = None if codec == 'mp3' else available
+            final = folder / ('reply.' + codec)
+            path = final if job['status'] == 'ready' else folder / ('reply.' + codec + '.part')
+            if source is not None:
+                # Once claimed, the descriptor survives the producer's rename.
+                actual_size = os.fstat(source.fileno()).st_size
+            else:
+                if not path.exists() and final.exists():
+                    path = final
                 try:
-                    path=Path(job['result_json']).resolve();size=path.stat().st_size
-                    if store.archive_root.resolve() in path.parents and 44<size<=16*1024*1024:return path,size
-                except OSError:pass
+                    actual_size = path.stat().st_size
+                except FileNotFoundError:
+                    # A producer may rename between exists() and stat(), before
+                    # the durable READY transition. Probe final independently.
+                    path = final
+                    actual_size = final.stat().st_size
+            if actual_size < (available if codec == 'mp3' else 45):
+                return None
+            return path, expected, codec, available
+        except (OSError, ValueError, KeyError, TypeError):
+            if job['status'] == 'ready' and job.get('result_json'):
+                try:
+                    path = Path(job['result_json']).resolve()
+                    size = path.stat().st_size
+                    if store.archive_root.resolve() in path.parents and 44 < size <= 16*1024*1024 and path.suffix == '.wav':
+                        return path, size, 'wav', size
+                except OSError:
+                    pass
             return None
 
     def status_payload(job: dict) -> dict:
@@ -72,7 +96,9 @@ def install_voice_job_routes(
             "status": job["status"],
         }
         if job.get('audio_stream_claimed'):payload['audio_stream_consumed']=True
-        elif stream_info(job):payload['audio_stream_ready']=True
+        elif (info := stream_info(job)):
+            payload['audio_stream_ready']=True
+            payload['audio_codec']=info[2]
         if job.get("error_code"):
             payload["error"] = job["error_code"]
         if job["status"] == "ready" and job.get("follow_up"):
@@ -107,8 +133,22 @@ def install_voice_job_routes(
             request_id = str(uuid.UUID(raw_request_id))
         except (ValueError, AttributeError):
             raise HTTPException(status_code=400, detail={"error": "invalid_request_id"}) from None
+        codecs = {item.strip() for item in request.headers.get('X-Audio-Codecs', '').split(',')}
+        generation = request.headers.get('X-Cue-Generation') or None
+        audio_codec = 'wav'
+        if 'mp3' in codecs:
+            if resolve_mp3_profile is None or not generation:
+                raise HTTPException(status_code=409, detail={"error":"cue_generation_update_required"})
+            try:
+                resolve_mp3_profile(generation)
+            except ValueError:
+                raise HTTPException(status_code=409, detail={"error":"cue_generation_update_required"}) from None
+            audio_codec = 'mp3'
+        elif generation:
+            raise HTTPException(status_code=400, detail={"error":"invalid_audio_codec"})
         try:
-            is_new, job = store.claim_upload(device_id, request_id, answer_to=request.headers.get("X-Answer-To"))
+            is_new, job = store.claim_upload(device_id, request_id, answer_to=request.headers.get("X-Answer-To"),
+                audio_codec=audio_codec, cue_generation=generation)
         except JobConflict as exc:
             raise HTTPException(status_code=400 if str(exc) == "invalid_answer_to" else 409, detail={"error": str(exc)}) from None
 
@@ -201,9 +241,17 @@ def install_voice_job_routes(
         if request.query_params.get('stream')=='1':
             info=stream_info(job)
             if info is None:raise HTTPException(status_code=409,detail={"error":"audio_not_ready"})
-            path,expected=info
-            try:source=path.open('rb')
-            except OSError:raise HTTPException(status_code=409,detail={"error":"audio_not_ready"}) from None
+            path,expected,codec,available=info
+            if codec == 'mp3' and 'audio/mpeg' not in request.headers.get('accept', ''):
+                raise HTTPException(status_code=406, detail={"error":"audio_codec_not_accepted"})
+            try:
+                try:
+                    source=path.open('rb')
+                except FileNotFoundError:
+                    # The same rename may happen after stream_info returned.
+                    source=(path.parent / ('reply.' + codec)).open('rb')
+            except OSError:
+                raise HTTPException(status_code=409,detail={"error":"audio_not_ready"}) from None
             if not store.claim_audio_stream(device_id,turn_id):
                 source.close();raise HTTPException(status_code=409,detail={"error":"audio_stream_consumed"})
             async def chunks():
@@ -215,22 +263,34 @@ def install_voice_job_routes(
                             raise RuntimeError('audio stream interrupted')
                         if time.monotonic()>deadline:raise RuntimeError('audio stream deadline')
                         if await request.is_disconnected():return
-                        if sent<expected:
-                            data=await asyncio.to_thread(source.read,min(4096,expected-sent))
+                        limit = expected
+                        if codec == 'mp3':
+                            latest = stream_info(current, source)
+                            if latest is None or latest[2] != 'mp3':
+                                raise RuntimeError('audio stream metadata unavailable')
+                            limit = latest[3]
+                        if sent<limit:
+                            data=await asyncio.to_thread(source.read,min(4096,limit-sent))
                             if data:sent+=len(data);yield data;continue
                         if current['status']=='ready':
-                            if sent!=expected or source.read(1):raise RuntimeError('audio stream length mismatch')
+                            if sent!=limit or source.read(1):raise RuntimeError('audio stream length mismatch')
                             return
                         await asyncio.sleep(.02)
                 finally:source.close()
-            return StreamingResponse(chunks(),media_type='audio/wav',headers={
+            return StreamingResponse(chunks(),media_type='audio/mpeg' if codec == 'mp3' else 'audio/wav',headers={
                 'Cache-Control':'private, no-store','X-Accel-Buffering':'no'})
         if job["status"] != "ready" or not job.get("result_json"):
             raise HTTPException(status_code=409, detail={"error": "audio_not_ready"})
         path = Path(job["result_json"]).resolve()
         if store.archive_root.resolve() not in path.parents or not path.is_file():
             raise HTTPException(status_code=404, detail={"error": "not_found"})
-        return FileResponse(path, media_type="audio/wav", filename="reply.wav")
+        codec = 'mp3' if path.suffix == '.mp3' else 'wav'
+        if codec == 'mp3':
+            # MP3 playback always passes the durable one-shot claim path above.
+            # Legacy WAV downloads retain their pre-migration contract.
+            raise HTTPException(status_code=409, detail={"error":"audio_stream_required"})
+        return FileResponse(path, media_type='audio/mpeg' if codec == 'mp3' else 'audio/wav',
+                            filename='reply.' + codec, headers={'Cache-Control':'private, no-store'})
 
     @app.post("/api/voice/turns/{turn_id}/cancel")
     async def cancel_turn(request: Request, turn_id: str):

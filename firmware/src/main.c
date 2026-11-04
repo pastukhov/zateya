@@ -202,7 +202,9 @@ static void cue_release(void *ctx) {
 static bool local_cue_start(voice_listening_cue_t *cue,voice_cue_name_t name,uint32_t now) {
   voice_cue_audio_t audio=voice_cue_cache_acquire_audio(name);
   if(audio.data){
-    if(audio.codec==VOICE_CUE_OPUS){
+    if(audio.codec==VOICE_CUE_MP3){
+      if(voice_listening_cue_start_mp3(cue,audio.data,audio.size,now,cue_release,(void*)(uintptr_t)name))return true;
+    }else if(audio.codec==VOICE_CUE_OPUS){
       if(voice_listening_cue_start_opus(cue,audio.data,audio.size,now,voice_cue_opus_decoder(),cue_release,(void*)(uintptr_t)name))return true;
       /* Rejected compressed start has already returned its lease. */
     }else return voice_listening_cue_start_lease(cue,audio.data,audio.size,now,cue_release,(void*)(uintptr_t)name);

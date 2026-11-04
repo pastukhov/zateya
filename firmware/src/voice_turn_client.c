@@ -64,18 +64,29 @@ bool voice_turn_audio_response_valid(int http_status, const char *content_type,
                                      uint32_t sample_rate, uint16_t channels,
                                      uint16_t bits_per_sample) {
   if (http_status != 200 || !content_type) return false;
-  const char expected[] = "audio/wav";
+  const char *expected = "audio/wav";
+  if (strlen(content_type) >= 10) {
+    const char mp3[] = "audio/mpeg";
+    bool match = true;
+    for (unsigned i = 0; i < 10; i++) {
+      char ch = content_type[i];
+      if (ch >= 'A' && ch <= 'Z') ch += 'a' - 'A';
+      if (ch != mp3[i]) match = false;
+    }
+    if (match) expected = "audio/mpeg";
+  }
+  size_t expected_len = strlen(expected);
   size_t type_len = strlen(content_type);
   while (type_len && (content_type[type_len - 1] == ' ' ||
                       content_type[type_len - 1] == '\t')) type_len--;
-  if (type_len < sizeof(expected) - 1) return false;
-  for (size_t i = 0; i < sizeof(expected) - 1; ++i) {
+  if (type_len < expected_len) return false;
+  for (size_t i = 0; i < expected_len; ++i) {
     char ch = content_type[i];
     if (ch >= 'A' && ch <= 'Z') ch = (char)(ch - 'A' + 'a');
     if (ch != expected[i]) return false;
   }
-  if (type_len > sizeof(expected) - 1 &&
-      content_type[sizeof(expected) - 1] != ';') return false;
+  if (type_len > expected_len &&
+      content_type[expected_len] != ';') return false;
   return sample_rate == 24000 && channels == 1 && bits_per_sample == 16;
 }
 

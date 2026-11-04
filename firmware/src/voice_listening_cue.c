@@ -1,7 +1,9 @@
 #include "voice_listening_cue.h"
 #include "hardware.h"
+#include <stdlib.h>
 
 static void release_lease(voice_listening_cue_t *c) {
+  if(c->mp3){voice_mp3_player_close(c->mp3);free(c->mp3);c->mp3=NULL;}
   if(c->decoder){c->decoder_ops->close(c->decoder);c->decoder=NULL;}
   if(c->release){c->release(c->release_ctx);c->release=NULL;c->release_ctx=NULL;c->pcm=NULL;}
 }
@@ -38,6 +40,45 @@ bool voice_listening_cue_start_opus(voice_listening_cue_t *c,const uint8_t *data
     .release=release,.release_ctx=ctx,.decoder_ops=ops,.decoder=decoder,.opus=parsed};
   hw_audio_capture_stop();hw_audio_playback_start(NULL,0);return true;
 }
+static size_t mp3_sink(void *ctx,const uint8_t *data,size_t size) {
+  (void)ctx;
+  return hw_audio_playback_write(data,size);
+}
+bool voice_listening_cue_start_mp3(voice_listening_cue_t *c,const uint8_t *data,
+    size_t size,uint32_t now,void (*release)(void *),void *ctx) {
+  if(c->status==CUE_BUSY || !data || !size || size>240000) {
+    if(release)release(ctx);
+    return false;
+  }
+  voice_mp3_player_t *player=calloc(1,sizeof(*player));
+  if(!player || !voice_mp3_player_init(player,voice_mp3_decoder(),mp3_sink,NULL)) {
+    free(player);
+    if(release)release(ctx);
+    return false;
+  }
+  *c=(voice_listening_cue_t){.pcm=data,.size=size,.started_ms=now,.status=CUE_BUSY,
+    .release=release,.release_ctx=ctx,.mp3=player};
+  hw_audio_capture_stop();
+  hw_audio_playback_start(NULL,0);
+  return true;
+}
+static voice_cue_status_t tick_mp3(voice_listening_cue_t *c) {
+  if(c->position<c->size) {
+    size_t n=c->size-c->position;
+    if(n>512)n=512;
+    c->position+=voice_mp3_player_feed(c->mp3,c->pcm+c->position,n);
+  }
+  if(c->mp3->failed) {
+    voice_listening_cue_cancel(c);
+    return c->status;
+  }
+  if(c->position==c->size && voice_mp3_player_finish(c->mp3) && hw_audio_playback_drained()) {
+    hw_audio_playback_stop();
+    c->status=CUE_DONE;
+    release_lease(c);
+  }
+  return c->status;
+}
 static voice_cue_status_t tick_opus(voice_listening_cue_t *c){
   if(c->queue_position==c->queued && c->opus.packet<c->opus.count){
     const uint8_t *packet;size_t length;
@@ -72,6 +113,7 @@ voice_cue_status_t voice_listening_cue_tick(voice_listening_cue_t *c, uint32_t n
     voice_listening_cue_cancel(c);
     return c->status;
   }
+  if(c->mp3)return tick_mp3(c);
   if(c->decoder)return tick_opus(c);
   size_t remaining = c->size-c->position;
   if (remaining) {

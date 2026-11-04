@@ -24,7 +24,8 @@ bool voice_cue_bank_publish_codec(voice_cue_bank_t *bank,voice_cue_name_t name,u
  *old=NULL;
  if(!bank||!voice_cue_name(name)||!data||!size)return false;
  if(codec==VOICE_CUE_PCM16)return voice_cue_slot_publish(&bank->slots[name],data,size,old);
- if(codec!=VOICE_CUE_OPUS||size>65536||size<34||bank->slots[name].readers)return false;
+ if((codec!=VOICE_CUE_OPUS && codec!=VOICE_CUE_MP3)||
+    size>(codec==VOICE_CUE_MP3?VOICE_CUE_MAX_BYTES:65536)||size<4||bank->slots[name].readers)return false;
  voice_cue_slot_t *s=&bank->slots[name];*old=s->pcm;s->pcm=data;s->size=size;s->codec=codec;return true;
 }
 voice_cue_audio_t voice_cue_bank_acquire_audio(voice_cue_bank_t *bank,voice_cue_name_t name){

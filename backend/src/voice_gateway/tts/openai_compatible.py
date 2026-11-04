@@ -22,6 +22,9 @@ import logging
 import time
 import wave
 import tempfile
+import threading
+import socket
+from contextlib import contextmanager
 from io import BytesIO
 from email.message import Message
 from pathlib import Path
@@ -133,6 +136,8 @@ class OpenAICompatibleTTS(TTSProvider):
         }
         if self._config.instructions:
             payload["instructions"] = self._config.instructions
+        if self._config.response_format == "mp3":
+            return self._stream_mp3(payload, headers, out_path, audio_ready, cancel_event)
         if audio_ready is not None:
             return self._stream_synthesize(payload,headers,out_path,audio_ready,cancel_event,turn_id,device_id,stage_start)
         try:
@@ -232,6 +237,117 @@ class OpenAICompatibleTTS(TTSProvider):
         log_stage_event(logger,"tts",turn_id=turn_id,device_id=device_id,
             duration_ms=int((time.perf_counter()-stage_start)*1000),status="success")
         return TTSResult(wav_path=out_path,sample_rate=rate)
+
+    @contextmanager
+    def _mp3_response(self, payload, headers, check):
+        """An unresponsive header read must not hold cancellation hostage.
+
+        Only header acquisition runs in the helper. It never receives an output
+        path and cannot publish late audio. On cancellation it closes any eventual
+        response itself; underlying transport phase timeouts still bound the read.
+        """
+        lock = threading.Lock()
+        ready = threading.Event()
+        state = {'abandoned': False}
+        context = self._client.stream('POST', self._config.base_url, json=payload,
+            headers=headers, timeout=httpx.Timeout(self._config.timeout))
+        def open_headers():
+            try:
+                response = context.__enter__()
+            except BaseException as error:
+                with lock:
+                    state['error'] = error
+                ready.set()
+                return
+            with lock:
+                abandoned = state['abandoned']
+                if not abandoned:
+                    state['response'] = response
+            if abandoned:
+                context.__exit__(None, None, None)
+            ready.set()
+        threading.Thread(target=open_headers, daemon=True, name='tts-mp3-headers').start()
+        try:
+            while not ready.wait(0.025):
+                check()
+            check()
+            if 'error' in state:
+                raise state['error']
+        except BaseException:
+            with lock:
+                state['abandoned'] = True
+                response = state.get('response')
+            if response is not None:
+                context.__exit__(None, None, None)
+            raise
+        try:
+            yield state['response']
+        finally:
+            context.__exit__(None, None, None)
+
+    def _stream_mp3(self, payload, headers, out_path, audio_ready, cancel_event):
+        from backend.src.voice_gateway.tts.mp3 import MP3Parser
+        parser = MP3Parser()
+        deadline = time.monotonic() + self._config.timeout
+        def check():
+            if cancel_event is not None and cancel_event.is_set():
+                raise TTSProviderError("tts cancelled")
+            if time.monotonic() >= deadline:
+                raise TTSProviderError("tts MP3 deadline exceeded")
+        try:
+            check()
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            with self._mp3_response(payload, headers, check) as response:
+                if response.status_code >= 400:
+                    raise TTSProviderError(f"tts returned HTTP {response.status_code}")
+                stopped = threading.Event()
+                def interrupt_read():
+                    while not stopped.wait(0.025):
+                        if (cancel_event is not None and cancel_event.is_set()) or time.monotonic() >= deadline:
+                            # Closing a file descriptor from another thread need not
+                            # interrupt recv. Shutdown the transport socket first.
+                            network = response.extensions.get('network_stream')
+                            sock = network.get_extra_info('socket') if network is not None else None
+                            if sock is not None:
+                                try:
+                                    sock.shutdown(socket.SHUT_RDWR)
+                                except OSError:
+                                    pass
+                            try:
+                                response.close()
+                            except (ValueError, RuntimeError, OSError):
+                                pass
+                            return
+                watcher = threading.Thread(target=interrupt_read, daemon=True, name='tts-mp3-cancel')
+                watcher.start()
+                try:
+                    with out_path.open('wb') as output:
+                        published = 0
+                        # Preserve upstream arrival boundaries. A 4 KiB coalescing
+                        # iterator delays a complete first MP3 frame until more speech.
+                        for received in response.iter_bytes():
+                            for offset in range(0, len(received), 4096):
+                                check()
+                                verified = parser.feed(received[offset:offset + 4096])
+                                if verified:
+                                    output.write(verified)
+                                    output.flush()
+                                    published += len(verified)
+                                    check()
+                                    if audio_ready is not None:
+                                        audio_ready(dict(codec='mp3', available_bytes=published))
+                        check()
+                        parser.finish()
+                finally:
+                    stopped.set()
+                    watcher.join(timeout=0.1)
+            return TTSResult(wav_path=out_path, sample_rate=parser.sample_rate,
+                             channels=parser.channels, codec='mp3', media_type='audio/mpeg')
+        except BaseException as exc:
+            out_path.unlink(missing_ok=True)
+            if isinstance(exc, (httpx.HTTPError, OSError)):
+                raise TTSProviderError(f"tts request failed: {exc.__class__.__name__}") from exc
+            raise
 
     @staticmethod
     def _pcm_to_wav(body: bytes, content_type: str) -> bytes:

@@ -8,6 +8,9 @@
 #include "esp_log.h"
 #include "freertos/task.h"
 #include "wav_parser.h"
+#include "voice_mp3_player.h"
+#include "voice_cue_cache.h"
+#include <stdlib.h>
 
 #include <stdio.h>
 #include <string.h>
@@ -59,6 +62,7 @@ static esp_http_client_handle_t open_request(voice_turn_http_t *http,
   };
   esp_http_client_handle_t client = voice_tls_client_init(&config);
   if (!client) return NULL;
+  esp_http_client_set_header(client, "Accept", "audio/mpeg, audio/wav, application/json");
   esp_http_client_set_method(client, strcmp(method, "POST") == 0
                                         ? HTTP_METHOD_POST : HTTP_METHOD_GET);
   if (esp_http_client_set_header(client, "X-Device-Id", http->device_id) != ESP_OK) {
@@ -162,6 +166,78 @@ static size_t stream_pcm(void *ctx, const uint8_t *data, size_t len) {
                            pdMS_TO_TICKS(100));
 }
 
+static size_t stream_mp3_pcm(void *ctx, const uint8_t *data, size_t size) {
+  voice_turn_http_t *http = ctx;
+  if (http->cancel_requested && *http->cancel_requested) return 0;
+  /* One producer; the consumer only increases free space. Reserve a whole
+   * PCM sample before sending so backpressure can never split an int16_t. */
+  size_t available = xStreamBufferSpacesAvailable(http->audio_stream) & ~(size_t)1;
+  if (size > available) size = available;
+  if (!size) return 0;
+  size_t sent = xStreamBufferSend(http->audio_stream, data, size, 0);
+  if (sent && http->audio_started) *http->audio_started = true;
+  return sent;
+}
+
+static voice_turn_io_result_t download_mp3(voice_turn_http_t *http,
+    esp_http_client_handle_t client, voice_turn_response_t *response) {
+  voice_mp3_player_t *player = calloc(1, sizeof(*player));
+  if (!player) return VOICE_TURN_IO_FATAL;
+  if (!voice_mp3_player_init(player, voice_mp3_decoder(), stream_mp3_pcm, http)) {
+    free(player);
+    return VOICE_TURN_IO_FATAL;
+  }
+  voice_turn_io_result_t result = VOICE_TURN_IO_OK;
+  uint8_t block[512];
+  for (;;) {
+    if (http->cancel_requested && *http->cancel_requested) {
+      result = VOICE_TURN_IO_CANCELLED;
+      break;
+    }
+    if (http->deadline_ms && esp_timer_get_time() / 1000ULL >= http->deadline_ms) {
+      result = VOICE_TURN_IO_FATAL;
+      break;
+    }
+    int got = esp_http_client_read(client, (char *)block, sizeof(block));
+    if (got < 0) { result = VOICE_TURN_IO_FATAL; break; }
+    if (!got) break;
+    size_t offset = 0;
+    while (offset < (size_t)got) {
+      if ((http->cancel_requested && *http->cancel_requested) ||
+          (http->deadline_ms && esp_timer_get_time() / 1000ULL >= http->deadline_ms)) {
+        result = VOICE_TURN_IO_FATAL;
+        break;
+      }
+      size_t consumed = voice_mp3_player_feed(player, block + offset, got - offset);
+      offset += consumed;
+      if (player->failed) { result = VOICE_TURN_IO_FATAL; break; }
+      if (!consumed) vTaskDelay(pdMS_TO_TICKS(10));
+    }
+    if (result != VOICE_TURN_IO_OK) break;
+  }
+  /* EOF is trusted only after HTTP framing and the last MP3 frame complete.
+   * Terminal ready is independently confirmed by voice_turn_client afterward. */
+  if (result == VOICE_TURN_IO_OK && !esp_http_client_is_complete_data_received(client))
+    result = VOICE_TURN_IO_FATAL;
+  while (result == VOICE_TURN_IO_OK && !voice_mp3_player_finish(player)) {
+    if (player->failed || (http->cancel_requested && *http->cancel_requested) ||
+        (http->deadline_ms && esp_timer_get_time() / 1000ULL >= http->deadline_ms)) {
+      result = VOICE_TURN_IO_FATAL;
+      break;
+    }
+    vTaskDelay(pdMS_TO_TICKS(10));
+  }
+  if (http->cancel_requested && *http->cancel_requested) result = VOICE_TURN_IO_CANCELLED;
+  if (result == VOICE_TURN_IO_OK) {
+    response->sample_rate = 24000;
+    response->channels = 1;
+    response->bits_per_sample = 16;
+  }
+  voice_mp3_player_close(player);
+  free(player);
+  return result;
+}
+
 static voice_turn_io_result_t download_audio(void *ctx, const char *turn_id,
                                               voice_turn_response_t *response) {
   voice_turn_http_t *http = ctx;
@@ -176,6 +252,12 @@ static voice_turn_io_result_t download_audio(void *ctx, const char *turn_id,
   strlcpy(response->content_type, content_type, sizeof(response->content_type));
   ESP_LOGI("voice_http", "audio response: HTTP %d, type %s, length %lld",
            status, content_type, (long long)esp_http_client_get_content_length(client));
+  if (voice_turn_audio_response_valid(status, content_type, 24000, 1, 16) &&
+      !strncasecmp(content_type, "audio/mpeg", 10)) {
+    voice_turn_io_result_t result = download_mp3(http, client, response);
+    close_request(client);
+    return result;
+  }
   if (!voice_turn_audio_response_valid(status, content_type, 24000, 1, 16)) {
     ESP_LOGE("voice_http", "invalid audio response: HTTP %d, type %s",
              status, content_type);

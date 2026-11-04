@@ -47,6 +47,8 @@ from backend.src.voice_gateway.stt.base import STTProvider
 from backend.src.voice_gateway.stt.client import OpenAICompatibleSTT
 from backend.src.voice_gateway.tts.base import TTSProvider
 from backend.src.voice_gateway.cues.cache import CueCache, install_cue_routes
+from backend.src.voice_gateway.cues.generation import MP3CueGenerations
+from backend.src.voice_gateway.cues.generation_routes import install_mp3_cue_routes
 from backend.src.voice_gateway.tts.config import TTSConfig
 from backend.src.voice_gateway.tts.openai_compatible import OpenAICompatibleTTS
 
@@ -224,10 +226,18 @@ def create_app(
         agent_client, hermes_stage, knowledge=knowledge, git_sync=git_sync,
         usage_recorder=usage_recorder, metrics=metrics,
     )
+    mp3_generations = None
+    if tts is None:
+        mp3_config = TTSConfig.mp3_from_env(os.environ)
+        if mp3_config is not None:
+            mp3_provider = OpenAICompatibleTTS(mp3_config, usage_recorder=usage_recorder)
+            mp3_generations = MP3CueGenerations(root / 'mp3-cue-generations', mp3_provider, mp3_config,
+                provider_factory=lambda config: OpenAICompatibleTTS(config, usage_recorder=usage_recorder))
+    mp3_resolver = mp3_generations.resolve_mp3_profile if mp3_generations else None
     pipeline = VoicePipeline(stt_provider, agent_client, hermes_stage, tts_provider,
                              knowledge=knowledge, git_sync=git_sync,
                              text_processor=shared_text_processor,
-                             usage_recorder=usage_recorder)
+                             usage_recorder=usage_recorder, resolve_mp3_profile=mp3_resolver)
     job_worker = VoiceJobWorker(job_store, pipeline.run)
     alice_processor = shared_text_processor
     try:
@@ -270,6 +280,9 @@ def create_app(
             cue_cache = CueCache(root / "device-cues", tts_provider, cue_config)
     app.state.cue_cache = cue_cache
     app.state.cue_task = None
+    app.state.mp3_generations = mp3_generations
+    app.state.mp3_cue_task = None
+    install_mp3_cue_routes(app, mp3_generations, device_tokens)
     install_cue_routes(app, cue_cache, device_tokens)
     app.state.voice_job_store = job_store
     diagnostics_store = DiagnosticsStore(root / "diagnostics.sqlite")
@@ -293,6 +306,7 @@ def create_app(
 
     install_voice_job_routes(
         app, job_store, job_worker, device_tokens, reset_device=reset_device,
+        resolve_mp3_profile=mp3_resolver,
         git_status=(lambda: {
             "status": git_sync.last_result.get("status", "idle"),
             "commit": git_sync.last_result.get("commit"),
@@ -307,6 +321,8 @@ def create_app(
 
     @app.on_event("startup")
     async def start_voice_jobs() -> None:
+        if mp3_generations is not None:
+            app.state.mp3_cue_task = asyncio.create_task(mp3_generations.run(), name="mp3-device-cues")
         if cue_cache is not None:
             app.state.cue_task = asyncio.create_task(cue_cache.run(), name="device-cue")
         await job_worker.start()
@@ -317,6 +333,9 @@ def create_app(
 
     @app.on_event("shutdown")
     async def close_agent_client() -> None:
+        if app.state.mp3_cue_task is not None:
+            app.state.mp3_cue_task.cancel()
+            await asyncio.gather(app.state.mp3_cue_task, return_exceptions=True)
         if app.state.cue_task is not None:
             app.state.cue_task.cancel()
             await asyncio.gather(app.state.cue_task, return_exceptions=True)
@@ -329,6 +348,9 @@ def create_app(
             await alice_auth.aclose()
         await job_worker.close()
         await pipeline.close()
+        if mp3_generations is not None:
+            for provider in mp3_generations._providers.values():
+                provider.close()
         if agent_client is not None:
             close = getattr(agent_client, "close", None)
             if close is not None:

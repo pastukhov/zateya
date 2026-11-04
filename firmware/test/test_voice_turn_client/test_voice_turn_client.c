@@ -64,6 +64,10 @@ void test_status_json_accepts_only_known_server_states(void) {
 
 void test_only_validated_wav_response_can_be_played(void) {
   TEST_ASSERT_TRUE(voice_turn_audio_response_valid(200, "audio/wav", 24000, 1, 16));
+  TEST_ASSERT_TRUE(voice_turn_audio_response_valid(200, "audio/mpeg", 24000, 1, 16));
+  TEST_ASSERT_TRUE(voice_turn_audio_response_valid(200, "Audio/Mpeg; charset=binary", 24000, 1, 16));
+  TEST_ASSERT_FALSE(voice_turn_audio_response_valid(200, "audio/mpeg evil", 24000, 1, 16));
+  TEST_ASSERT_FALSE(voice_turn_audio_response_valid(200, "audio/mpeg", 44100, 1, 16));
   TEST_ASSERT_FALSE(voice_turn_audio_response_valid(202, "audio/wav", 24000, 1, 16));
   TEST_ASSERT_FALSE(voice_turn_audio_response_valid(200, "application/json", 24000, 1, 16));
   TEST_ASSERT_FALSE(voice_turn_audio_response_valid(200, "audio/wav", 16000, 1, 16));
@@ -81,6 +85,7 @@ typedef struct {
   unsigned saved_ids;
   unsigned cleared_ids;
   bool bad_audio_metadata;
+  bool mp3;
   bool follow_up;
   bool early,consumed,cancel_download;
   voice_turn_io_result_t lookup_result;
@@ -118,7 +123,7 @@ static voice_turn_io_result_t fake_download(void *ctx, const char *turn_id,
   fake->downloads++;
   TEST_ASSERT_EQUAL_STRING("9b69da5b-bd5d-44a3-9391-15e8dac36734", turn_id);
   response->http_status = 200;
-  strcpy(response->content_type, "audio/wav");
+  strcpy(response->content_type, fake->mp3 ? "audio/mpeg" : "audio/wav");
   response->sample_rate = 24000;
   response->channels = 1;
   response->bits_per_sample = 16;
@@ -191,6 +196,23 @@ void test_ready_turn_downloads_audio_once_and_rejects_bad_metadata(void) {
   TEST_ASSERT_EQUAL(VOICE_TURN_FAILED, voice_turn_client_tick(&client, 1000));
   TEST_ASSERT_EQUAL_UINT(1, bad.downloads);
   TEST_ASSERT_EQUAL_UINT(1, bad.cleared_ids);
+}
+
+void test_mp3_download_waits_terminal_before_follow_up(void) {
+  turn_fake_t fake = {.poll_result=VOICE_TURN_IO_OK,.status=VOICE_TURN_STATUS_SYNTHESIZING,
+    .early=true,.mp3=true,.follow_up=true};
+  voice_turn_client_t client;
+  voice_turn_client_init(&client,&TURN_OPS,&fake,
+      "9b69da5b-bd5d-44a3-9391-15e8dac36733",
+      "9b69da5b-bd5d-44a3-9391-15e8dac36734",0);
+  TEST_ASSERT_EQUAL(VOICE_TURN_WAITING,voice_turn_client_tick(&client,1000));
+  TEST_ASSERT_EQUAL_UINT(1,fake.downloads);
+  char question[37];
+  TEST_ASSERT_FALSE(voice_turn_client_take_follow_up(&client,true,question,sizeof(question)));
+  fake.status=VOICE_TURN_STATUS_READY;
+  TEST_ASSERT_EQUAL(VOICE_TURN_READY,voice_turn_client_tick(&client,2000));
+  TEST_ASSERT_EQUAL_UINT(1,fake.downloads);
+  TEST_ASSERT_TRUE(voice_turn_client_take_follow_up(&client,true,question,sizeof(question)));
 }
 
 void test_poll_retries_back_off_and_stop_at_the_deadline(void) {
@@ -370,6 +392,7 @@ int main(void) {
   RUN_TEST(test_v2_acceptance_body_must_contain_a_valid_turn_uuid);
   RUN_TEST(test_status_json_accepts_only_known_server_states);
   RUN_TEST(test_only_validated_wav_response_can_be_played);
+  RUN_TEST(test_mp3_download_waits_terminal_before_follow_up);
   RUN_TEST(test_restart_looks_up_saved_request_before_polling_turn);
   RUN_TEST(test_ready_turn_downloads_audio_once_and_rejects_bad_metadata);
   RUN_TEST(test_poll_retries_back_off_and_stop_at_the_deadline);

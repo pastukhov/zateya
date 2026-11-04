@@ -38,3 +38,8 @@ class TestTTSResult:
             TTSResult(wav_path=123, sample_rate=16000)
         with pytest.raises(ValidationError):
             TTSResult(wav_path=Path("out/tts.wav"), sample_rate="not-a-rate")
+
+
+def test_audio_result_accepts_format_neutral_path():
+    result=TTSResult(audio_path=Path('reply.part'),codec='mp3',media_type='audio/mpeg',sample_rate=44100)
+    assert result.audio_path==Path('reply.part') and result.wav_path==result.audio_path

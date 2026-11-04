@@ -79,7 +79,7 @@ class VoiceJobStore:
             columns = {row[1] for row in connection.execute("PRAGMA table_info(voice_jobs)")}
             if "audio_stream_claimed" not in columns:
                 connection.execute("ALTER TABLE voice_jobs ADD COLUMN audio_stream_claimed INTEGER NOT NULL DEFAULT 0")
-            for name in ("answer_to", "follow_up", "answer_json"):
+            for name in ("answer_to", "follow_up", "answer_json", "audio_codec", "cue_generation"):
                 if name not in columns:
                     connection.execute(f"ALTER TABLE voice_jobs ADD COLUMN {name} TEXT")
 
@@ -92,7 +92,9 @@ class VoiceJobStore:
         result["answer"] = json.loads(result["answer_json"]) if result.get("answer_json") else None
         return result
 
-    def claim_upload(self, device_id: str, request_id: str, *, answer_to: str | None = None) -> tuple[bool, dict]:
+    def claim_upload(self, device_id: str, request_id: str, *, answer_to: str | None = None, audio_codec: str = "wav", cue_generation: str | None = None) -> tuple[bool, dict]:
+        if audio_codec not in ("wav", "mp3"):
+            raise JobConflict("invalid_audio_codec")
         if answer_to is not None:
             try:
                 answer_to = str(uuid.UUID(answer_to))
@@ -105,7 +107,8 @@ class VoiceJobStore:
                 (device_id, request_id),
             ).fetchone()
             if existing is not None:
-                if existing["answer_to"] != answer_to:
+                if (existing["answer_to"] != answer_to or (existing["audio_codec"] or "wav") != audio_codec
+                        or existing["cue_generation"] != cue_generation):
                     raise JobConflict("idempotency_conflict")
                 if (
                     existing["status"] == "upload_failed"
@@ -132,9 +135,9 @@ class VoiceJobStore:
             now = _now()
             connection.execute(
                 "INSERT INTO voice_jobs "
-                "(turn_id, device_id, request_id, status, upload_path, created_at, updated_at, answer_to) "
-                "VALUES (?, ?, ?, 'uploading', ?, ?, ?, ?)",
-                (turn_id, device_id, request_id, str(stage_path), now, now, answer_to),
+                "(turn_id, device_id, request_id, status, upload_path, created_at, updated_at, answer_to, audio_codec, cue_generation) "
+                "VALUES (?, ?, ?, 'uploading', ?, ?, ?, ?, ?, ?)",
+                (turn_id, device_id, request_id, str(stage_path), now, now, answer_to, audio_codec, cue_generation),
             )
             row = connection.execute(
                 "SELECT * FROM voice_jobs WHERE turn_id = ?", (turn_id,)

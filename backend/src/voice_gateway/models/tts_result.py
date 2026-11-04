@@ -1,14 +1,19 @@
 from pathlib import Path
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, AliasChoices
 
 
 class TTSResult(BaseModel):
-    """Vendor-neutral TTS result: written WAV path and its actual rate.
+    """Verified audio result; format is explicit, independent of the filename.
 
-    ``sample_rate`` is the real rate (Hz) read from the WAV header of the
-    implementation's output file, never a configured default.
+    wav_path remains accepted during the legacy firmware transition.
     """
-
-    wav_path: Path
+    audio_path: Path = Field(validation_alias=AliasChoices("audio_path", "wav_path"))
     sample_rate: int
+    codec: str = "wav"
+    media_type: str = "audio/wav"
+    channels: int = 1
+
+    @property
+    def wav_path(self) -> Path:
+        return self.audio_path

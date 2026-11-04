@@ -4,7 +4,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #define VOICE_CUE_MAX_BYTES 240000
-typedef enum {VOICE_CUE_PCM16,VOICE_CUE_OPUS} voice_cue_codec_t;
+typedef enum {VOICE_CUE_PCM16,VOICE_CUE_OPUS,VOICE_CUE_MP3} voice_cue_codec_t;
 typedef struct {const uint8_t *data;size_t size;voice_cue_codec_t codec;} voice_cue_audio_t;
 typedef enum {VOICE_CUE_LISTENING,VOICE_CUE_PROCESSING,VOICE_CUE_OFFLINE,
  VOICE_CUE_READY,VOICE_CUE_DONE,VOICE_CUE_CANCELLED,VOICE_CUE_TRANSCRIBING,
@@ -32,6 +32,8 @@ void voice_cue_cache_release_named(voice_cue_name_t name);
 /* ESP worker. An acquired buffer stays valid until release. */
 bool voice_cue_cache_start(const char *gateway, const char *device, const char *token);
 void voice_cue_cache_set_idle(bool idle);
+/* Copy under cache mutex; empty until a complete durable MP3 generation exists. */
+bool voice_cue_cache_generation(char generation[65]);
 bool voice_cue_cache_ready(void);
 const uint8_t *voice_cue_cache_acquire(size_t *size);
 void voice_cue_cache_release(void);

@@ -49,6 +49,7 @@ class VoicePipeline:
         git_sync: GitSync | None = None,
         text_processor: TextTurnProcessor | None = None,
         usage_recorder: UsageRecorder | None = None,
+        resolve_mp3_profile: Callable[[str], TTSProvider] | None = None,
     ) -> None:
         self.knowledge = knowledge
         self.git_sync = git_sync
@@ -56,6 +57,7 @@ class VoicePipeline:
         self.agent = agent
         self.hermes = hermes
         self.tts = tts
+        self.resolve_mp3_profile = resolve_mp3_profile
         self.deadline_seconds = deadline_seconds
         self.usage_recorder = usage_recorder
         self._cleanup_tasks: set[asyncio.Task] = set()
@@ -82,15 +84,24 @@ class VoicePipeline:
             raise VoicePipelineError("agent_unavailable")
         turn_dir = Path(job["audio_path"]).parent
         input_wav = turn_dir / "input.wav"
-        output_part = turn_dir / "reply.wav.part"
-        output_wav = turn_dir / "reply.wav"
+        codec = job.get('audio_codec') or 'wav'
+        tts = self.tts
+        if codec == 'mp3':
+            if self.resolve_mp3_profile is None or not job.get('cue_generation'):
+                raise VoicePipelineError('cue_generation_update_required')
+            try:
+                tts = self.resolve_mp3_profile(job['cue_generation'])
+            except ValueError:
+                raise VoicePipelineError('cue_generation_update_required') from None
+        output_part = turn_dir / ('reply.' + codec + '.part')
+        output_wav = turn_dir / ('reply.' + codec)
         deferred_cancel_accounting = False
         synthesis_cancel=threading.Event()
         stream_marker=turn_dir/"reply-stream.json"
         stream_marker.unlink(missing_ok=True)
         def audio_ready(size):
             if synthesis_cancel.is_set():raise TTSProviderError("tts cancelled")
-            atomic_write_json(stream_marker,{"size":size})
+            atomic_write_json(stream_marker,size if isinstance(size,dict) else {"size":size})
         try:
             async with asyncio.timeout(self.deadline_seconds):
                 await asyncio.to_thread(self._pcm_to_wav, Path(job["audio_path"]), input_wav)
@@ -127,21 +138,21 @@ class VoicePipeline:
                 metadata = {"provider": result.provider, "model": result.model}
                 response_note_dump = result.note.model_dump()
                 atomic_write_bytes(turn_dir / "reply.txt", response_reply.encode("utf-8"))
-                if self.tts is None:
+                if tts is None:
                     raise VoicePipelineError("tts_failed")
                 if report_progress:
                     report_progress("synthesizing")
                 synthesis_started = time.monotonic()
                 logger.info("starting speech synthesis for turn %s", job["turn_id"])
                 synthesis_kwargs = {}
-                if isinstance(self.tts, OpenAICompatibleTTS):
+                if isinstance(tts, OpenAICompatibleTTS):
                     synthesis_kwargs["audio_ready"]=audio_ready
                     synthesis_kwargs["cancel_event"]=synthesis_cancel
                     synthesis_kwargs["context"] = CallContext(
-                        job["turn_id"], "recorder", "tts", self.tts._config.model
+                        job["turn_id"], "recorder", "tts", tts._config.model
                     )
                 synthesis = asyncio.create_task(asyncio.to_thread(
-                    self.tts.synthesize, response_reply, output_part, **synthesis_kwargs
+                    tts.synthesize, response_reply, output_part, **synthesis_kwargs
                 ))
                 try:
                     await asyncio.shield(synthesis)
@@ -164,7 +175,20 @@ class VoicePipeline:
                     job["turn_id"],
                     time.monotonic() - synthesis_started,
                 )
-                self._validate_reply_wav(output_part)
+                if codec == 'wav':
+                    self._validate_reply_wav(output_part)
+                else:
+                    from backend.src.voice_gateway.tts.mp3 import MP3Parser
+                    parser = MP3Parser()
+                    import hashlib
+                    digest = hashlib.sha256()
+                    with output_part.open('rb') as audio:
+                        while block := audio.read(4096):
+                            parser.feed(block)
+                            digest.update(block)
+                    parser.finish()
+                    atomic_write_json(stream_marker, dict(codec='mp3', available_bytes=output_part.stat().st_size,
+                        size=output_part.stat().st_size, sha256=digest.hexdigest()))
                 os.replace(output_part, output_wav)
                 # Only successful, validated question audio may request a new
                 # listen. Text/source publication remains independently durable.

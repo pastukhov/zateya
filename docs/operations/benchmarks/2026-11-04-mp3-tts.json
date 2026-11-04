@@ -1,0 +1,386 @@
+{
+  "candidates": [
+    {
+      "model": "x-ai/grok-voice-tts-1.0",
+      "voice": "eve",
+      "sample": 0,
+      "status": 200,
+      "type": "audio/mpeg",
+      "first": 1.942,
+      "frame": 1.942,
+      "total": 1.944,
+      "bytes": 16128,
+      "profile": {
+        "rate": 24000,
+        "channels": 1,
+        "kbps": 128,
+        "frame_bytes": 384,
+        "offset": 0
+      },
+      "sha256": "1915fd0ae80f1ea3e843e7bd15fa99ff70ce1ee9a7dd4ef64d2ac157fdc213c9"
+    },
+    {
+      "model": "x-ai/grok-voice-tts-1.0",
+      "voice": "eve",
+      "sample": 1,
+      "status": 200,
+      "type": "audio/mpeg",
+      "first": 2.214,
+      "frame": 2.214,
+      "total": 2.224,
+      "bytes": 87936,
+      "profile": {
+        "rate": 24000,
+        "channels": 1,
+        "kbps": 128,
+        "frame_bytes": 384,
+        "offset": 0
+      },
+      "sha256": "9a8370af571836133670950cc36253cc2ccc23663b284c2582c5ea74a9027379"
+    },
+    {
+      "model": "x-ai/grok-voice-tts-1.0",
+      "voice": "eve",
+      "sample": 2,
+      "status": 200,
+      "type": "audio/mpeg",
+      "first": 1.606,
+      "frame": 1.606,
+      "total": 1.616,
+      "bytes": 113280,
+      "profile": {
+        "rate": 24000,
+        "channels": 1,
+        "kbps": 128,
+        "frame_bytes": 384,
+        "offset": 0
+      },
+      "sha256": "11700d7a95dd8fd7d2afe45682ed08bfd8d5aba099f7fc44a23578e009fc782f"
+    },
+    {
+      "model": "x-ai/grok-voice-tts-1.0",
+      "voice": "eve",
+      "sample": 3,
+      "status": 200,
+      "type": "audio/mpeg",
+      "first": 2.649,
+      "frame": 2.649,
+      "total": 2.659,
+      "bytes": 97920,
+      "profile": {
+        "rate": 24000,
+        "channels": 1,
+        "kbps": 128,
+        "frame_bytes": 384,
+        "offset": 0
+      },
+      "sha256": "593c8153eb987f9ac43b276678afd4652ab6f53735ab39c78538066af0fa0ba1"
+    },
+    {
+      "model": "x-ai/grok-voice-tts-1.0",
+      "voice": "eve",
+      "sample": 4,
+      "status": 200,
+      "type": "audio/mpeg",
+      "first": 2.631,
+      "frame": 2.631,
+      "total": 2.689,
+      "bytes": 251520,
+      "profile": {
+        "rate": 24000,
+        "channels": 1,
+        "kbps": 128,
+        "frame_bytes": 384,
+        "offset": 0
+      },
+      "sha256": "3e21067db0bfc36f6c9372d6264604be92ebf7140c5a96f01a035be574041c48"
+    },
+    {
+      "model": "elevenlabs/eleven-flash-v2.5",
+      "voice": "JBFqnCBsd6RMkjVDRZzb",
+      "sample": 0,
+      "status": 200,
+      "type": "audio/mpeg",
+      "first": 0.304,
+      "frame": 0.304,
+      "total": 0.305,
+      "bytes": 14253,
+      "profile": {
+        "rate": 44100,
+        "channels": 1,
+        "kbps": 128,
+        "frame_bytes": 417,
+        "offset": 44
+      },
+      "sha256": "e8e926a328d1f554d8be084f48cafec43649fc4550303fc14fdebe665701d111"
+    },
+    {
+      "model": "elevenlabs/eleven-flash-v2.5",
+      "voice": "JBFqnCBsd6RMkjVDRZzb",
+      "sample": 1,
+      "status": 200,
+      "type": "audio/mpeg",
+      "first": 0.445,
+      "frame": 0.445,
+      "total": 0.453,
+      "bytes": 89486,
+      "profile": {
+        "rate": 44100,
+        "channels": 1,
+        "kbps": 128,
+        "frame_bytes": 417,
+        "offset": 44
+      },
+      "sha256": "f750e302329a36bd29f1eeee254c9c95d9254619bca161be18a862fdd89d1fe6"
+    },
+    {
+      "model": "elevenlabs/eleven-flash-v2.5",
+      "voice": "JBFqnCBsd6RMkjVDRZzb",
+      "sample": 2,
+      "status": 200,
+      "type": "audio/mpeg",
+      "first": 0.417,
+      "frame": 0.417,
+      "total": 0.428,
+      "bytes": 116235,
+      "profile": {
+        "rate": 44100,
+        "channels": 1,
+        "kbps": 128,
+        "frame_bytes": 417,
+        "offset": 44
+      },
+      "sha256": "3a4732f4fa842c69bcbf066fcf17c7a813657f772ff04e0a6f1387cbd701b5f7"
+    },
+    {
+      "model": "elevenlabs/eleven-flash-v2.5",
+      "voice": "JBFqnCBsd6RMkjVDRZzb",
+      "sample": 3,
+      "status": 200,
+      "type": "audio/mpeg",
+      "first": 0.431,
+      "frame": 0.431,
+      "total": 0.441,
+      "bytes": 89486,
+      "profile": {
+        "rate": 44100,
+        "channels": 1,
+        "kbps": 128,
+        "frame_bytes": 417,
+        "offset": 44
+      },
+      "sha256": "0e06bd8ea63ac1bddcb3851d9008bb97b3c1a0f6ba2ba21cb4397404c599b8b4"
+    },
+    {
+      "model": "elevenlabs/eleven-flash-v2.5",
+      "voice": "JBFqnCBsd6RMkjVDRZzb",
+      "sample": 4,
+      "status": 200,
+      "type": "audio/mpeg",
+      "first": 0.734,
+      "frame": 0.734,
+      "total": 0.759,
+      "bytes": 272134,
+      "profile": {
+        "rate": 44100,
+        "channels": 1,
+        "kbps": 128,
+        "frame_bytes": 417,
+        "offset": 44
+      },
+      "sha256": "86e1ce2b2f35c3e927433db3e1fd61c4bf8f4db653b8b62f9aa87f2ca2d8dc8a"
+    },
+    {
+      "model": "microsoft/mai-voice-2.1-flash",
+      "voice": "en-US-Harper:MAI-Voice-2",
+      "sample": 0,
+      "status": 200,
+      "type": "audio/mpeg",
+      "first": 1.263,
+      "frame": 1.263,
+      "total": 1.267,
+      "bytes": 37440,
+      "profile": {
+        "rate": 24000,
+        "channels": 1,
+        "kbps": 160,
+        "frame_bytes": 480,
+        "offset": 0
+      },
+      "sha256": "5a02fccf28f467e57ddad52f12db51e566232222a7f13ac2bf7380c8b021a576"
+    },
+    {
+      "model": "microsoft/mai-voice-2.1-flash",
+      "voice": "en-US-Harper:MAI-Voice-2",
+      "sample": 1,
+      "status": 200,
+      "type": "audio/mpeg",
+      "first": 1.526,
+      "frame": 1.526,
+      "total": 1.54,
+      "bytes": 145440,
+      "profile": {
+        "rate": 24000,
+        "channels": 1,
+        "kbps": 160,
+        "frame_bytes": 480,
+        "offset": 0
+      },
+      "sha256": "0ca90424578e27b0b7c44a81c9df63eebd45b7a88d9e0db3fafd8faade28f675"
+    },
+    {
+      "model": "microsoft/mai-voice-2.1-flash",
+      "voice": "en-US-Harper:MAI-Voice-2",
+      "sample": 2,
+      "status": 200,
+      "type": "audio/mpeg",
+      "first": 1.645,
+      "frame": 1.645,
+      "total": 1.669,
+      "bytes": 147360,
+      "profile": {
+        "rate": 24000,
+        "channels": 1,
+        "kbps": 160,
+        "frame_bytes": 480,
+        "offset": 0
+      },
+      "sha256": "d439407400df2eebfabe19cfac0ebc27208366db480dff7f50b82c157c38e2f0"
+    },
+    {
+      "model": "microsoft/mai-voice-2.1-flash",
+      "voice": "en-US-Harper:MAI-Voice-2",
+      "sample": 3,
+      "status": 200,
+      "type": "audio/mpeg",
+      "first": 1.467,
+      "frame": 1.467,
+      "total": 1.482,
+      "bytes": 128160,
+      "profile": {
+        "rate": 24000,
+        "channels": 1,
+        "kbps": 160,
+        "frame_bytes": 480,
+        "offset": 0
+      },
+      "sha256": "2b5af3125fe4a1924b44a9a7eb01efbfc37d4f554fbd7f04f3fca6bff6c8f92c"
+    },
+    {
+      "model": "microsoft/mai-voice-2.1-flash",
+      "voice": "en-US-Harper:MAI-Voice-2",
+      "sample": 4,
+      "status": 200,
+      "type": "audio/mpeg",
+      "first": 1.924,
+      "frame": 1.924,
+      "total": 1.975,
+      "bytes": 365760,
+      "profile": {
+        "rate": 24000,
+        "channels": 1,
+        "kbps": 160,
+        "frame_bytes": 480,
+        "offset": 0
+      },
+      "sha256": "66cc5ca56f3980aa9f4b55ab0561350c8325d1968a4d7da64ef02825034ab8d6"
+    }
+  ],
+  "chosen_female": [
+    {
+      "model": "elevenlabs/eleven-flash-v2.5",
+      "voice": "OZ0L6eISlOejga3XjDFt",
+      "sample": 0,
+      "status": 200,
+      "type": "audio/mpeg",
+      "first": 0.701,
+      "frame": 0.701,
+      "total": 0.702,
+      "bytes": 14253,
+      "profile": {
+        "rate": 44100,
+        "channels": 1,
+        "kbps": 128,
+        "frame_bytes": 417,
+        "offset": 44
+      },
+      "sha256": "0ee34dd533bf7226798d8467e718e594b9d55e9312a24ff06e9c1ad7fd9025df"
+    },
+    {
+      "model": "elevenlabs/eleven-flash-v2.5",
+      "voice": "OZ0L6eISlOejga3XjDFt",
+      "sample": 1,
+      "status": 200,
+      "type": "audio/mpeg",
+      "first": 0.442,
+      "frame": 0.442,
+      "total": 0.451,
+      "bytes": 84888,
+      "profile": {
+        "rate": 44100,
+        "channels": 1,
+        "kbps": 128,
+        "frame_bytes": 417,
+        "offset": 44
+      },
+      "sha256": "4aa82961a38a54b6dfdd2bcc133b85799bb0593eaa09168411ace800b4bdd176"
+    },
+    {
+      "model": "elevenlabs/eleven-flash-v2.5",
+      "voice": "OZ0L6eISlOejga3XjDFt",
+      "sample": 2,
+      "status": 200,
+      "type": "audio/mpeg",
+      "first": 0.472,
+      "frame": 0.472,
+      "total": 0.483,
+      "bytes": 99935,
+      "profile": {
+        "rate": 44100,
+        "channels": 1,
+        "kbps": 128,
+        "frame_bytes": 417,
+        "offset": 44
+      },
+      "sha256": "7dea83cbaff383c249c85bf7b04af1a0a99857fa4f3e38568be6148cf4bde8ce"
+    },
+    {
+      "model": "elevenlabs/eleven-flash-v2.5",
+      "voice": "OZ0L6eISlOejga3XjDFt",
+      "sample": 3,
+      "status": 200,
+      "type": "audio/mpeg",
+      "first": 0.875,
+      "frame": 0.875,
+      "total": 0.885,
+      "bytes": 78201,
+      "profile": {
+        "rate": 44100,
+        "channels": 1,
+        "kbps": 128,
+        "frame_bytes": 417,
+        "offset": 44
+      },
+      "sha256": "7cdf2ad5ad86f84efd59d38f2b99bd10397a3d86170d3be89f9790443d5506b8"
+    },
+    {
+      "model": "elevenlabs/eleven-flash-v2.5",
+      "voice": "OZ0L6eISlOejga3XjDFt",
+      "sample": 4,
+      "status": 200,
+      "type": "audio/mpeg",
+      "first": 0.612,
+      "frame": 0.612,
+      "total": 0.64,
+      "bytes": 264193,
+      "profile": {
+        "rate": 44100,
+        "channels": 1,
+        "kbps": 128,
+        "frame_bytes": 417,
+        "offset": 44
+      },
+      "sha256": "f534e3a84fc4718ddce33aeb6d45eaebad51ba3fce19f7755390fc4dc0582d3f"
+    }
+  ]
+}

@@ -4,6 +4,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include "voice_cue_opus.h"
+#include "voice_mp3_player.h"
 typedef enum { CUE_DONE, CUE_BUSY, CUE_ERROR } voice_cue_status_t;
 /* Zero-initialize before first use. Caller owns exclusive access to audio. */
 typedef struct {
@@ -15,6 +16,7 @@ typedef struct {
  void *release_ctx;
  const voice_cue_decoder_t *decoder_ops;
  void *decoder;
+ voice_mp3_player_t *mp3;
  voice_cue_opus_t opus;
  size_t decoded_index,queued,queue_position;
  int16_t frame[480];
@@ -28,6 +30,7 @@ bool voice_listening_cue_start_lease(voice_listening_cue_t *c,const uint8_t *pcm
 bool voice_listening_cue_start_opus(voice_listening_cue_t *c,const uint8_t *data,size_t size,
                                    uint32_t now,const voice_cue_decoder_t *ops,
                                    void (*release)(void *ctx),void *ctx);
+bool voice_listening_cue_start_mp3(voice_listening_cue_t *,const uint8_t *,size_t,uint32_t,void (*)(void *),void *);
 voice_cue_status_t voice_listening_cue_tick(voice_listening_cue_t *c, uint32_t now);
 void voice_listening_cue_cancel(voice_listening_cue_t *c);
 #endif

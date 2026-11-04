@@ -1,6 +1,7 @@
 #include "http_voice_client.h"
 #include "voice_turn_client.h"
 #include "voice_http_chunk.h"
+#include "voice_cue_cache.h"
 #include <string.h>
 #include <stdio.h>
 
@@ -31,6 +32,11 @@ static voice_transport_result_t begin(voice_transport_t *t) {
   c->client = voice_tls_client_init(&cfg);
   if (!c->client) return VOICE_TRANSPORT_FATAL;
   esp_http_client_set_method(c->client, HTTP_METHOD_POST);
+  char generation[65];
+  if (voice_cue_cache_generation(generation)) {
+    esp_http_client_set_header(c->client, "X-Audio-Codecs", "mp3,wav");
+    esp_http_client_set_header(c->client, "X-Cue-Generation", generation);
+  }
   esp_http_client_set_header(c->client, "Content-Type", "audio/L16");
   esp_http_client_set_header(c->client, "X-Sample-Rate", "16000");
   esp_http_client_set_header(c->client, "X-Channels", "1");
