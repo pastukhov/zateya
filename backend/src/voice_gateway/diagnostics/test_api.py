@@ -62,3 +62,19 @@ def test_rejects_foreign_device_oversize_and_secret_fields(tmp_path, monkeypatch
         bad["recording"]["events"] = [[1, 4, 0, 0]] * 65
         assert client.post(PATH, json=bad, headers=headers()).status_code == 400
     assert app.state.diagnostics_store.count(DEVICE) == 0
+
+
+def test_startup_timings_accept_old_and_new_reports_and_reject_invalid_values(tmp_path, monkeypatch):
+    client, app = client_for(tmp_path, monkeypatch)
+    with client:
+        assert client.post(PATH, json=report(), headers=headers()).status_code == 202
+        timed = report(sequence=2)
+        timed.update(wifi_ready_ms=2300, tls_ready_ms=7800, backend_ready_ms=9200)
+        assert client.post(PATH, json=timed, headers=headers()).status_code == 202
+        pending = report(sequence=3)
+        pending.update(wifi_ready_ms=2300, tls_ready_ms=0, backend_ready_ms=0, backend_status=-2)
+        assert client.post(PATH, json=pending, headers=headers()).status_code == 202
+        for value in (-1, True, "2300", 2**32):
+            bad = report(sequence=4)
+            bad["wifi_ready_ms"] = value
+            assert client.post(PATH, json=bad, headers=headers()).status_code == 400

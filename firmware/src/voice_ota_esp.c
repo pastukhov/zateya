@@ -1,5 +1,6 @@
 #include "voice_ota.h"
 #include "voice_activity_gate.h"
+#include "connectivity_policy.h"
 
 #ifdef ESP_PLATFORM
 #include <stdatomic.h>
@@ -267,7 +268,8 @@ done:
   return valid;
 }
 
-static bool fetch_manifest(ota_manifest_t *manifest) {
+static bool fetch_manifest(ota_manifest_t *manifest, bool *no_offer) {
+  *no_offer = false;
   char path[128];
   snprintf(path, sizeof(path),
       "/api/firmware/manifest?board=sticks3&layout=ota-v1&current_seq=%lu",
@@ -276,6 +278,11 @@ static bool fetch_manifest(ota_manifest_t *manifest) {
   int64_t length = 0;
   esp_http_client_handle_t client = open_get(path, &status, &length);
   if (!client) return false;
+  if (status == 204) {
+    *no_offer = true;
+    close_get(client);
+    return false;
+  }
   if (status != 200 || length <= 0 || length >= OTA_MANIFEST_CAP) {
     close_get(client);
     return false;
@@ -367,42 +374,61 @@ static bool install_image(const ota_manifest_t *manifest,
 
 static void ota_task(void *arg) {
   (void)arg;
-  const int64_t deadline = esp_timer_get_time() + 120000000LL;
-  while (esp_timer_get_time() < deadline) {
-    if (atomic_load(&boot_confirmed) && board_sticks3_network_ready() &&
-        voice_gateway_health_status() == 200) break;
-    vTaskDelay(pdMS_TO_TICKS(1000));
-  }
-  if (!atomic_load(&boot_confirmed) || atomic_load(&updates_disabled) ||
-      !board_sticks3_network_ready() ||
-      voice_gateway_health_status() != 200) goto done;
-  ota_manifest_t manifest = {0};
-  if (!fetch_manifest(&manifest)) goto done;
-  const esp_partition_t *next = esp_ota_get_next_update_partition(NULL);
-  if (!next) goto done;
-  const int64_t deferred_deadline = esp_timer_get_time() + 600000000LL;
+  connectivity_retry_t retry = {0};
+  uint32_t interval_ms = 60000u;
   for (;;) {
-    voice_ota_offer_t offer = {
-      .current_seq = VOICE_OTA_RELEASE_SEQ, .rejected_seq = rejected_seq,
-      .candidate_seq = manifest.sequence, .image_size = manifest.size,
-      .slot_size = next->size, .network_ready = board_sticks3_network_ready(),
-      .idle = atomic_load(&activity) == 0,
-      .usb_powered = board_sticks3_usb_powered(),
-      .signed_manifest_valid = true, .compatible = true,
-    };
-    voice_ota_decision_t decision = voice_ota_decide(&offer);
-    if (decision == VOICE_OTA_IGNORE || esp_timer_get_time() > deferred_deadline)
-      goto done;
-    if (decision == VOICE_OTA_INSTALL) {
-      if (voice_activity_claim(&activity,VOICE_ACTIVITY_OTA)) break;
+    if (atomic_load(&updates_disabled)) break;
+    bool ready = atomic_load(&boot_confirmed) &&
+                 board_sticks3_network_ready() &&
+                 voice_gateway_health_status() == 200;
+    uint32_t now_ms = (uint32_t)(esp_timer_get_time() / 1000);
+    if (!connectivity_retry_due(&retry, now_ms, ready, interval_ms)) {
+      vTaskDelay(pdMS_TO_TICKS(1000));
+      continue;
     }
-    vTaskDelay(pdMS_TO_TICKS(1000));
+    /* Transient failures are retried in a minute, successful checks in five.
+       Readiness has no boot deadline: late connections still receive updates. */
+    interval_ms = 60000u;
+    ota_manifest_t manifest = {0};
+    bool no_offer = false;
+    bool fetched = fetch_manifest(&manifest, &no_offer);
+    interval_ms = voice_ota_check_interval_ms(fetched || no_offer);
+    retry.last_attempt_ms = (uint32_t)(esp_timer_get_time() / 1000);
+    if (!fetched) continue;
+    const esp_partition_t *next = esp_ota_get_next_update_partition(NULL);
+    if (!next) break;
+    const int64_t deferred_deadline = esp_timer_get_time() + 600000000LL;
+    bool install = false;
+    while (!atomic_load(&updates_disabled) &&
+           esp_timer_get_time() < deferred_deadline) {
+      voice_ota_offer_t offer = {
+        .current_seq = VOICE_OTA_RELEASE_SEQ, .rejected_seq = rejected_seq,
+        .candidate_seq = manifest.sequence, .image_size = manifest.size,
+        .slot_size = next->size, .network_ready = board_sticks3_network_ready(),
+        .idle = atomic_load(&activity) == 0,
+        .usb_powered = board_sticks3_usb_powered(),
+        .signed_manifest_valid = true, .compatible = true,
+      };
+      voice_ota_decision_t decision = voice_ota_decide(&offer);
+      if (decision == VOICE_OTA_IGNORE) break;
+      if (decision == VOICE_OTA_INSTALL &&
+          voice_activity_claim(&activity, VOICE_ACTIVITY_OTA)) {
+        install = true;
+        break;
+      }
+      vTaskDelay(pdMS_TO_TICKS(1000));
+    }
+    if (install) {
+      atomic_store(&progress_percent, 0);
+      if (!install_image(&manifest, next)) {
+        ESP_LOGW(TAG, "update deferred after download/write failure");
+        interval_ms = 60000u;
+      }
+      (void)voice_activity_release(&activity, VOICE_ACTIVITY_OTA, true);
+    }
+    /* Measure cadence after the attempt, even after lengthy deferred checks. */
+    retry.last_attempt_ms = (uint32_t)(esp_timer_get_time() / 1000);
   }
-  atomic_store(&progress_percent, 0);
-  if (!install_image(&manifest, next))
-    ESP_LOGW(TAG, "update deferred after download/write failure");
-  (void)voice_activity_release(&activity,VOICE_ACTIVITY_OTA,true);
-done:
   vTaskDelete(NULL);
 }
 

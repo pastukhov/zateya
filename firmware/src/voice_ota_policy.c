@@ -10,3 +10,7 @@ voice_ota_decision_t voice_ota_decide(const voice_ota_offer_t *offer) {
     return VOICE_OTA_DEFER;
   return VOICE_OTA_INSTALL;
 }
+
+uint32_t voice_ota_check_interval_ms(bool check_succeeded) {
+  return check_succeeded ? 300000u : 60000u;
+}

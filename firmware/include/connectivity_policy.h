@@ -10,4 +10,12 @@ bool connectivity_sleep_hold(uint32_t started_ms, uint32_t now_ms,
                              bool wifi_configured, bool ready,
                              bool setup_ap_active);
 
+/* Reusable bounded cadence; first ready observation is immediately eligible. */
+typedef struct {
+  bool attempted;
+  uint32_t last_attempt_ms;
+} connectivity_retry_t;
+bool connectivity_retry_due(connectivity_retry_t *retry, uint32_t now_ms,
+                            bool ready, uint32_t interval_ms);
+
 #endif

@@ -24,6 +24,9 @@ typedef enum {
   VOICE_OTA_INSTALL = 2,
 } voice_ota_decision_t;
 
+/* A normal 204 is a successful check, like an accepted manifest. */
+uint32_t voice_ota_check_interval_ms(bool check_succeeded);
+
 voice_ota_decision_t voice_ota_decide(const voice_ota_offer_t *offer);
 
 #endif

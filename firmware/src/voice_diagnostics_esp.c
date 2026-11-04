@@ -42,12 +42,16 @@ bool voice_diag_report_json(char *out, size_t capacity) {
       "{\"boot_id\":%lu,\"sequence\":%lu,\"uptime_ms\":%llu,"
       "\"reset_reason\":%u,\"firmware_revision\":\"%s %s\","
       "\"wifi_connected\":%s,"
+      "\"wifi_ready_ms\":%lu,\"tls_ready_ms\":%lu,\"backend_ready_ms\":%lu,"
       "\"backend_status\":%d,\"free_heap_bytes\":%lu,"
       "\"recording\":%s}",
       (unsigned long)boot_id, (unsigned long)next_sequence,
       (unsigned long long)(esp_timer_get_time() / 1000),
       (unsigned)esp_reset_reason(), __DATE__, __TIME__,
       wifi_connected ? "true" : "false",
+      (unsigned long)voice_diag_ready_ms(VOICE_DIAG_WIFI_READY),
+      (unsigned long)voice_diag_ready_ms(VOICE_DIAG_TLS_READY),
+      (unsigned long)voice_diag_ready_ms(VOICE_DIAG_BACKEND_READY),
       voice_gateway_health_status(), (unsigned long)esp_get_free_heap_size(), data);
   return written > 0 && (size_t)written < capacity;
 }

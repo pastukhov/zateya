@@ -96,6 +96,7 @@ static void wifi_event_handler(void *arg, esp_event_base_t base,
   } else if (base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP) {
     const ip_event_got_ip_t *event = (const ip_event_got_ip_t *)event_data;
     s_wifi_connected = true;
+    voice_diag_mark_ready(VOICE_DIAG_WIFI_READY, (uint32_t)(esp_timer_get_time() / 1000));
     ESP_LOGI(TAG, "Wi-Fi got IP: " IPSTR, IP2STR(&event->ip_info.ip));
   }
 }
@@ -751,6 +752,8 @@ bool hw_audio_playback_drained(void) {
   return audio_playback_get_buffer_level() == 0;
 }
 
+
+bool board_sticks3_ip_ready(void) { return s_wifi_connected; }
 
 bool board_sticks3_network_ready(void) {
   return s_wifi_connected && voice_tls_ready();

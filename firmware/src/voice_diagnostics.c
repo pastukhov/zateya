@@ -14,6 +14,23 @@ static portMUX_TYPE diag_lock = portMUX_INITIALIZER_UNLOCKED;
 #define DIAG_UNLOCK() ((void)0)
 #endif
 
+static uint32_t ready_ms[3];
+
+void voice_diag_mark_ready(voice_diag_ready_stage_t stage, uint32_t uptime_ms) {
+  if ((unsigned)stage >= 3u) return;
+  DIAG_LOCK();
+  if (!ready_ms[stage]) ready_ms[stage] = uptime_ms ? uptime_ms : 1u;
+  DIAG_UNLOCK();
+}
+
+uint32_t voice_diag_ready_ms(voice_diag_ready_stage_t stage) {
+  if ((unsigned)stage >= 3u) return 0;
+  DIAG_LOCK();
+  uint32_t value = ready_ms[stage];
+  DIAG_UNLOCK();
+  return value;
+}
+
 static struct {
   voice_diag_snapshot_t data;
   uint32_t event_head;

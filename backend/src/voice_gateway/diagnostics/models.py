@@ -37,6 +37,10 @@ class DeviceDiagnostics(BaseModel):
     reset_reason: Counter = Field(ge=0, le=255)
     firmware_revision: str = Field(min_length=1, max_length=48, pattern=r"^[A-Za-z0-9 :._-]+$")
     wifi_connected: StrictBool
-    backend_status: Counter = Field(ge=-1, le=599)
+    backend_status: Counter = Field(ge=-2, le=599)
+    # Optional for older firmware; zero means readiness not yet observed.
+    wifi_ready_ms: Counter | None = Field(default=None, ge=0, le=2**32 - 1)
+    tls_ready_ms: Counter | None = Field(default=None, ge=0, le=2**32 - 1)
+    backend_ready_ms: Counter | None = Field(default=None, ge=0, le=2**32 - 1)
     free_heap_bytes: Counter = Field(ge=0, le=2**32 - 1)
     recording: RecordingDiagnostics

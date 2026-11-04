@@ -8,6 +8,9 @@
 #include "freertos/task.h"
 #include "board_sticks3.h"
 #include "voice_tls.h"
+#include "voice_diagnostics.h"
+#include "esp_timer.h"
+#include "connectivity_policy.h"
 
 #include <stdatomic.h>
 #include <stdio.h>
@@ -18,9 +21,24 @@ static _Atomic int s_health_status = -1;
 
 static void health_task(void *arg) {
   (void)arg;
+  connectivity_retry_t probe = {0};
   for (;;) {
-    if (!board_sticks3_network_ready()) {
+    if (!board_sticks3_ip_ready()) {
+      probe.attempted = false;
       atomic_store(&s_health_status, 0);
+      vTaskDelay(pdMS_TO_TICKS(1000));
+      continue;
+    }
+    voice_tls_start();
+    if (!voice_tls_ready()) {
+      probe.attempted = false;
+      atomic_store(&s_health_status, VOICE_GATEWAY_WAITING_TIME);
+      vTaskDelay(pdMS_TO_TICKS(1000));
+      continue;
+    }
+    uint32_t now_ms = (uint32_t)(esp_timer_get_time() / 1000);
+    voice_diag_mark_ready(VOICE_DIAG_TLS_READY, now_ms);
+    if (!connectivity_retry_due(&probe, now_ms, true, 15000u)) {
       vTaskDelay(pdMS_TO_TICKS(1000));
       continue;
     }
@@ -36,10 +54,13 @@ static void health_task(void *arg) {
         status = esp_http_client_get_status_code(client);
       esp_http_client_cleanup(client);
     }
+    if (status == 200)
+      voice_diag_mark_ready(VOICE_DIAG_BACKEND_READY,
+                            (uint32_t)(esp_timer_get_time() / 1000));
     int previous = atomic_exchange(&s_health_status, status);
     if (previous != status)
       ESP_LOGI("gateway_health", "readiness HTTP status: %d", status);
-    vTaskDelay(pdMS_TO_TICKS(15000));
+    vTaskDelay(pdMS_TO_TICKS(1000));
   }
 }
 
@@ -54,10 +75,11 @@ bool voice_gateway_health_start(const char *gateway_base) {
 }
 
 int voice_gateway_health_status(void) {
-  if (!board_sticks3_network_ready()) {
+  if (!board_sticks3_ip_ready()) {
     atomic_store(&s_health_status, 0);
     return 0;
   }
+  if (!voice_tls_ready()) return VOICE_GATEWAY_WAITING_TIME;
   return atomic_load(&s_health_status);
 }
 

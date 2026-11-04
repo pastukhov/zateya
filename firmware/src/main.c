@@ -939,7 +939,6 @@ void app_init(void) {
   } else {
     (void)board_sticks3_wifi_start_ap();
   }
-  voice_tls_start();
   (void)voice_gateway_health_start(voice_settings.gateway_url);
 
   /* Spoken cues are fetched in idle time; a short tone covers cold boot. */

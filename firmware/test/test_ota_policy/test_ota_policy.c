@@ -37,9 +37,15 @@ static void test_ota_defers_when_network_voice_or_power_is_not_safe(void) {
   TEST_ASSERT_EQUAL(VOICE_OTA_DEFER, voice_ota_decide(&offer));
 }
 
+static void test_successful_manifest_checks_poll_slower_than_transient_failures(void) {
+  TEST_ASSERT_EQUAL_UINT32(300000u, voice_ota_check_interval_ms(true));
+  TEST_ASSERT_EQUAL_UINT32(60000u, voice_ota_check_interval_ms(false));
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_ota_only_accepts_new_signed_compatible_release);
   RUN_TEST(test_ota_defers_when_network_voice_or_power_is_not_safe);
+  RUN_TEST(test_successful_manifest_checks_poll_slower_than_transient_failures);
   return UNITY_END();
 }

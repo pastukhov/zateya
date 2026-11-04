@@ -37,6 +37,15 @@ typedef struct {
   voice_diag_event_t events[VOICE_DIAG_EVENT_CAPACITY];
 } voice_diag_snapshot_t;
 
+typedef enum {
+  VOICE_DIAG_WIFI_READY = 0,
+  VOICE_DIAG_TLS_READY = 1,
+  VOICE_DIAG_BACKEND_READY = 2,
+} voice_diag_ready_stage_t;
+/* First readiness since boot; zero means not observed. Never reset per turn. */
+void voice_diag_mark_ready(voice_diag_ready_stage_t stage, uint32_t uptime_ms);
+uint32_t voice_diag_ready_ms(voice_diag_ready_stage_t stage);
+
 /* No allocation, flash writes, networking, free-form text, or secrets. */
 const char *voice_diag_error_hint(voice_diag_code_t code);
 void voice_diag_reset(void);
