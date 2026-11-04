@@ -23,6 +23,9 @@ def test_git_status_is_device_authenticated_and_compact(tmp_path, monkeypatch):
     monkeypatch.setenv("OBSIDIAN_VAULT_PATH", str(vault))
     app = create_app(archive_root=tmp_path / "archive", agent=FakeAgent(),
                      security=SecurityConfig(api_key="", auth_enabled=False))
+    # This endpoint test uses an empty non-Git vault. Keep the background
+    # synchronizer from racing the HTTP assertions and changing idle to retry.
+    monkeypatch.setattr(app.state.knowledge_git_sync, "run_once", lambda: {"status": "idle"})
     with TestClient(app) as client:
         assert client.get("/api/voice/knowledge/git", headers={"X-Device-Id": device}).status_code == 401
         response = client.get("/api/voice/knowledge/git", headers={

@@ -92,3 +92,79 @@ def test_reject_bad_audio(tmp_path, rate, channels, size):
     with pytest.raises(ValueError):
         cache.ensure()
     assert cache.manifest() is None
+
+
+class CatalogSynth:
+    def __init__(self, fail=None):
+        self.calls = []
+        self.fail = fail
+
+    def synthesize(self, text, out_path):
+        self.calls.append(text)
+        if text == self.fail:
+            raise RuntimeError('provider unavailable')
+        with wave.open(str(out_path), 'wb') as f:
+            f.setparams((1, 2, 24000, 0, 'NONE', 'not compressed'))
+            f.writeframes(bytes([len(self.calls), 0]) * 2400)
+
+
+def test_three_cues_independent_failure_retry_restart_and_voice(tmp_path):
+    synth = CatalogSynth(fail='Обрабатываю.')
+    cache = CueCache(tmp_path, synth, CONFIG)
+    assert cache.ensure_all() is False
+    assert cache.manifest('listening')
+    assert cache.manifest('processing') is None
+    assert cache.manifest('offline')
+    synth.fail = None
+    assert cache.ensure_all() is True
+    assert synth.calls == ['Слушаю.', 'Обрабатываю.', 'Нет связи.', 'Обрабатываю.']
+    calls = len(synth.calls)
+    restarted = CueCache(tmp_path, synth, CONFIG)
+    assert restarted.ensure_all()
+    assert len(synth.calls) == calls
+    assert restarted.manifest() == restarted.manifest('listening')
+    assert len({restarted.manifest(name)['version'] for name in ('listening', 'processing', 'offline')}) == 3
+    changed = CueCache(tmp_path, synth, replace(CONFIG, voice='new'))
+    assert changed.ensure_all()
+    assert len(synth.calls) == calls + 3
+    for name in ('listening','processing','offline'):
+        assert changed.manifest(name)['version'] != restarted.manifest(name)['version']
+    assert cache.manifest('invented') is None
+
+
+def test_named_cue_routes_auth_unknown_and_no_request_synthesis(tmp_path):
+    synth = CatalogSynth()
+    cache = CueCache(tmp_path, synth, CONFIG)
+    app = FastAPI(); install_cue_routes(app, cache, {'device': 'token'})
+    with TestClient(app) as client:
+        headers = {'X-Device-Id': 'device', 'Authorization': 'Bearer token'}
+        for name in ('listening','processing','offline'):
+            assert client.get('/api/device/cues/'+name).status_code == 401
+            assert client.get('/api/device/cues/'+name,headers=headers).status_code == 503
+        assert not synth.calls
+        assert client.get('/api/device/cues/invented',headers=headers).status_code == 404
+        assert cache.ensure_all()
+        for name in ('listening','processing','offline'):
+            manifest = client.get('/api/device/cues/'+name,headers=headers).json()
+            audio = client.get('/api/device/cues/audio/'+manifest['sha256']+'.pcm',headers=headers)
+            assert audio.status_code == 200
+            assert len(audio.content) == manifest['size']
+            assert hashlib.sha256(audio.content).hexdigest() == manifest['sha256']
+        assert len(synth.calls) == 3
+
+
+def test_listening_reuses_pre_catalog_persistent_key(tmp_path):
+    import json
+    identity = {'text': 'Слушаю.', 'format': 'pcm16le-24000-mono-v1',
+                'endpoint': CONFIG.base_url, 'model': CONFIG.model, 'voice': CONFIG.voice,
+                'instructions': CONFIG.instructions, 'response_format': CONFIG.response_format}
+    old_version = hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
+    pcm = b'\x01\x00' * 2400
+    (tmp_path / (old_version+'.pcm')).write_bytes(pcm)
+    (tmp_path / (old_version+'.json')).write_text(json.dumps({'sha256':hashlib.sha256(pcm).hexdigest()}))
+    synth = Synth(); synth.bad = True
+    cache = CueCache(tmp_path, synth, CONFIG)
+    cache.ensure()
+    assert cache.version == old_version
+    assert synth.calls == 0
+    assert cache.audio(cache.manifest()['sha256']) == pcm

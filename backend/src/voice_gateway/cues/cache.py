@@ -22,11 +22,15 @@ _LOG = logging.getLogger(__name__)
 _MAX_BYTES = 240000  # Five seconds of PCM16 mono, 24 kHz.
 
 
-class CueCache:
-    def __init__(self, root: Path, provider, config: TTSConfig):
+CUE_TEXTS = {'listening': 'Слушаю.', 'processing': 'Обрабатываю.', 'offline': 'Нет связи.'}
+
+
+class _Cue:
+    def __init__(self, root: Path, provider, config: TTSConfig, text: str):
         self.root = root
+        self.text = text
         self.provider = provider
-        identity = {'text': 'Слушаю.', 'format': 'pcm16le-24000-mono-v1',
+        identity = {'text': text, 'format': 'pcm16le-24000-mono-v1',
                     'endpoint': config.base_url, 'model': config.model,
                     'voice': config.voice, 'instructions': config.instructions,
                     'response_format': config.response_format}
@@ -71,7 +75,7 @@ class CueCache:
                 pass
             with tempfile.TemporaryDirectory(prefix='.cue-', dir=self.root) as folder:
                 wav_path = Path(folder) / 'listening.wav'
-                self.provider.synthesize('Слушаю.', wav_path)
+                self.provider.synthesize(self.text, wav_path)
                 with wave.open(str(wav_path), 'rb') as wav:
                     if (wav.getnchannels(), wav.getsampwidth(), wav.getframerate(), wav.getcomptype()) != (1, 2, 24000, 'NONE'):
                         raise ValueError('Unsupported cue format')
@@ -89,21 +93,57 @@ class CueCache:
                 os.replace(audio_tmp, pcm_path)
                 os.replace(meta_tmp, meta_path)
                 self._publish(pcm)
-                _LOG.info('Device listening cue ready (bytes=%d)', len(pcm))
+                _LOG.info('Device cue ready (bytes=%d)', len(pcm))
+
+class CueCache:
+    """Fixed independent catalog; provider access is serialized off HTTP paths.
+
+    Legacy methods default to listening and its config/text digest is unchanged.
+    Persistent entries share a directory but each has its own content identity.
+    """
+    def __init__(self, root: Path, provider, config: TTSConfig):
+        self._cues = {name: _Cue(root, provider, config, text) for name, text in CUE_TEXTS.items()}
+        self._provider_lock = threading.Lock()
+        self.version = self._cues['listening'].version
+
+    def manifest(self, name: str = 'listening') -> dict | None:
+        cue = self._cues.get(name)
+        return cue.manifest() if cue else None
+
+    def audio(self, digest: str) -> bytes | None:
+        for cue in self._cues.values():
+            pcm = cue.audio(digest)
+            if pcm is not None:
+                return pcm
+        return None
+
+    def ensure(self, name: str = 'listening') -> None:
+        # TTS providers need not support overlapping synchronous calls.
+        with self._provider_lock:
+            self._cues[name].ensure()
+
+    def ensure_all(self) -> bool:
+        complete = True
+        for name in self._cues:
+            try:
+                self.ensure(name)
+            except Exception:
+                complete = False
+                _LOG.warning('Device %s cue generation failed; retry in 60 seconds', name)
+        return complete
 
     async def run(self) -> None:
-        # Cancellation waits for bounded provider I/O before its client is closed.
         while True:
-            work = asyncio.create_task(asyncio.to_thread(self.ensure))
+            work = asyncio.create_task(asyncio.to_thread(self.ensure_all))
             try:
-                await asyncio.shield(work)
-                return
+                complete = await asyncio.shield(work)
             except asyncio.CancelledError:
+                # Wait for bounded synthesis before app closes the shared client.
                 await asyncio.gather(work, return_exceptions=True)
                 raise
-            except Exception:
-                _LOG.warning('Device listening cue generation failed; retry in 60 seconds')
-                await asyncio.sleep(60)
+            if complete:
+                return
+            await asyncio.sleep(60)
 
 
 def install_cue_routes(app: FastAPI, cache: CueCache | None,
@@ -113,10 +153,12 @@ def install_cue_routes(app: FastAPI, cache: CueCache | None,
                            request.headers.get('Authorization'), device_tokens):
             raise HTTPException(status_code=401)
 
-    @app.get('/api/device/cues/listening')
-    def manifest(request: Request):
+    @app.get('/api/device/cues/{name}')
+    def manifest(request: Request, name: str):
         authenticate(request)
-        data = cache.manifest() if cache else None
+        if name not in CUE_TEXTS:
+            raise HTTPException(status_code=404)
+        data = cache.manifest(name) if cache else None
         if data is None:
             return Response(status_code=503, headers={'Retry-After': '60'})
         return data

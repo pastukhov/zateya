@@ -10,9 +10,15 @@ typedef struct {
  size_t size, position;
  uint32_t started_ms;
  voice_cue_status_t status;
+ void (*release)(void *ctx);
+ void *release_ctx;
 } voice_listening_cue_t;
 bool voice_listening_cue_start(voice_listening_cue_t *c, const uint8_t *pcm,
                               size_t size, uint32_t now);
+/* Takes ownership of one acquired PCM lease, even on rejected start. */
+bool voice_listening_cue_start_lease(voice_listening_cue_t *c,const uint8_t *pcm,
+                                    size_t size,uint32_t now,
+                                    void (*release)(void *ctx),void *ctx);
 voice_cue_status_t voice_listening_cue_tick(voice_listening_cue_t *c, uint32_t now);
 void voice_listening_cue_cancel(voice_listening_cue_t *c);
 #endif

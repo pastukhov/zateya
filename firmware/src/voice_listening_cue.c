@@ -1,6 +1,9 @@
 #include "voice_listening_cue.h"
 #include "hardware.h"
 
+static void release_lease(voice_listening_cue_t *c) {
+  if(c->release){c->release(c->release_ctx);c->release=NULL;c->release_ctx=NULL;c->pcm=NULL;}
+}
 bool voice_listening_cue_start(voice_listening_cue_t *c, const uint8_t *pcm,
                               size_t size, uint32_t now) {
   if (c->status == CUE_BUSY || !pcm || !size || (size & 1) || size > 240000)
@@ -10,9 +13,20 @@ bool voice_listening_cue_start(voice_listening_cue_t *c, const uint8_t *pcm,
   hw_audio_playback_start(NULL, 0);
   return true;
 }
+bool voice_listening_cue_start_lease(voice_listening_cue_t *c,const uint8_t *pcm,
+                                    size_t size,uint32_t now,
+                                    void (*release)(void *ctx),void *ctx) {
+  if(!voice_listening_cue_start(c,pcm,size,now)){
+    if(release)release(ctx);
+    return false;
+  }
+  c->release=release;c->release_ctx=ctx;
+  return true;
+}
 void voice_listening_cue_cancel(voice_listening_cue_t *c) {
   if (c->status == CUE_BUSY) hw_audio_playback_stop();
   c->status = CUE_ERROR;
+  release_lease(c);
 }
 voice_cue_status_t voice_listening_cue_tick(voice_listening_cue_t *c, uint32_t now) {
   if (c->status != CUE_BUSY) return c->status;
@@ -33,6 +47,7 @@ voice_cue_status_t voice_listening_cue_tick(voice_listening_cue_t *c, uint32_t n
   if (c->position == c->size && hw_audio_playback_drained()) {
     hw_audio_playback_stop();
     c->status = CUE_DONE;
+    release_lease(c);
   }
   return c->status;
 }

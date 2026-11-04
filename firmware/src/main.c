@@ -89,7 +89,6 @@
 #include "voice_wake_detector.h"
 #include "voice_wake_policy.h"
 #include "voice_listening_cue.h"
-#include "voice_static_cues.h"
 #include "voice_vad.h"
 #include "voice_wake_ui.h"
 #ifdef ESP_PLATFORM
@@ -193,13 +192,23 @@ static unsigned wake_ui;
 static voice_listening_cue_t feedback_cue;
 static bool feedback_active;
 static char capture_answer_to[VOICE_TURN_ID_CAPACITY];
-static bool feedback_start(voice_static_cue_t name,uint32_t now) {
+static void cue_release(void *ctx) {
+  voice_cue_cache_release_named((voice_cue_name_t)(uintptr_t)ctx);
+}
+static bool local_cue_start(voice_listening_cue_t *cue,voice_cue_name_t name,uint32_t now) {
+  size_t size=0;const uint8_t *pcm=voice_cue_cache_acquire_named(name,&size);
+  bool acquired=pcm!=NULL;
+  if(!pcm)pcm=voice_cue_fallback(&size);
+  return voice_listening_cue_start_lease(cue,pcm,size,now,
+      acquired?cue_release:NULL,(void*)(uintptr_t)name);
+}
+static bool feedback_start(voice_cue_name_t name,uint32_t now) {
   if(feedback_active)return false;
   /* This application is the sole voice-gate owner: processing may retain
    * its existing lease; idle offline feedback must acquire one too. */
   if(!voice_ota_voice_begin() && voice_ota_busy())return false;
-  size_t size=0;const uint8_t *pcm=voice_static_cue_get(name,&size);
-  feedback_active=voice_listening_cue_start(&feedback_cue,pcm,size,now);
+  voice_cue_cache_set_idle(false);
+  feedback_active=local_cue_start(&feedback_cue,name,now);
   return feedback_active;
 }
 static bool feedback_tick(uint32_t now) {
@@ -478,6 +487,7 @@ static void wake_pre_append(const uint8_t *pcm,size_t bytes) {
 }
 static bool capture_begin(uint32_t now,const char *answer_to,bool owned_gate,bool manual) {
   if(!capture_eligible() || (!owned_gate && !voice_ota_voice_begin()))return false;
+  voice_cue_cache_set_idle(false);
   if(wake_listening)hw_audio_capture_stop();
   voice_wake_detector_reset();wake_listening=false;
   wake_active=true;wake_ui=2;
@@ -485,8 +495,7 @@ static bool capture_begin(uint32_t now,const char *answer_to,bool owned_gate,boo
   voice_wake_capture_init(&wake,voice_settings.wake_pause_ms,MAX_RECORD_SECONDS_DEFAULT*1000U,
                            manual,voice_settings.button_mode);
   (void)voice_wake_activate(&wake,true,now);
-  size_t size=0;const uint8_t *pcm=voice_static_cue_get(VOICE_CUE_LISTENING,&size);
-  if(!voice_listening_cue_start(&wake_cue,pcm,size,now)){wake_stop();return false;}
+  if(!local_cue_start(&wake_cue,VOICE_CUE_LISTENING,now)){wake_stop();return false;}
   return true;
 }
 static void wake_idle_tick(uint32_t now, button_event_t button) {
@@ -858,7 +867,9 @@ void app_init(void) {
   voice_tls_start();
   (void)voice_gateway_health_start(voice_settings.gateway_url);
 
-  /* Flash cues are present even before Wi-Fi and survive every reboot. */
+  /* Spoken cues are fetched in idle time; a short tone covers cold boot. */
+  (void)voice_cue_cache_start(voice_settings.gateway_url,
+                             voice_settings.device_id,voice_settings.device_token);
   wake_preroll=heap_caps_malloc(WAKE_PREROLL_BYTES,MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT);
   (void)voice_ota_start(voice_settings.gateway_url,
                         voice_settings.device_id, voice_settings.device_token);

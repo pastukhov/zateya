@@ -18,12 +18,12 @@
 #include "voice_ota.h"
 #include "voice_tls.h"
 
-static char base[192],device[32],auth[200],current_sha[65];
+static char base[192],device[32],auth[200],current_sha[VOICE_CUE_COUNT][65];
 static SemaphoreHandle_t mutex;
-static voice_cue_slot_t slot;
+static voice_cue_bank_t bank;
 static atomic_bool idle;
 static bool allowed(void) {
- return atomic_load(&idle) && !voice_ota_busy() && board_sticks3_usb_powered() &&
+ return atomic_load(&idle) && !voice_ota_busy() &&
         board_sticks3_network_ready() && voice_gateway_health_status()==200;
 }
 /* Every fetch is bounded and redirects are forbidden (never forward credentials). */
@@ -53,8 +53,10 @@ static bool integer(cJSON *o,const char *name,int *value) {
  if(!cJSON_IsNumber(x) || x->valuedouble<0 || x->valuedouble>VOICE_CUE_MAX_BYTES || x->valuedouble!=x->valueint)return false;
  *value=x->valueint;return true;
 }
-static void refresh(void) {
- uint8_t manifest[1024];int n=fetch("/api/device/cues/listening",manifest,sizeof(manifest)-1);
+static void refresh(voice_cue_name_t name) {
+ char manifest_path[64];
+ snprintf(manifest_path,sizeof(manifest_path),"/api/device/cues/%s",voice_cue_name(name));
+ uint8_t manifest[1024];int n=fetch(manifest_path,manifest,sizeof(manifest)-1);
  if(n<=0)return;
  manifest[n]=0;
  cJSON *o=cJSON_Parse((char*)manifest);if(!o)return;
@@ -65,7 +67,7 @@ static void refresh(void) {
  voice_cue_metadata_valid((size_t)size,rate,channels,bits,digest->valuestring);
  if(valid)memcpy(sha,digest->valuestring,65);
  cJSON_Delete(o);
- if(!valid || strcmp(sha,current_sha)==0)return;
+ if(!valid || strcmp(sha,current_sha[name])==0)return;
  uint8_t *pcm=heap_caps_malloc((size_t)size,MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT);
  if(!pcm)return;
  char path[128];snprintf(path,sizeof(path),"/api/device/cues/audio/%s.pcm",sha);
@@ -76,15 +78,20 @@ static void refresh(void) {
  if(strcmp(sha,actual)!=0 || !allowed()){free(pcm);return;}
  uint8_t *old=NULL;
  xSemaphoreTake(mutex,portMAX_DELAY);
- bool published=voice_cue_slot_publish(&slot,pcm,(size_t)size,&old);
+ bool published=allowed() && voice_cue_bank_publish(&bank,name,pcm,(size_t)size,&old);
  xSemaphoreGive(mutex);
- if(published){memcpy(current_sha,sha,65);free(old);ESP_LOGI("cue_cache","Listening cue cached: %d bytes",size);}
+ if(published){memcpy(current_sha[name],sha,65);free(old);ESP_LOGI("cue_cache","%s cue cached: %d bytes",voice_cue_name(name),size);}
  else free(pcm);
 }
 static void worker(void *arg) {
- (void)arg;bool attempted=false;int64_t previous=0;
- for(;;){int64_t now=esp_timer_get_time();
-  if(allowed()&&(!attempted||now-previous>=60000000)){attempted=true;previous=now;refresh();}
+ (void)arg;bool attempted[VOICE_CUE_COUNT]={0};int64_t previous[VOICE_CUE_COUNT]={0};
+ for(;;){
+  for(unsigned i=0;i<VOICE_CUE_COUNT && allowed();i++){
+   int64_t now=esp_timer_get_time();
+   if(!attempted[i] || now-previous[i]>=60000000){
+    attempted[i]=true;previous[i]=now;refresh((voice_cue_name_t)i);
+   }
+  }
   vTaskDelay(pdMS_TO_TICKS(1000));
  }
 }
@@ -99,22 +106,32 @@ bool voice_cue_cache_start(const char *gateway,const char *id,const char *token)
  vSemaphoreDelete(mutex);mutex=NULL;return false;
 }
 void voice_cue_cache_set_idle(bool value){atomic_store(&idle,value);}
-bool voice_cue_cache_ready(void) {
- if(!mutex)return false;
+bool voice_cue_cache_ready_named(voice_cue_name_t name) {
+ if(!mutex || !voice_cue_name(name))return false;
  xSemaphoreTake(mutex,portMAX_DELAY);
- bool ready=slot.pcm!=NULL;
+ bool ready=bank.slots[name].pcm!=NULL;
  xSemaphoreGive(mutex);
  return ready;
 }
-const uint8_t *voice_cue_cache_acquire(size_t *size) {
- *size=0;if(!mutex)return NULL;xSemaphoreTake(mutex,portMAX_DELAY);
- const uint8_t *pcm=voice_cue_slot_acquire(&slot,size);xSemaphoreGive(mutex);return pcm;
+const uint8_t *voice_cue_cache_acquire_named(voice_cue_name_t name,size_t *size) {
+ *size=0;if(!mutex || !voice_cue_name(name))return NULL;
+ xSemaphoreTake(mutex,portMAX_DELAY);
+ const uint8_t *pcm=voice_cue_bank_acquire(&bank,name,size);
+ xSemaphoreGive(mutex);return pcm;
 }
-void voice_cue_cache_release(void){if(mutex){xSemaphoreTake(mutex,portMAX_DELAY);voice_cue_slot_release(&slot);xSemaphoreGive(mutex);}}
+void voice_cue_cache_release_named(voice_cue_name_t name){
+ if(mutex && voice_cue_name(name)){
+  xSemaphoreTake(mutex,portMAX_DELAY);voice_cue_bank_release(&bank,name);xSemaphoreGive(mutex);
+ }
+}
 #else
 bool voice_cue_cache_start(const char*g,const char*d,const char*t){(void)g;(void)d;(void)t;return false;}
 void voice_cue_cache_set_idle(bool idle){(void)idle;}
-bool voice_cue_cache_ready(void){return false;}
-const uint8_t *voice_cue_cache_acquire(size_t *size){*size=0;return NULL;}
-void voice_cue_cache_release(void){}
+bool voice_cue_cache_ready_named(voice_cue_name_t name){(void)name;return false;}
+const uint8_t *voice_cue_cache_acquire_named(voice_cue_name_t name,size_t *size){(void)name;*size=0;return NULL;}
+void voice_cue_cache_release_named(voice_cue_name_t name){(void)name;}
 #endif
+/* Original listening-only API remains available to existing callers. */
+bool voice_cue_cache_ready(void){return voice_cue_cache_ready_named(VOICE_CUE_LISTENING);}
+const uint8_t *voice_cue_cache_acquire(size_t *size){return voice_cue_cache_acquire_named(VOICE_CUE_LISTENING,size);}
+void voice_cue_cache_release(void){voice_cue_cache_release_named(VOICE_CUE_LISTENING);}

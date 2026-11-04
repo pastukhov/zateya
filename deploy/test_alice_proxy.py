@@ -73,7 +73,7 @@ ThreadingHTTPServer(('0.0.0.0', 8080), Handler).serve_forever()
         assert request('/api/voice/turns')[0] == 405
         assert request('/health/ready')[0] == 200
         for path in ['/api/firmware/manifest', '/api/voice/turns/'+str(uuid.uuid4()),
-                     '/api/device/cues/listening', '/api/firmware/images/'+'a'*64+'.bin']:
+                     '/api/device/cues/listening', '/api/device/cues/processing', '/api/device/cues/offline', '/api/firmware/images/'+'a'*64+'.bin']:
             assert request(path)[0] == 200, path
             assert request(path, token='wrong')[0] == 401, path
             assert request(path, device='other')[0] == 401, path
