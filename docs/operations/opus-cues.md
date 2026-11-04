@@ -59,3 +59,31 @@ build succeeded with1597889 reported flash bytes and143204 static RAM bytes.
 Generated sdkconfig.h confirms CONFIG_ESP_MAIN_TASK_STACK_SIZE=24576. Link map
 contains Opus decoder components and no MP3/AAC/FLAC/AMR/ALAC or encoder objects.
 Host library validation does not execute Espressif's precompiled decoder.
+
+
+## Production rollout — OTA26
+
+Implementation commit `061f3432e92ccf9d309c0af76602525965337e9b` was pushed.
+Backend deployed as server cherry-pick5821c54 with libopus0 and authenticated
+nginx `.vop` allowlist. Rollback image:
+`zateya-voice-gateway:before-opus-20261104`.
+
+External HTTPS checks covered all14 PCM and Opus manifests/bodies, unauthorized401,
+SHA256, lengths, metadata and real decoded sample counts. Production total:
+1146604 PCM bytes →77337 VCOPUS1 bytes (14.83x). The3-byte difference from host
+fixtures reflects the different libopus build, which is included in cache identity.
+Reloading a fresh cache instance from production disk with a provider that rejects
+TTS calls succeeded for all14, with no file modification timestamps changing.
+
+Signed OTA26:1606256 bytes; SHA256
+`d81550f456913b781be50730379fdc7bb37b493b6963a88c8658452ea12f6a99`.
+External HTTPS verified ECDSA signature, committed revision, complete image size
+and hash; current_seq26 returns204 and missing authorization401. Staging build
+confirmed main stack24576. Bootloader, partition table and NVS were not flashed.
+
+Publication is verified; installation, Opus playback quality/latency, decoder
+stack/heap high-water marks and offline reboot on the physical recorder are not.
+The recorder is powered from a charger, without serial access. Reboot on USB power
+with Wi-Fi available to discover OTA, allow cues to download while idle, then
+check spoken states and a subsequent offline power cycle. Old PCM records remain
+for rollback; they are not deleted by this release.
