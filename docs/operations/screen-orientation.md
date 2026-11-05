@@ -85,8 +85,8 @@ Code committed/pushed as67fcff9718a09da4996b54d7e878bc73ae262513. Signed OTA32:
 Same signing key; rollback, two SNTP slots and PSRAM settings verified. Candidate
 frozen in primary data/firmware/releases/32; server stable advanced31→32.
 External authenticated download size/SHA and envelope signature checked; current32
-returns204, unauthenticated401. No direct USB flash or cache erase. Device installation was confirmed after publication (see below). Physical layout
-feedback remains pending. Passive log:
+returns204, unauthenticated401. No direct USB flash or cache erase. Device installation was confirmed after publication (see below). The user accepted the basic physical layout; button-side placement is a new
+open correction (see below). Passive log:
 /tmp/zateya-screen32-ota-install.log. Marina/Multilingual v2 server/cues unchanged.
 Playback interference remains a separate task awaiting the promised recording.
 
@@ -98,5 +98,7 @@ revision Nov6 00:52:12. The status frame flush took32ms. One M5PM1 setup timeout
 was logged at17493ms; subsequent power telemetry reported4186mV/100%/USB1 at17913ms.
 Do not describe this boot as wholly warning-free. Server cue generation remains
 667fadd41d6bcc9b1f53492c9b09bef723090eb64cdbe63a709c44c2ee6728cf with14 files.
-No user recording after this UI-only update has been claimed. User has been asked
-to confirm the physical horizontal layout.
+No user recording after this UI-only update has been claimed. User confirmed the basic physical layout, then noted that with the connector
+on the left the physical button is left of the screen while its hint remains
+on the right. Swapping column positions for that orientation was proposed but
+not implemented before handoff. See [current handoff](recorder-handoff-2026-11-06-vector.md).

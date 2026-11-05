@@ -46,7 +46,7 @@ Parent independently reviewed all six files, ran156 native tests and clean targe
 build (221s), inspected32 scene/rotation previews, verified32 matched portrait
 frames and8 QR frames unchanged, and checked159 runtime snapshot files.
 Code67fcff9 pushed; signed32 published and externally verified. Device installed
-and confirmed32, cache mounted, backend4853ms, boot_id536411533. Physical layout
-feedback requested and still pending. See docs/operations/screen-orientation.md
+and confirmed32, cache mounted, backend4853ms, boot_id536411533. Basic physical layout accepted; user then identified the button-side mismatch.
+That next correction is not implemented; see recorder-handoff-2026-11-06-vector.md. See docs/operations/screen-orientation.md
 for exact artifact SHA and the observed/recovered power setup timeout. Playback
 interference remains open awaiting user recording; this task changes no audio.
