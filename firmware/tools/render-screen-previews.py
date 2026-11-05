@@ -12,9 +12,10 @@ out.mkdir(parents=True, exist_ok=True)
 subprocess.run(['cc','-std=c11','-Wall','-Wextra','-I'+str(root/'include'),'-I'+str(root/'src'),str(root/'tools/screen-preview.c'),*[str(root/'src'/s) for s in ['screen_renderer.c','screen_ui.c','screen_orientation.c','screen_font.c','screen_font_data.c','vendor/qrcodegen.c']],'-o',str(out/'render')],check=True)
 subprocess.run([str(out/'render'),str(out)],check=True)
 from PIL import Image,ImageDraw
-sheet=Image.new('RGB',(1000,5*290),(20,24,28))
+names=['recording','error','setup','ota','idle','idle-hold','idle-wake','idle-wake-hold']
+sheet=Image.new('RGB',(1000,len(names)*290),(20,24,28))
 draw=ImageDraw.Draw(sheet)
-for row,name in enumerate(['recording','error','setup','ota','idle']):
+for row,name in enumerate(names):
  for col,r in enumerate([0,90,180,270]):
   im=Image.open(out/f'{name}-{r}-physical.ppm').rotate(r, expand=True)
   logical=Image.open(out/f'{name}-{r}.ppm')
@@ -23,9 +24,9 @@ for row,name in enumerate(['recording','error','setup','ota','idle']):
   x=col*250+(250-im.width)//2;y=row*290+30
   sheet.paste(im,(x,y));draw.text((col*250+8,row*290+8),f'{name} {r}',fill='white')
 sheet.save(out/'contact-sheet.png')
-physical=Image.new('RGB',(4*155,5*270),(20,24,28))
+physical=Image.new('RGB',(4*155,len(names)*270),(20,24,28))
 draw=ImageDraw.Draw(physical)
-for row,name in enumerate(['recording','error','setup','ota','idle']):
+for row,name in enumerate(names):
  for col,r in enumerate([0,90,180,270]):
   physical.paste(Image.open(out/f'{name}-{r}-physical.ppm'),(col*155+10,row*270+22))
   draw.text((col*155+5,row*270+4),f'{name} {r}',fill='white')

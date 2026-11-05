@@ -2,9 +2,49 @@
 #include "../test_main/fakes/hw_fakes.c"
 #include "screen_renderer.h"
 #include "voice_diagnostics.h"
+#include "screen_font.h"
+#include <string.h>
 void setUp(void) {}
 void tearDown(void) {}
 static uint16_t guarded[32402];
+static uint16_t expected[32400];
+static void ready_landscape(bool hold,unsigned wake) {
+ screen_render_model_t m={.view=screen_ui_view(STATE_IDLE),.state=STATE_IDLE,.wifi=true,.usb=true,.battery_percent=83,.backend_status=200,.device_id="ID 70041ddc4aac",.hold_mode=hold,.wake_status=wake};
+ if(wake)m.view.hint="СКАЖИТЕ ЗАТЕЯ\nИЛИ КНОПКА"; /* Actual board input. */
+ TEST_ASSERT_TRUE(screen_render(guarded+1,240,135,&m));
+ unsigned colored=0;
+ for(int y=2;y<77;y++)for(int x=33;x<110;x++)colored+=guarded[1+y*240+x]==m.view.accent;
+ TEST_ASSERT_GREATER_THAN_UINT(200,colored); /* Previously zero: icon hidden by newline. */
+ for(int i=0;i<32400;i++)expected[i]=0x0083;
+ TEST_ASSERT_TRUE(screen_font_draw_centered(expected,240,135,192,64,SCREEN_FONT_SMALL,hold?"ДЕРЖИТЕ":"КНОПКА:",0x74B3));
+ TEST_ASSERT_TRUE(screen_font_draw_centered(expected,240,135,192,79,SCREEN_FONT_SMALL,hold?"КНОПКУ":"СТАРТ / СТОП",0x74B3));
+ for(int y=63;y<98;y++)for(int x=147;x<238;x++)TEST_ASSERT_EQUAL_HEX16(expected[y*240+x],guarded[1+y*240+x]);
+ if(wake) {
+  TEST_ASSERT_TRUE(screen_font_draw_centered(expected,240,135,71,105,SCREEN_FONT_HINT,"СКАЖИТЕ",0x74B3));
+  TEST_ASSERT_TRUE(screen_font_draw_centered(expected,240,135,71,120,SCREEN_FONT_HINT,"ЗАТЕЯ",0x74B3));
+ }
+ for(int y=105;y<135;y++)for(int x=0;x<142;x++)TEST_ASSERT_EQUAL_HEX16(expected[y*240+x],guarded[1+y*240+x]);
+}
+static void ready_toggle_has_icon_and_explicit_action(void){ready_landscape(false,0);}
+static void ready_hold_has_icon_and_explicit_action(void){ready_landscape(true,0);}
+static void ready_wake_has_icon_and_invocation(void){ready_landscape(false,1);}
+static void selected_idle_overrides_are_preserved(void) {
+ const screen_ui_view_t views[]={
+  {"ОБНОВЛЯЮ","ПРОШИВКА 73%\nНЕ ВЫКЛЮЧАЙТЕ",0x07e0,SCREEN_ICON_THINKING},
+  {"ПРОВЕРЯЮ","ПОСЛЕ ОБНОВЛЕНИЯ",0xF5A8,SCREEN_ICON_THINKING},
+  {"ОТЧЁТ","ОТПРАВЛЯЮ\nДИАГНОСТИКУ",0xF5A8,SCREEN_ICON_THINKING},
+  {"СЕРВЕР","НЕТ СВЯЗИ",0xF5A8,SCREEN_ICON_THINKING},
+  {"СЛУШАЮ","ГОВОРИТЕ",0x07e0,SCREEN_ICON_THINKING},
+  {"ГОТОВА","ПОСЛЕ ОБНОВЛЕНИЯ",0x74BF,SCREEN_ICON_IDLE},
+ };
+ for(unsigned i=0;i<sizeof(views)/sizeof(views[0]);i++) {
+  screen_render_model_t m={.view=views[i],.state=STATE_IDLE,.wake_status=1,.device_id="ID 70041ddc4aac"};
+  TEST_ASSERT_TRUE(screen_render(guarded+1,240,135,&m));
+  m.state=STATE_BOOT; /* Same selected view must not acquire ready-only copy. */
+  TEST_ASSERT_TRUE(screen_render(expected,240,135,&m));
+  TEST_ASSERT_EQUAL_MEMORY(expected,guarded+1,sizeof(expected));
+ }
+}
 static void bounds_and_layouts(void) {
  for(int wide=0;wide<2;wide++) for(int state=0;state<6;state++) {
   guarded[0]=0xdead;guarded[32401]=0xbeef;
@@ -48,4 +88,4 @@ static void all_copy(void) {
   }
  }
 }
-int main(void) {UNITY_BEGIN();RUN_TEST(bounds_and_layouts);RUN_TEST(long_message_and_setup);RUN_TEST(all_copy);return UNITY_END();}
+int main(void) {UNITY_BEGIN();RUN_TEST(ready_toggle_has_icon_and_explicit_action);RUN_TEST(ready_hold_has_icon_and_explicit_action);RUN_TEST(ready_wake_has_icon_and_invocation);RUN_TEST(selected_idle_overrides_are_preserved);RUN_TEST(bounds_and_layouts);RUN_TEST(long_message_and_setup);RUN_TEST(all_copy);return UNITY_END();}

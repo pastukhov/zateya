@@ -125,7 +125,13 @@ bool screen_render(uint16_t *pixels,int width,int height,const screen_render_mod
  if(m->setup) return setup(c,m->ssid);
  bool wide=width>height;int main_width=wide?142:135,cx=main_width/2;
  bool recording= m->state==STATE_RECORDING;
- bool long_hint=wide && (strchr(m->view.hint,'\n') || strlen(m->view.hint)>24);
+ screen_ui_view_t idle=screen_ui_view(STATE_IDLE);
+ /* The board already selected network/OTA/diagnostic/listening overrides.
+  * Only the ordinary ready view may replace its redundant button hint. */
+ bool ready=wide && m->state==STATE_IDLE && m->wake_status<2 &&
+   m->view.icon==idle.icon && !strcmp(m->view.title,idle.title) &&
+   (!strcmp(m->view.hint,idle.hint) || !strcmp(m->view.hint,"СКАЖИТЕ ЗАТЕЯ\nИЛИ КНОПКА"));
+ bool long_hint=wide && !ready && (strchr(m->view.hint,'\n') || strlen(m->view.hint)>24);
  if(!long_hint && !(wide && recording)) screen_draw_icon(c,m->view,m->phase,cx,wide?39:48);
  bool ok=text(c,m->view.title,cx,(long_hint || (wide && recording))?10:wide?81:93,main_width-8,screen_font_measure(SCREEN_FONT_TITLE,m->view.title)>main_width-8?SCREEN_FONT_HINT:SCREEN_FONT_TITLE,C_WHITE);
  const char *hint=m->view.hint;
@@ -133,6 +139,8 @@ bool screen_render(uint16_t *pixels,int width,int height,const screen_render_mod
   uint16_t color=m->timer.warning==SCREEN_RECORDING_FIVE_SECONDS ? ((m->phase/3)%2?0xF800:C_WHITE) : m->timer.warning==SCREEN_RECORDING_TEN_SECONDS?0xFD20:C_WHITE;
   ok &= text(c,m->timer.text,cx,wide?50:121,main_width-8,SCREEN_FONT_TITLE,color);
   ok &= text(c,m->timer.warning==SCREEN_RECORDING_NORMAL?"ДО КОНЦА":m->timer.warning==SCREEN_RECORDING_TEN_SECONDS?"СКОРО КОНЕЦ":"ЗАВЕРШАЙТЕ",cx,wide?82:148,main_width-8,SCREEN_FONT_HINT,color);
+ } else if(ready) {
+  if(m->wake_status==1)ok &= text(c,"СКАЖИТЕ\nЗАТЕЯ",cx,105,main_width-8,SCREEN_FONT_HINT,C_MUTED);
  } else ok &= text(c,hint,cx,long_hint?43:wide?104:123,main_width-8,SCREEN_FONT_HINT,C_MUTED);
  /* Compact indicators are below portrait state, in the right landscape column. */
  int sx=wide?144:0,sy=wide?0:194;
@@ -151,7 +159,9 @@ bool screen_render(uint16_t *pixels,int width,int height,const screen_render_mod
  int wx=wide?215:50,wy=wide?22:218;
  for(int y=-12;y<=-3;y++) for(int x=-12;x<=12;x++) {int r=x*x+y*y;if(y<=-(x<0?-x:x)&&((r>=100&&r<=144)||(r>=25&&r<=49))) screen_pixel(c,wx+x,wy+y,m->wifi?0x07E0:C_MUTED);}
  screen_circle(c,wx,wy-1,1,m->wifi?0x07E0:C_MUTED);
- const char *mode=m->wake_status?(wide?"ГОЛОС +\nКНОПКА":"ГОЛОС + КНОПКА"):m->hold_mode?"УДЕРЖАНИЕ":"НАЖАТИЕ";
+ const char *mode=wide ? ready ? (m->hold_mode?"ДЕРЖИТЕ\nКНОПКУ":"КНОПКА:\nСТАРТ / СТОП") :
+   (m->hold_mode?"КНОПКА:\nУДЕРЖАНИЕ":"КНОПКА:\nНАЖАТИЕ") :
+   m->wake_status?"ГОЛОС + КНОПКА":m->hold_mode?"УДЕРЖАНИЕ":"НАЖАТИЕ";
  ok &= text(c,mode,wide?192:67,wide?64:223,wide?90:127,SCREEN_FONT_SMALL,C_MUTED);
  if(wide) ok &= text(c,m->device_id && *m->device_id?m->device_id:"ЗАТЕЯ",192,104,90,SCREEN_FONT_SMALL,C_MUTED);
  return ok;
