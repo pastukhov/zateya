@@ -95,8 +95,8 @@ This attempt then failed on the server with `agent_invalid_response`, after a
 bounded repair for `invalid_json_contract`. It is distinct from the earlier
 firmware allocation failure. A read-only model probe with the archived transcript
 and knowledge context returned schema-valid JSON; the original invalid response
-was not archived, so its exact defect is not established. No backend change was
-made. A fresh physical response/playback check is pending before publication.
+was not archived, so its exact defect is not established. At that point no backend behavior change was made. A fresh physical
+response/playback check is pending before publication.
 
 The diagnostic-free candidate31 builds successfully and matches all124 production
 source/header files (generated OTA trust header excepted). Parent independently
@@ -106,3 +106,37 @@ Artifact:1691856 bytes, SHA256
 RAM reported by the target build is85948 bytes. The existing signing key was
 supplied by the user and its public key matches the recorder; it is not in Git.
 No signed publication or over-the-air installation is claimed yet.
+
+## Server diagnosis after the second recording
+
+The second physical recording (job `969b826f-4a4a-4830-877c-dc7b0d67fcf2`)
+captured142592 bytes and sent152192 including preroll; accepted202, then the same
+server failure. Both archived model inputs match the session input hashes exactly;
+committed history has not changed. Multiple read-only replays pass, so neither
+a specific model-output defect nor a prompt correction is yet established.
+
+Main commit `067290c` adds bounded safe JSON/schema failure metadata for initial
+and repair phases, preserving validation, prompts, repair budget and fallback.
+No raw model/user text, arbitrary extra-field names, values or keys enter those
+logs. Parent reviewed the changes independently: full local backend/deploy suite
+had869 passing tests and13 MP3 failures from missing ffmpeg. All55 tests in the
+MP3 generation and modified validator/client files then passed in an isolated
+container with server dependencies, network disabled.
+
+The exact patch was applied on top of the diverged server history without reset:
+server commit `00b7505ae0f1fb28e86c27a7c4e1d2be47645c59`. Deployed image
+`77f0d6423f9f8ccfa083b56e9c29e088c577d82aa062eae79e77678f7f79a309`
+is the previous immutable image plus the two changed runtime modules. Its running
+image ID and module hashes were checked; container healthy and external readiness
+HTTP200. Previous image `81c3005aab0b1fbfab4b2ff3a3b9e6ecdf1b8b55c1d82374d2ffcdd2641e7953`
+is retained as `zateya-voice-gateway:diagnostics-base-81c3005`. A temporary full
+rebuild raced on the same candidate tag; the image mismatch was detected and
+corrected by immutable ID before asking for a user test. No voice jobs arrived
+during deployment. Use immutable IDs for future checks.
+
+Firmware fix is committed/pushed as `efee4b6`. Candidate31 is signed locally in
+`data/firmware/releases/31`, but stable remains30. The device still runs telemetry31;
+final production installation and end-to-end voice acceptance are not confirmed.
+Next: one physical recording with safe server diagnostics, resolve the observed
+error, then publish signed31 and test actual OTA using the otherwise identical
+corrected seq30 test image. Keep USB connected until that acceptance finishes.
