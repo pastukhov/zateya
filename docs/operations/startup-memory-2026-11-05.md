@@ -210,3 +210,14 @@ last_error_code9 is retained historical state, with no recording events in this
 boot. A final user voice test is pending, captured in
 `/tmp/zateya-production31-voice.log`. Do not reset during this test. Future OTA
 needs Wi-Fi and USB power; a charger is sufficient, no PC/data cable required.
+
+## Final production31 voice acceptance, 2026-11-06 local time
+
+User confirmed service cues and the voice answer are audible. Job
+`771ecece-9cc9-4b4a-a035-e38bdcf867e3`, created2026-11-05T21:23:44.248+00:00,
+completed ready with no error; device recording1 uploaded85632 bytes including
+preroll and receivedHTTP202, same boot_id1696564695. The1200s passive USB capture
+had already expired before this late test: it is not evidence for that recording.
+User subsequently reported English accent specifically in service cues. Audibility
+and startup recovery are accepted; pronunciation is a separate open task, see
+`../superpowers/plans/2026-11-06-russian-service-cues.md`.
