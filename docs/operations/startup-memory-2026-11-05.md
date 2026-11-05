@@ -137,6 +137,21 @@ during deployment. Use immutable IDs for future checks.
 Firmware fix is committed/pushed as `efee4b6`. Candidate31 is signed locally in
 `data/firmware/releases/31`, but stable remains30. The device still runs telemetry31;
 final production installation and end-to-end voice acceptance are not confirmed.
-Next: one physical recording with safe server diagnostics, resolve the observed
-error, then publish signed31 and test actual OTA using the otherwise identical
+At that checkpoint: one physical recording with safe server diagnostics, then publish signed31 and test actual OTA using the otherwise identical
 corrected seq30 test image. Keep USB connected until that acceptance finishes.
+
+## Third recording and spoken-cue evidence
+
+Job `56b92724-b397-4257-878a-c78736f7deca` (2026-11-05T19:41:25 UTC) is
+ready with no server error. Device recording3 captured115968 and sent125568
+bytes including preroll, HTTP202; USB reports complete24000Hz mono answer
+download. The stale diagnostics last_error_code9 alone does not represent a new
+failed turn. User reports that only the listening service phrase is audible;
+actual answer audibility is still being clarified.
+
+USB logs show listening cached at1217s; remaining13 cues were not cached until
+2716–2756s, after this successful turn. All14 legacy Opus cues are now in RAM.
+The persistent LittleFS mount failure still blocks MP3 generation and restart
+persistence. No flash erase/format was performed. A physical replay with the
+fully populated RAM bank has been requested; do not reset while waiting for it.
+Next diagnostic is specified in `../superpowers/plans/2026-11-05-cue-cache-recovery.md`.
