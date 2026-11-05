@@ -155,3 +155,20 @@ The persistent LittleFS mount failure still blocks MP3 generation and restart
 persistence. No flash erase/format was performed. A physical replay with the
 fully populated RAM bank has been requested; do not reset while waiting for it.
 Next diagnostic is specified in `../superpowers/plans/2026-11-05-cue-cache-recovery.md`.
+
+## Persistent cue cache restored
+
+User explicitly requested restoration. The tail had392 erased and88 nonblank
+blocks, with both filesystem-root blocks erased and no LittleFS/cue signatures.
+Current partition layout excludes this tail from settings and both OTA slots.
+After exact identity/layout and original-tail-SHA checks, the one-time recovery
+erased only0x620000..0x800000. Full protected prefix and both full OTA slot hashes
+were unchanged before/after; the entire tail verifiedFF. No backup file was made.
+The firmware's automatic nonblank-data protection remains unchanged.
+
+LittleFS was created/mounted, all14 MP3 cues downloadedHTTP200. A subsequent
+controlled restart mounted successfully with no corruption error, HTTP200
+at5.008s, and0 MP3 body downloads (only generation check) during the next31s.
+The persistent set is thus loaded at startup. Physical audibility remains to be
+confirmed on final production firmware; this is distinct from storage validation.
+OTA31 has been staged/verified on server but stable still30 at this checkpoint.
