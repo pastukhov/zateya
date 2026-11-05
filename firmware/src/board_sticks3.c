@@ -4,6 +4,8 @@
 #include "audio_capture.h"
 #include "audio_playback.h"
 #include "screen_ui.h"
+#include "screen_renderer.h"
+#include "board_orientation.h"
 #include "power_status.h"
 #include "screen_brightness.h"
 #include "driver/ledc.h"
@@ -456,100 +458,7 @@ void board_sticks3_power_tick(bool busy, uint32_t now_ms, uint32_t timeout_ms) {
 #define C_CONNECTED 0x07E0
 
 
-static void screen_pixel(int x, int y, uint16_t color) {
-  if (!s_screen || x < 0 || x >= SCREEN_W || y < 0 || y >= SCREEN_H) return;
-  s_screen[y * SCREEN_W + x] = color;
-}
-
-static void screen_rect(int x, int y, int w, int h, uint16_t color) {
-  for (int py = y; py < y + h; ++py)
-    for (int px = x; px < x + w; ++px) screen_pixel(px, py, color);
-}
-
-static void screen_circle(int cx, int cy, int radius, uint16_t color) {
-  for (int y = -radius; y <= radius; ++y)
-    for (int x = -radius; x <= radius; ++x)
-      if (x * x + y * y <= radius * radius) screen_pixel(cx + x, cy + y, color);
-}
-
-static void screen_hint(const char *hint) {
-  const char *newline = strchr(hint, '\n');
-  if (!newline) {
-    screen_font_draw_centered(s_screen, SCREEN_W, SCREEN_H, 67, 184,
-                              SCREEN_FONT_HINT, hint, C_MUTED);
-    return;
-  }
-  char first[48];
-  size_t length = (size_t)(newline - hint);
-  if (length >= sizeof(first)) return;
-  memcpy(first, hint, length);
-  first[length] = '\0';
-  screen_font_draw_centered(s_screen, SCREEN_W, SCREEN_H, 67, 181,
-                            SCREEN_FONT_HINT, first, C_MUTED);
-  screen_font_draw_centered(s_screen, SCREEN_W, SCREEN_H, 67, 196,
-                            SCREEN_FONT_HINT, newline + 1, C_MUTED);
-}
-
-static void screen_wifi_icon(bool connected) {
-  uint16_t color = connected ? C_CONNECTED : C_MUTED;
-  // Two circular arcs and a dot: connection status, not signal strength.
-  for (int y = -12; y <= -3; ++y) {
-    for (int x = -12; x <= 12; ++x) {
-      int r2 = x * x + y * y;
-      if (y <= -abs(x) && ((r2 >= 100 && r2 <= 144) ||
-                           (r2 >= 25 && r2 <= 49)))
-        screen_pixel(SCREEN_STATUS_WIFI_X + x, 24 + y, color);
-    }
-  }
-  screen_circle(SCREEN_STATUS_WIFI_X, 23, 1, color);
-}
-
-
-
-static void screen_draw_icon(screen_ui_view_t view, int phase) {
-  const int cx = 67, cy = 104;
-  screen_circle(cx, cy, 37, view.accent);
-  screen_circle(cx, cy, 32, C_PANEL);
-  switch (view.icon) {
-    case SCREEN_ICON_LISTENING:
-      screen_rect(cx - 3, cy - 17, 6, 24, C_WHITE);
-      screen_circle(cx, cy - 17, 3, C_WHITE);
-      screen_rect(cx - 9, cy + 3, 3, 8, C_WHITE);
-      screen_rect(cx + 6, cy + 3, 3, 8, C_WHITE);
-      screen_rect(cx - 9, cy + 9, 18, 3, C_WHITE);
-      screen_rect(cx - 1, cy + 12, 3, 6, C_WHITE);
-      screen_rect(cx - 7, cy + 17, 15, 3, C_WHITE);
-      break;
-    case SCREEN_ICON_THINKING:
-      for (int i = 0; i < 8; ++i) {
-        int dot = (i + phase) & 7;
-        static const int dx[8] = {0,18,26,18,0,-18,-26,-18};
-        static const int dy[8] = {-26,-18,0,18,26,18,0,-18};
-        screen_circle(cx + dx[i], cy + dy[i], dot == 0 ? 5 : 3, dot < 3 ? view.accent : C_MUTED);
-      }
-      break;
-    case SCREEN_ICON_SPEAKING:
-      for (int i = 0; i < 7; ++i) {
-        int h = 8 + ((i * 7 + phase * 5) % 19);
-        screen_rect(cx - 22 + i * 7, cy - h / 2, 4, h, C_WHITE);
-      }
-      break;
-    case SCREEN_ICON_ERROR:
-      screen_rect(cx - 3, cy - 19, 6, 25, C_WHITE);
-      screen_circle(cx, cy + 14, 4, C_WHITE);
-      break;
-    case SCREEN_ICON_IDLE:
-    default:
-      screen_circle(cx, cy, 17, view.accent);
-      screen_circle(cx, cy, 12, C_PANEL);
-      screen_circle(cx, cy, 6, view.accent);
-      screen_circle(cx - 23, cy, 3, C_WHITE);
-      screen_circle(cx + 23, cy, 3, C_WHITE);
-      break;
-  }
-}
-
-static void screen_flush(void) {
+static void screen_flush(screen_rotation_t rotation) {
   uint8_t row[SCREEN_W * 2];
   uint8_t area[4] = {0, 52, 0, 186};
   lcd_cmd(0x2A); lcd_data(area, sizeof(area));
@@ -557,7 +466,7 @@ static void screen_flush(void) {
   lcd_cmd(0x2B); lcd_data(area, sizeof(area)); lcd_cmd(0x2C);
   for (int y = 0; y < SCREEN_H; ++y) {
     for (int x = 0; x < SCREEN_W; ++x) {
-      uint16_t c = s_screen[y * SCREEN_W + x];
+      uint16_t c = s_screen[screen_orientation_index(rotation,x,y)];
       row[x * 2] = (uint8_t)(c >> 8); row[x * 2 + 1] = (uint8_t)c;
     }
     lcd_data(row, sizeof(row));
@@ -573,6 +482,9 @@ void board_sticks3_display_set_device_id(const char *device_id) {
 void board_sticks3_display_update(state_t state, uint32_t now_ms,
                                  screen_processing_phase_t processing_phase,
                                  screen_recording_timer_t recording_timer) {
+  board_orientation_start();
+  screen_rotation_t rotation=board_orientation_get();
+  static screen_rotation_t previous_rotation;
   int phase = (int)(now_ms / 180U);
   int backend_status = voice_gateway_health_status();
   bool diag_busy = voice_diag_delivery_busy();
@@ -584,7 +496,7 @@ void board_sticks3_display_update(state_t state, uint32_t now_ms,
   wifi_mode_t mode = WIFI_MODE_NULL;
   bool setup = esp_wifi_get_mode(&mode) == ESP_OK &&
                (mode == WIFI_MODE_AP || mode == WIFI_MODE_APSTA);
-  if (state == s_screen_state && phase == s_screen_phase &&
+  if (rotation==previous_rotation && state == s_screen_state && phase == s_screen_phase &&
       processing_phase == s_screen_processing_phase &&
       s_wifi_connected == s_screen_wifi &&
       backend_status == s_screen_backend &&
@@ -618,43 +530,17 @@ void board_sticks3_display_update(state_t state, uint32_t now_ms,
                               SCREEN_ICON_THINKING};
   if (state == STATE_ERROR)
     view.hint = voice_diag_error_hint(voice_diag_last_error());
-  for (int i = 0; i < SCREEN_W * SCREEN_H; ++i) s_screen[i] = C_BG;
-  screen_ui_draw_server_icon(s_screen, SCREEN_W, SCREEN_H, SCREEN_STATUS_SERVER_X,
-                             screen_ui_backend_color(backend_status));
-  screen_wifi_icon(s_wifi_connected);
-  screen_ui_draw_power(s_screen, SCREEN_W, SCREEN_H, s_battery_percent,
-                       s_usb_powered, s_battery_charging);
-  screen_rect(10, 32, 115, 1, C_LINE);
-  if (setup && (state == STATE_IDLE || state == STATE_BOOT)) {
-    screen_ui_draw_setup(s_screen, SCREEN_W, SCREEN_H, s_setup_ssid);
-  } else {
-    screen_draw_icon(view, phase);
-    screen_font_draw_centered(s_screen, SCREEN_W, SCREEN_H, 67, 155,
-                              SCREEN_FONT_TITLE, view.title, C_WHITE);
-    if (state == STATE_RECORDING) {
-      uint16_t timer_color = C_WHITE;
-      const char *warning = "ДО КОНЦА";
-      if (recording_timer.warning == SCREEN_RECORDING_TEN_SECONDS) {
-        timer_color = 0xFD20;
-        warning = "СКОРО КОНЕЦ";
-      } else if (recording_timer.warning == SCREEN_RECORDING_FIVE_SECONDS) {
-        timer_color = (phase / 3) % 2 ? 0xF800 : C_WHITE;
-        warning = "ЗАВЕРШАЙТЕ";
-      }
-      screen_font_draw_centered(s_screen, SCREEN_W, SCREEN_H, 67, 180,
-                                SCREEN_FONT_TITLE, recording_timer.text, timer_color);
-      screen_font_draw_centered(s_screen, SCREEN_W, SCREEN_H, 67, 202,
-                                SCREEN_FONT_HINT, warning, timer_color);
-    } else {
-      screen_hint(view.hint);
-    }
-  }
-  screen_rect(45, 216, 45, 1, C_LINE);
-  screen_font_draw_centered(s_screen, SCREEN_W, SCREEN_H, 67, 222,
-                            SCREEN_FONT_SMALL,
-                            s_screen_device_id[0] ? s_screen_device_id : "ЗАТЕЯ", C_MUTED);
+  extern bool app_button_hold_mode(void);
+  screen_render_model_t model={.view=view,.state=state,.phase=phase,
+    .backend_status=backend_status,.battery_percent=s_battery_percent,
+    .wifi=s_wifi_connected,.usb=s_usb_powered,.charging=s_battery_charging,
+    .setup=setup && (state==STATE_IDLE || state==STATE_BOOT),
+    .hold_mode=app_button_hold_mode(),.wake_status=wake_status,
+    .ssid=s_setup_ssid,.device_id=s_screen_device_id,.timer=recording_timer};
+  screen_render(s_screen,screen_orientation_width(rotation),screen_orientation_height(rotation),&model);
+  previous_rotation=rotation;
   int64_t render_start_us = esp_timer_get_time();
-  screen_flush();
+  screen_flush(rotation);
   if (!s_screen_timing_reported) {
     ESP_LOGI(TAG, "status screen full-frame time: %lld ms",
              (long long)((esp_timer_get_time() - render_start_us) / 1000));

@@ -185,6 +185,7 @@ typedef struct {
 static app_t app;
 static http_voice_client_t voice_client;
 static voice_settings_t voice_settings;
+bool app_button_hold_mode(void) { return voice_settings.button_mode==VOICE_BUTTON_HOLD; }
 #ifdef ESP_PLATFORM
 static voice_wake_t wake;
 static voice_listening_cue_t wake_cue;
