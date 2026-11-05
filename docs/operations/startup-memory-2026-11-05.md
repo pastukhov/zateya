@@ -1,10 +1,17 @@
 # Two-minute startup stall: internal memory exhaustion
 
+Current status: OTA31 is published, installed over Wi-Fi in ota_1 and confirmed
+by local self-test. Five subsequent boots connected in4.623–5.008s. Persistent
+MP3 cue storage is restored and survives restarts. Final physical audibility
+check on production31 is pending; do not equate software/storage checks with it.
+
 USB diagnostics on 2026-11-05 identified the installed image as OTA26 by exact
 SHA256 (`d81550f456913b781be50730379fdc7bb37b493b6963a88c8658452ea12f6a99`,1606256 bytes), not its compilation timestamp. Active slot was ota_0 at0x20000.
 The user explicitly declined a full-flash backup. Only metadata and an in-memory
-image hash were read; no copy of the installed image was saved. Settings,
-partition table, bootloader, inactive slot and cue storage were not flashed.
+image hash were read; no copy of the installed image was saved. During the initial
+diagnostic phase, settings, partition table, bootloader, inactive slot and cue
+storage were not flashed. Later authorized cache recovery and OTA installation
+are recorded below.
 
 ## Controlled comparison
 
@@ -172,3 +179,34 @@ at5.008s, and0 MP3 body downloads (only generation check) during the next31s.
 The persistent set is thus loaded at startup. Physical audibility remains to be
 confirmed on final production firmware; this is distinct from storage validation.
 OTA31 has been staged/verified on server but stable still30 at this checkpoint.
+
+## OTA31 publication, installation and repeated boots
+
+Published candidate31: source `efee4b6f1af243dfb7fd5381c7615d2a544d6738`,
+1691856 bytes, SHA256 `e7f4a5cc5169ae1f6bcc9858189b8c035f7f3c46bc8184a1377753a98001239a`.
+The original signing key was retained. External authenticated manifest/image
+verified, downloaded size/SHA matched, envelope signature verified locally against
+the recorder public key; current_seq31 returned204 and unauthenticated access401.
+The root-run publisher initially produced a600/root pointer unreadable by the
+backend; corrected to UID1000/mode644 and reverified before device testing.
+
+For a real OTA test, only active app slot0 was flashed with the otherwise identical
+corrected seq30 test image. Its upload hash verified. The device downloaded31
+through normal HTTPS/OTA, logged `release 31 installed; rebooting` at30343ms, then
+booted from0x320000 and confirmed the new image by local self-test at14039ms.
+Persistent cues remained mounted. This is confirmed installation, not merely
+publication. The temporary startup-memory instrumentation is absent from the active image.
+
+Five additional controlled normal resets all selected ota_1, mounted the cache
+without errors, and returned backendHTTP200. Serial-clock connection times:
+4.728,4.713,4.623,4.758,5.008 seconds. No rollback, panic or Wi-Fi allocation
+failure was observed. No MP3 bodies were re-downloaded after the persistence
+reboot or during these checks. Logs: `/tmp/zateya-ota31-install.log` and
+`/tmp/zateya-production31-boot-1.log` through`-5.log`; structured results in
+`/tmp/zateya-production31-five-boots.json`.
+
+Device boot_id1696564695 at the last check, firmware revisionNov5 21:57:43;
+last_error_code9 is retained historical state, with no recording events in this
+boot. A final user voice test is pending, captured in
+`/tmp/zateya-production31-voice.log`. Do not reset during this test. Future OTA
+needs Wi-Fi and USB power; a charger is sufficient, no PC/data cable required.
