@@ -60,3 +60,43 @@ and public file permissions were set. External authenticated HTTPS verification
 validated signature, complete image size/hash, unauthenticated rejection and
 no-update HTTP204 for current sequence30. Backend restart was not needed.
 Device installation, physical orientation and audio behavior remain unconfirmed.
+
+## Landscape ready correction, 2026-11-06
+
+User's physical photo showed no ready icon and ambiguous «НАЖМИТЕ ДЛЯ СТАРТА» /
+«НАЖАТИЕ». The long-message rule hid the icon even for the ordinary multiline
+ready hint. Selected ordinary landscape readiness now keeps its icon/title;
+right column gives «КНОПКА: СТАРТ / СТОП» or «ДЕРЖИТЕ КНОПКУ». Wake-ready also
+shows «СКАЖИТЕ ЗАТЕЯ». Other selected states retain their hints/timer; their right
+column explicitly labels the button mode. Portrait, sensor and audio code unchanged.
+
+![Corrected landscape ready](landscape-ready-2026-11-06.png)
+
+Sol's three missing-icon pixel regressions failed before correction. Parent
+reviewed the runtime/test/preview changes;156 native tests passed. Clean isolated
+StickS3 build passed (221s), all159 tracked runtime files matched the reviewed
+source snapshot. All32 logical/physical inverse transforms passed. Thirty-two
+matched portrait frames and eight QR frames are byte-identical to the previous
+renderer. QR decoding was not rerun: unchanged QR bytes match the earlier decoded
+baseline. Parent inspected toggle/hold/wake/wake+hold and error/OTA/recording/setup.
+
+Code committed/pushed as67fcff9718a09da4996b54d7e878bc73ae262513. Signed OTA32:
+1692256bytes, SHA256 f536b926fcd41c63f1e20abe77c03bfd2ada217ffe957eae84521fa6811cfb6b.
+Same signing key; rollback, two SNTP slots and PSRAM settings verified. Candidate
+frozen in primary data/firmware/releases/32; server stable advanced31→32.
+External authenticated download size/SHA and envelope signature checked; current32
+returns204, unauthenticated401. No direct USB flash or cache erase. Device installation was confirmed after publication (see below). Physical layout
+feedback remains pending. Passive log:
+/tmp/zateya-screen32-ota-install.log. Marina/Multilingual v2 server/cues unchanged.
+Playback interference remains a separate task awaiting the promised recording.
+
+
+Device logged `release 32 installed; rebooting` at6679668ms on the prior boot,
+then selected app0x20000/ota_0. Persistent cache mounted at1763ms, backendHTTP200
+at4853ms, and local self-test confirmed the image at18113ms. New boot_id536411533,
+revision Nov6 00:52:12. The status frame flush took32ms. One M5PM1 setup timeout
+was logged at17493ms; subsequent power telemetry reported4186mV/100%/USB1 at17913ms.
+Do not describe this boot as wholly warning-free. Server cue generation remains
+667fadd41d6bcc9b1f53492c9b09bef723090eb64cdbe63a709c44c2ee6728cf with14 files.
+No user recording after this UI-only update has been claimed. User has been asked
+to confirm the physical horizontal layout.
