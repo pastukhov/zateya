@@ -46,6 +46,29 @@ WAV_16K = _make_wav_bytes(16000)
 WAV_24K = _make_wav_bytes(24000)
 
 
+@pytest.mark.parametrize("language", ["", "ru"])
+@pytest.mark.parametrize("response_format", ["wav", "mp3"])
+def test_elevenlabs_language_payload_is_optional_and_audio_bytes_are_preserved(tmp_path, language, response_format):
+    import json
+    body = (Path(__file__).parents[1] / "cues/fixtures/talia.mp3").read_bytes() if response_format == "mp3" else WAV_24K
+    seen = []
+    def handler(request):
+        seen.append(json.loads(request.content))
+        return httpx.Response(200, content=body, headers={"content-type": "audio/mpeg" if response_format == "mp3" else "audio/wav"})
+    config = TTSConfig("https://tts.test/speech", "elevenlabs/eleven-flash-v2.5",
+                       voice="OZ0L6eISlOejga3XjDFt", instructions="existing style",
+                       response_format=response_format, language_code=language)
+    out = tmp_path / ("cue." + response_format)
+    with httpx.Client(transport=httpx.MockTransport(handler)) as http:
+        OpenAICompatibleTTS(config, client=http).synthesize("Слушаю.", out)
+    expected = {"model": config.model, "voice": config.voice, "input": "Слушаю.",
+                "response_format": response_format, "instructions": "existing style"}
+    if language:
+        expected["provider"] = {"options": {"elevenlabs": {"language_code": "ru"}}}
+    assert seen == [expected]
+    assert out.read_bytes() == body
+
+
 def _config(**overrides) -> TTSConfig:
     base = {
         "base_url": "https://tts.internal/v1/audio/speech",

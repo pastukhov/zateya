@@ -40,6 +40,8 @@ class MP3CueGenerations:
             raise ValueError('MP3 generation requires the complete cue catalog')
         profile = asdict(config)
         profile.pop('api_key')
+        if not config.language_code:
+            profile.pop('language_code')  # Preserve every pre-language generation ID.
         self.identity = {'profile': profile, 'texts': self.texts,
                          'format': 'mpeg1-layer3-44100-mono-v1', 'version': 1}
         self.generation_id = hashlib.sha256(_json(self.identity)).hexdigest()

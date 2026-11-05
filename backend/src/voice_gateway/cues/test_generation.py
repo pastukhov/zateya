@@ -43,6 +43,43 @@ def test_all_fourteen_decode_and_restart_without_calls(tmp_path):
     assert 'never-persist-this' not in (tmp_path / cache.generation_id / 'profile.json').read_text()
 
 
+def test_unset_language_keeps_historical_identity_and_profile_resolution(tmp_path):
+    import json
+    old = MP3CueGenerations(tmp_path, Provider(), CONFIG)
+    assert old.generation_id == '877c6cb84191547763c4c7d0448765fdcdf47ae33a796ca1534ba8787fb715a4'
+    assert old.ensure_all()
+    stored = json.loads((tmp_path / old.generation_id / 'profile.json').read_text())
+    assert 'language_code' not in stored['profile']
+    current = replace(CONFIG, model='elevenlabs/eleven-flash-v2.5', language_code='ru')
+    restarted = MP3CueGenerations(tmp_path, Provider(current), current)
+    historical = restarted.resolve_mp3_profile(old.generation_id)
+    assert historical.config == CONFIG
+    assert historical.config.language_code == ''
+    assert restarted.audio(old.generation_id, 'listening') == FIXTURE.read_bytes()
+
+
+def test_language_changes_generation_and_retained_profile_keeps_language(tmp_path):
+    import json
+    config = replace(CONFIG, model='elevenlabs/eleven-flash-v2.5')
+    no_language = MP3CueGenerations(tmp_path, Provider(config), config)
+    russian = replace(config, language_code='ru')
+    cache = MP3CueGenerations(tmp_path, Provider(russian), russian)
+    assert cache.generation_id != no_language.generation_id
+    assert cache.ensure_all()
+    profile = json.loads((tmp_path / cache.generation_id / 'profile.json').read_text())['profile']
+    assert profile['language_code'] == 'ru' and 'api_key' not in profile
+    next_config = replace(config, language_code='en', api_key='rotated-key')
+    next_provider = Provider(next_config)
+    restarted = MP3CueGenerations(tmp_path, next_provider, next_config)
+    retained = restarted.resolve_mp3_profile(cache.generation_id)
+    assert retained.config.language_code == 'ru'
+    assert retained.config.voice == config.voice and retained.config.model == config.model
+    assert retained.config.api_key == 'rotated-key'
+    next_provider.fail_at = 1
+    assert not restarted.ensure_all()
+    assert restarted.manifest()['generation_id'] == cache.generation_id
+
+
 @pytest.mark.parametrize('field,value', [('model', 'new-model'), ('voice', 'new-voice'),
                                        ('instructions', 'gentle'), ('base_url', 'https://new.test/speech')])
 def test_setting_changes_regenerate_every_cue_and_pin_old_profile(tmp_path, field, value):

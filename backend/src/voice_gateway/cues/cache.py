@@ -82,6 +82,8 @@ class _Cue:
                     'endpoint': config.base_url, 'model': config.model,
                     'voice': config.voice, 'instructions': config.instructions,
                     'response_format': config.response_format}
+        if config.language_code:
+            identity['language_code'] = config.language_code
         self.version = hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
         self._lock = threading.Lock()
         self._pcm: bytes | None = None

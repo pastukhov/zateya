@@ -17,6 +17,23 @@ cues. Set `MP3_TTS_MODEL`, `MP3_TTS_VOICE`, `MP3_TTS_INSTRUCTIONS` and
 configured LLM endpoint and API key and always requests `response_format=mp3`.
 Never copy credentials into reports or Git.
 
+`MP3_TTS_LANGUAGE_CODE` optionally supplies a two-letter language code, such as
+`ru`, for RouterAI `elevenlabs/*` models. It is sent as
+`provider.options.elevenlabs.language_code`; the legacy profile has its own
+`TTS_LANGUAGE_CODE`, which MP3 never inherits. Codes are stripped and lowercased;
+malformed values and nonempty language settings on other provider models fail
+configuration. Empty settings keep existing request payloads and cache identities
+unchanged. Existing speaking instructions are still sent for compatibility;
+RouterAI's ElevenLabs transport ignores that top-level field.
+
+A nonempty language is part of the cue generation and legacy cue cache identity.
+Historical generation profiles without this field still resolve with an empty
+language, and retained profiles preserve their original language. A replacement
+generation becomes active only after all fourteen cues pass validation. Provider
+acceptance of `ru` does not establish pronunciation quality: the initial same-voice
+Talia samples with `ru` still had the reported accent when the user listened.
+Voice selection and deployment therefore remain subject to listening acceptance.
+
 The measured choice is `elevenlabs/eleven-flash-v2.5` with female Talia voice
 `OZ0L6eISlOejga3XjDFt`; see [measurements](mp3-tts-benchmark.md). Cues currently
 require mono 44.1 kHz, 128 kbps MP3, at most six seconds per cue and 600 KB for
@@ -24,7 +41,7 @@ all fourteen. A different model must satisfy this validated profile before
 activation. The device decodes and resamples to its existing 24 kHz output.
 The server preserves provider MP3 bytes for storage and delivery.
 
-A change to the configured model, voice, instructions or cue texts creates a
+A change to the configured model, voice, instructions, language or cue texts creates a
 new generation. The server validates the entire catalog before publishing its
 manifest. Strict FFmpeg decoding validates cues without saving decoded audio.
 Successful staging files survive retries and restarts. Each generation has at

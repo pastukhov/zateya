@@ -99,3 +99,43 @@ class TestTTSConfigFromEnv:
         )
         with pytest.raises(AttributeError):
             config.model = "other"  # pyright: ignore[reportAttributeAccessIssue]
+
+
+def test_language_defaults_empty_and_keeps_positional_compatibility():
+    config = TTSConfig("https://tts.test/speech", "m", "v", "style", "key", 30, "mp3")
+    assert config.response_format == "mp3"
+    assert config.language_code == ""
+    assert TTSConfig.from_env({"LLM_BASE_URL": "https://tts.test", "TTS_MODEL": "m"}).language_code == ""
+
+
+@pytest.mark.parametrize("value,expected", [(" RU ", "ru"), ("en", "en"), ("  ", "")])
+def test_language_is_normalized_in_environment_and_direct_profiles(value, expected):
+    env = {"LLM_BASE_URL": "https://tts.test", "TTS_MODEL": "elevenlabs/eleven-flash-v2.5",
+           "TTS_LANGUAGE_CODE": value}
+    assert TTSConfig.from_env(env).language_code == expected
+    assert TTSConfig("https://tts.test/speech", env["TTS_MODEL"], language_code=value).language_code == expected
+
+
+@pytest.mark.parametrize("value", ["rus", "ru-RU", "r", "12", "рф", "r u", "ru\nxx"])
+def test_invalid_language_codes_fail_without_echoing_value(value):
+    with pytest.raises(ValueError, match="TTS_LANGUAGE_CODE"):
+        TTSConfig.from_env({"LLM_BASE_URL": "https://tts.test", "TTS_MODEL": "elevenlabs/model",
+                            "TTS_LANGUAGE_CODE": value})
+
+
+def test_language_rejects_unsupported_provider_model():
+    with pytest.raises(ValueError, match="ElevenLabs"):
+        TTSConfig("https://tts.test/speech", "other/model", language_code="ru")
+
+
+def test_mp3_language_never_inherits_legacy_and_does_not_change_legacy_profile():
+    env = {"LLM_BASE_URL": "https://tts.test", "TTS_MODEL": "elevenlabs/legacy",
+           "TTS_LANGUAGE_CODE": "en", "TTS_VOICE": "legacy-voice", "MP3_TTS_MODEL": "other/mp3",
+           "MP3_TTS_VOICE": "mp3-voice"}
+    legacy = TTSConfig.from_env(env)
+    mp3 = TTSConfig.mp3_from_env(env)
+    assert legacy.language_code == "en" and legacy.response_format == "wav"
+    assert mp3.language_code == "" and mp3.response_format == "mp3"
+    env.update(MP3_TTS_MODEL="elevenlabs/eleven-flash-v2.5", MP3_TTS_LANGUAGE_CODE=" RU ")
+    assert TTSConfig.mp3_from_env(env).language_code == "ru"
+    assert TTSConfig.from_env(env) == legacy

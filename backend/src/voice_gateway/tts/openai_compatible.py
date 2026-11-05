@@ -136,6 +136,8 @@ class OpenAICompatibleTTS(TTSProvider):
         }
         if self._config.instructions:
             payload["instructions"] = self._config.instructions
+        if self._config.language_code:
+            payload["provider"] = {"options": {"elevenlabs": {"language_code": self._config.language_code}}}
         if self._config.response_format == "mp3":
             return self._stream_mp3(payload, headers, out_path, audio_ready, cancel_event)
         if audio_ready is not None:

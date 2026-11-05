@@ -44,6 +44,20 @@ def test_singleflight_restart_and_voice_change(tmp_path):
     assert changed.version != cache.version
 
 
+def test_language_only_changes_legacy_cache_identity_when_nonempty(tmp_path):
+    config = replace(CONFIG, model='elevenlabs/eleven-flash-v2.5')
+    synth = Synth()
+    old = CueCache(tmp_path, synth, config)
+    assert old.version == '5de563e3f0cc1b4bbab83cddd4d25127b968fec576f0f53ee14d1d5cdc69c644'
+    old.ensure()
+    same = CueCache(tmp_path, synth, replace(config, language_code='', api_key='rotated'))
+    same.ensure()
+    assert same.version == old.version and synth.calls == 1
+    changed = CueCache(tmp_path, synth, replace(config, language_code='ru'))
+    changed.ensure()
+    assert changed.version != old.version and synth.calls == 2
+
+
 def test_corruption_regenerated_and_failure_not_published(tmp_path):
     synth = Synth()
     cache = CueCache(tmp_path, synth, CONFIG)

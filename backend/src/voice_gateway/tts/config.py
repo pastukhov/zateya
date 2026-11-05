@@ -10,12 +10,14 @@ Environment variables (secrets stay out of the repo — ТЗ section 33):
     TTS_MODEL      required, model name
     TTS_VOICE      voice name
     TTS_INSTRUCTIONS  optional speaking style for models that support it
+    TTS_LANGUAGE_CODE  optional two-letter code for RouterAI ElevenLabs models
     TTS_RESPONSE_FORMAT  wav, pcm or mp3 (PCM16 little-endian, 24 kHz mono)
     TTS_TIMEOUT    seconds; default 60 (ТЗ section 31)
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
+import re
 from typing import Mapping
 
 #: Default TTS timeout, seconds (ТЗ section 31: recommended TTS: 60 s).
@@ -36,6 +38,17 @@ class TTSConfig:
     api_key: str = ""
     timeout: float = DEFAULT_TTS_TIMEOUT
     response_format: str = "wav"
+    language_code: str = ""
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.language_code, str):
+            raise ValueError("TTS_LANGUAGE_CODE must be a two-letter language code")
+        language = self.language_code.strip().lower()
+        if language and not re.fullmatch(r"[a-z]{2}", language):
+            raise ValueError("TTS_LANGUAGE_CODE must be a two-letter language code")
+        if language and not (self.model.startswith("elevenlabs/") and self.model[len("elevenlabs/"):]):
+            raise ValueError("TTS_LANGUAGE_CODE requires a RouterAI ElevenLabs model")
+        object.__setattr__(self, "language_code", language)
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> "TTSConfig":
@@ -75,6 +88,7 @@ class TTSConfig:
             api_key=api_key,
             timeout=timeout,
             response_format=response_format,
+            language_code=source.get("TTS_LANGUAGE_CODE", ""),
         )
 
     @classmethod
@@ -83,7 +97,7 @@ class TTSConfig:
         if not env.get('MP3_TTS_MODEL', '').strip():
             return None
         values = dict(env)
-        for name in ('MODEL', 'VOICE', 'INSTRUCTIONS', 'TIMEOUT'):
+        for name in ('MODEL', 'VOICE', 'INSTRUCTIONS', 'TIMEOUT', 'LANGUAGE_CODE'):
             values['TTS_' + name] = env.get('MP3_TTS_' + name, '')
         values['TTS_RESPONSE_FORMAT'] = 'mp3'
         return cls.from_env(values)
