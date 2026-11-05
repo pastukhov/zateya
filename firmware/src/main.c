@@ -115,6 +115,7 @@
 #define VOICE_DEVICE_TOKEN NULL
 #endif
 #include "ring_buffer.h"
+#include "voice_capture_storage.h"
 #include "state_machine.h"
 
 /* Ticks the app waits in BOOT before entering IDLE. */
@@ -128,14 +129,19 @@ typedef struct {
   bool error_ack_pressed;
   bool ignore_button_until_release;
   /* Recording path (spec section 10): network-drain buffer (M2 upload). */
+#ifndef ESP_PLATFORM
   uint8_t rb_storage[RING_BUFFER_CAPACITY_DEFAULT];
+#endif
   ring_buffer_t rb;
   http_session_t session;
-  /* M1 loopback: holds what was just captured until M1-04 plays it back
+  /* Native M1 loopback: real ESP playback uses turn_audio_stream. */
+#ifndef ESP_PLATFORM
+  /* Holds what was just captured until M1-04 plays it back
    * (see file header "Loopback"). Filled in parallel with app.rb during
    * RECORDING, drained to the speaker during PLAYING. */
   uint8_t playback_storage[RING_BUFFER_CAPACITY_DEFAULT];
   ring_buffer_t playback_rb;
+#endif
   /* One chunk the speaker hasn't accepted yet (hw_audio_playback_write is
    * all-or-nothing, see playback_drain()); kept here instead of losing or
    * reordering audio when the sink is momentarily full. */
@@ -187,6 +193,13 @@ static http_voice_client_t voice_client;
 static voice_settings_t voice_settings;
 bool app_button_hold_mode(void) { return voice_settings.button_mode==VOICE_BUTTON_HOLD; }
 #ifdef ESP_PLATFORM
+/* CPU-only capture staging; DMA buffers, ring control and stacks stay internal.
+ * Retain this allocation across app_init calls for the application's lifetime. */
+static uint8_t *capture_storage;
+static bool capture_storage_ready;
+static uint8_t *allocate_capture_storage(size_t bytes) {
+  return heap_caps_malloc(bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+}
 static voice_wake_t wake;
 static voice_listening_cue_t wake_cue;
 static bool wake_listening, wake_active, wake_recording, wake_speech,wake_pending;
@@ -501,12 +514,14 @@ static void enter_state(state_t next, const char* error_what) {
  */
 static bool recording_start(void) {
 #ifdef ESP_PLATFORM
-  if (!voice_tls_ready() || !app.turn_http_ready) return false;
+  if (!capture_storage_ready || !voice_tls_ready() || !app.turn_http_ready) return false;
   if (app.turn_task_active) return false;
   if (!begin_turn_request()) return false;
 #endif
   ring_buffer_reset(&app.rb);
+#ifndef ESP_PLATFORM
   ring_buffer_reset(&app.playback_rb);
+#endif
 #ifdef ESP_PLATFORM
   {
     voice_diag_begin_recording(hw_clock_ms());
@@ -528,7 +543,7 @@ static bool recording_start(void) {
  * Wake monitoring alone additionally requires USB power and a loaded detector. */
 static bool capture_eligible(void) {
   wifi_mode_t mode=WIFI_MODE_NULL;
-  return wake_preroll && esp_wifi_get_mode(&mode)==ESP_OK && mode==WIFI_MODE_STA &&
+  return capture_storage_ready && wake_preroll && esp_wifi_get_mode(&mode)==ESP_OK && mode==WIFI_MODE_STA &&
     board_sticks3_network_ready() && voice_tls_ready() && app.turn_http_ready &&
     !voice_ota_busy() && !voice_ota_boot_pending() && !app.turn_task_active &&
     !voice_diag_delivery_busy() && !voice_config_httpd_wifi_scanning() && !feedback_active &&
@@ -752,7 +767,9 @@ static void on_ring_buffer_overflow(void) {
  */
 static void playback_release_resources(void) {
   hw_audio_playback_stop();
+#ifndef ESP_PLATFORM
   ring_buffer_reset(&app.playback_rb);
+#endif
 #ifdef ESP_PLATFORM
   app.turn_pending_byte = false;
 #endif
@@ -882,9 +899,18 @@ void app_init(void) {
   app.error_ack_ready = false;
   app.error_ack_pressed = false;
   app.ignore_button_until_release = false;
+#ifdef ESP_PLATFORM
+  capture_storage_ready = voice_capture_storage_init(&app.rb, &capture_storage,
+                                                     allocate_capture_storage);
+  if (!capture_storage_ready)
+    ESP_LOGE("voice_turn", "Cannot allocate capture ring in PSRAM");
+#else
   ring_buffer_init(&app.rb, app.rb_storage, RING_BUFFER_CAPACITY_DEFAULT);
+#endif
+#ifndef ESP_PLATFORM
   ring_buffer_init(&app.playback_rb, app.playback_storage,
                     RING_BUFFER_CAPACITY_DEFAULT);
+#endif
   app.playback_pending_len = 0;
   app.playback_position = 0;
   app.playback_conn_dropped = false;
@@ -993,9 +1019,11 @@ size_t app_playback_position(void) {
 size_t app_playback_pending_len(void) {
   return app.playback_pending_len;
 }
+#ifndef ESP_PLATFORM
 size_t app_playback_rb_count(void) {
   return ring_buffer_count(&app.playback_rb);
 }
+#endif
 
 /*
  * Test hook: simulate the I2S capture task overflowing the ring buffer —
@@ -1382,7 +1410,8 @@ static void voice_main_loop(void) {
       wake_start_attempted=true;
       if(wake_preroll)(void)voice_wake_detector_start();
     }
-    voice_ota_set_application_ready(!voice_settings.wake_enabled || voice_wake_detector_ready());
+    voice_ota_set_application_ready(capture_storage_ready &&
+        (!voice_settings.wake_enabled || voice_wake_detector_ready()));
     voice_ota_confirm_boot();
 #endif
     board_sticks3_power_tick(

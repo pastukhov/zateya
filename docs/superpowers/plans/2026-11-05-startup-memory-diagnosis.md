@@ -35,7 +35,7 @@ Primary hypothesis: startup internal-memory pressure prevents Wi-Fi traffic unti
 ## Task 1: Baseline and recovery preparation
 
 - [ ] Preserve the passive/startup logs and numeric diagnostic snapshot locally.
-- [ ] Identify running image, OTA slot and partition table; save a full-flash backup before any diagnostic flash, verify size and SHA256. Read-only flash access may require a controlled bootloader entry after log capture.
+- [ ] Identify running image, OTA slot and partition table. The user explicitly cancelled the full-flash backup on 2026-11-05; do not create it. Read only necessary metadata and compute image hash without saving the image. Preserve NVS and storage during app-only flashing.
 - [ ] Match the image to release artifacts or recorded ELF/application hashes. Do not infer a release from a compile timestamp alone.
 - [ ] Reproduce once more on the original image, recording local HTTP reachability, DNS and external HTTPS from the laptop separately from device serial events. Avoid a reset loop.
 
@@ -61,3 +61,29 @@ Relevant files: `firmware/src/main.c`, `firmware/src/voice_ota_esp.c`, `firmware
 ## Review focus
 
 The hardware matrix above must cover delayed network recovery, repeated OTA checks, concurrent voice activity, OTA download/write resource peaks, and persistent cue-store failure. Host tests alone cannot prove any of these memory or radio properties.
+
+## Execution evidence
+
+Installed baseline proved by in-memory hashing: OTA26, source `061f3432e92ccf9d309c0af76602525965337e9b`, 1606256 bytes, SHA256 `d81550f456913b781be50730379fdc7bb37b493b6963a88c8658452ea12f6a99`. Active slot ota_0 at 0x20000, OTA data sequence3/state2; alternate slot ota_1 at 0x320000, sequence2/state2. Image header uses DIO. No full backup or image file was saved. Public verification key extracted for matching diagnostic trust configuration.
+
+Diagnostic A/B are built from OTA26 source in `/tmp/zateya-ota26-diag`, not current main. Both stop before fetching an OTA manifest after readiness, preventing unattended upgrades from changing the experiment. This shared guard preserves the original 120-second waiting-task lifetime when startup fails, but does not measure OTA download/signature/write peak memory. Those remain production acceptance checks.
+
+## Evidence-based Task 3 refinement
+
+Diagnostic A reproduces the stall: internal minimum515 bytes during the wait, sampled DMA371 bytes; OTA exit at log123021ms precedes internal/DMA recovery by16744 bytes; readiness200 at137371ms. B changes exactly one allocated ELF byte (runtime worker-suppression switch2→3); all section/function/object layouts and sdkconfig match. B obtains readiness200 at5016ms. This establishes startup internal-memory pressure and the waiting OTA allocation as the trigger in this environment.
+
+Production correction is scoped to `firmware/src/main.c`: compile the legacy playback ring storage/control only on non-ESP targets, and guard its initialization, reset sites and native test hook. Keep the active32KB capture ring, real ESP streaming playback, task stacks, OTA retries and audio behavior unchanged. This removes32768 bytes plus ring metadata from internal static RAM. Do not remove both buffers or change codecs.
+
+- [ ] Sol applies this minimal correction to current main in the isolated worktree and separately to the OTA26 diagnostic snapshot as variantC, with OTA worker restored. Baseline failing A serves as the hardware regression; native loopback tests must remain intact.
+- [ ] Parent reviews the exact guards, reruns current native suite and target build, and verifies static RAM decrease against matching baseline. Independent reviewer checks every ESP/native reference.
+- [ ] Flash diagnosticC app-only, verify rapid connection with worker present, then validate current-main candidate with persistent OTA scheduler. Do not confuse C's post-readiness diagnostic transfer guard with production OTA acceptance.
+- [ ] Exercise five starts and delayed connectivity where controllable; collect internal heap and confirm no120-second stall, no rollback, and local HTTP responsiveness. Ask user for actual recording/reply observation when candidate ready. Preserve storage failure for separate work.
+- [ ] Remove diagnostic suppression/transfer guards from final production image; commit/push verified source/docs. Signed OTA publication requires the existing signing key and server access; never generate a replacement key or claim publication/installation from a build alone.
+
+## Acceptance finding and Task3 extension
+
+Current-main candidate reached backend200 at4.724s with persistent OTA, but physical recording failed twice before capturing any bytes. At rest the largest INTERNAL|8BIT block was7168 bytes; the voice_turn task requests8192 bytes plus a TCB. IDF dynamic task allocation uses internal memory with no PSRAM fallback. The user heard the error cue. Removing only the unused buffer fixes startup but is insufficient for working recording, so this candidate must not ship.
+
+Extend the memory correction: move ONLY the active32KB CPU capture-ring storage to explicit MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT allocation, with no internal fallback, preserving capacity, capture timing and all DMA buffers/stacks. Reuse the allocation on repeated initialization. Keep ring metadata internal. Native loopback behavior must remain intact. If allocation fails, prevent all manual/wake/follow-up capture without touching a null ring; keep settings/network available on an already-valid image, and do not confirm a pending OTA image as application-ready (existing timeout/rollback handles it). Add meaningful failure/reinitialization/wraparound checks using the actual allocation seam; do not add assertions that merely inspect source text.
+
+Sol implements and updates the existing task report; parent re-reviews, reruns tests/build and repeats real recording, memory sampling and startup checks. Existing signing key has now been supplied locally and its public key exactly matches the installed trust anchor. No signature/key rotation is needed.
