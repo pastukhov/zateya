@@ -90,3 +90,48 @@ def test_cyrillic_roundtrip():
     assert parse_hermes_response(raw).reply == (
         "Записал: купить USB-C кабель для лаборатории."
     )
+
+
+def test_syntax_diagnostics_have_location_without_response_text():
+    with pytest.raises(HermesValidationError) as caught:
+        parse_hermes_response('{"reply":')
+    assert caught.value.safe_diagnostics == (
+        {"type": "json_syntax", "line": 1, "column": 10},
+    )
+    assert caught.value.raw == '{"reply":'
+    assert caught.value.detail == str(caught.value)
+
+
+def test_schema_diagnostics_keep_fixed_paths_and_hide_extra_names_and_values():
+    raw = json.dumps({"reply": "private reply", "note": {"knowledge": {
+        "operation": "capture", "pages": [{"path": "https://private-url.example",
+        "title": 123, "content": {"secret": "private content"}, "sources": []}],
+        "private-token-as-field-name": "private token value",
+        # Even a known schema name is hidden when it is an unknown extra here.
+        "reply": "another private value",
+    }}})
+    with pytest.raises(HermesValidationError) as caught:
+        parse_hermes_response(raw)
+    diagnostics = caught.value.safe_diagnostics
+    assert {"type": "string_type", "path": ["note", "knowledge", "pages", 0, "content"]} in diagnostics
+    assert {"type": "extra_forbidden", "path": ["note", "knowledge", "<extra>"]} in diagnostics
+    assert {"type": "extra_forbidden", "path": ["note", "knowledge", "reply"]} not in diagnostics
+    assert "private" not in json.dumps(diagnostics)
+    assert caught.value.raw == raw
+    assert isinstance(caught.value.detail, str)
+
+
+def test_safe_diagnostics_bound_count_depth_and_untrusted_error_metadata():
+    from backend.src.voice_gateway.hermes.validation import _safe_schema_errors
+    errors = [{"type": "private-error-name", "loc": ("private-field-name",)}]
+    errors += [{"type": "string_type", "loc": ("note",) * 30 + ("private-tail",),
+                "input": "private input", "msg": "private message", "ctx": {"private": "context"}}] * 30
+    diagnostics = _safe_schema_errors(errors)
+    assert len(diagnostics) == 8
+    assert diagnostics[0] == {"type": "schema_error", "path": ["<field>"]}
+    assert len(diagnostics[1]["path"]) == 8
+    assert diagnostics[1]["path"][-1] == "<truncated>"
+    assert "private" not in json.dumps(diagnostics)
+    assert _safe_schema_errors([{"type": "string_type", "loc": ("pages", 10**100)}]) == (
+        {"type": "string_type", "path": ["pages", "<index>"]},
+    )

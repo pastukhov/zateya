@@ -19,6 +19,8 @@ import json
 import re
 from typing import Any
 
+from pydantic import ValidationError
+
 from backend.src.voice_gateway.models.hermes_response import HermesResponse
 
 
@@ -29,10 +31,45 @@ class HermesValidationError(ValueError):
     for archiving.
     """
 
-    def __init__(self, raw: str, detail: str) -> None:
+    def __init__(self, raw: str, detail: str, *,
+                 safe_diagnostics: tuple[dict[str, Any], ...] = ()) -> None:
         super().__init__(detail)
         self.raw = raw
         self.detail = detail
+        self.safe_diagnostics = safe_diagnostics
+
+
+# Only schema-owned names and fixed error codes may enter logs. In particular,
+# extra_forbidden loc entries are arbitrary response keys, even when they happen
+# to match a field name used elsewhere in the schema.
+_SAFE_FIELDS = frozenset("""reply note create title content tags knowledge operation
+organization evidence_sources target_id pages topic_path membership rename path
+sources clarification question source_ids dialogue_resolution question_id action
+answer status citations ref quote""".split())
+_SAFE_ERROR_TYPES = frozenset("""missing string_type string_pattern_mismatch
+string_too_short string_too_long bool_type bool_parsing list_type dict_type
+model_type model_attributes_type literal_error too_short too_long extra_forbidden
+value_error type_error""".split())
+
+
+def _safe_schema_errors(errors: list[dict[str, Any]]) -> tuple[dict[str, Any], ...]:
+    diagnostics = []
+    for error in errors[:8]:
+        code = error.get("type")
+        code = code if isinstance(code, str) and code in _SAFE_ERROR_TYPES else "schema_error"
+        location = error.get("loc", ())
+        path: list[str | int] = []
+        for index, part in enumerate(location[:8]):
+            if code == "extra_forbidden" and index == len(location) - 1:
+                path.append("<extra>")
+            elif type(part) is int:
+                path.append(part if 0 <= part <= 999999 else "<index>")
+            else:
+                path.append(part if isinstance(part, str) and part in _SAFE_FIELDS else "<field>")
+        if len(location) > 8:
+            path[-1] = "<truncated>"
+        diagnostics.append({"type": code, "path": path})
+    return tuple(diagnostics)
 
 
 _JSON_BLOCK_RE = re.compile(r"<json>\s*(.*?)\s*</json>", re.DOTALL)
@@ -88,11 +125,21 @@ def parse_hermes_response(raw: str) -> HermesResponse:
         candidates.append(repaired)
 
     last_error: str = "unknown validation error"
+    safe_diagnostics: tuple[dict[str, Any], ...] = ()
     for candidate in candidates:
         try:
             payload: Any = json.loads(candidate)
             return HermesResponse.model_validate(payload)
-        except (json.JSONDecodeError, ValueError, TypeError) as exc:
+        except json.JSONDecodeError as exc:
             last_error = str(exc)
+            safe_diagnostics = ({"type": "json_syntax", "line": min(exc.lineno, 999999),
+                                 "column": min(exc.colno, 999999)},)
+        except ValidationError as exc:
+            last_error = str(exc)
+            safe_diagnostics = _safe_schema_errors(exc.errors(
+                include_input=False, include_context=False, include_url=False))
+        except (ValueError, TypeError) as exc:
+            last_error = str(exc)
+            safe_diagnostics = ({"type": "invalid_contract", "path": []},)
 
-    raise HermesValidationError(raw, last_error)
+    raise HermesValidationError(raw, last_error, safe_diagnostics=safe_diagnostics)

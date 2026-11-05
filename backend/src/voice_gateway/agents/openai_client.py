@@ -95,7 +95,9 @@ class OpenAICompatibleAgentClient:
                 try:
                     parsed = parse_hermes_response(content)
                     issue=answer_contract_issue(parsed,request.knowledge_context)
-                except HermesValidationError:
+                except HermesValidationError as exc:
+                    logger.warning("LLM JSON/schema validation failed (request_id=%s, phase=initial, diagnostics=%s)",
+                                   request.request_id, json.dumps(exc.safe_diagnostics, separators=(",", ":")))
                     issue="invalid_json_contract"
                 if issue:
                     logger.warning("LLM response needs bounded repair (request_id=%s, reason=%s)",request.request_id,issue)
@@ -114,7 +116,9 @@ class OpenAICompatibleAgentClient:
                     model=repaired_model or model
                     try:
                         parsed=parse_hermes_response(content)
-                    except HermesValidationError:
+                    except HermesValidationError as exc:
+                        logger.warning("LLM JSON/schema validation failed (request_id=%s, phase=repair, diagnostics=%s)",
+                                       request.request_id, json.dumps(exc.safe_diagnostics, separators=(",", ":")))
                         if issue=="invalid_json_contract":
                             raise AgentClientError("agent_invalid_response","LLM returned invalid JSON") from None
                         parsed=None

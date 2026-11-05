@@ -189,6 +189,64 @@ def test_invalid_json_gets_exactly_one_format_repair_request():
     asyncio.run(scenario())
 
 
+@pytest.mark.parametrize("repaired", [False, True])
+def test_logs_safe_schema_locations_for_both_phases_without_changing_repair_budget(caplog, repaired):
+    async def scenario():
+        calls = []
+        invalid = json.dumps({"reply": "private reply", "note": {"knowledge": {
+            "operation": "capture", "private-token-field": "private token value",
+            "pages": [{"path": "https://private-url.example", "title": "private title",
+                       "content": "private content", "sources": []}],
+        }}})
+        async def handler(request):
+            calls.append(json.loads(request.content))
+            text = json.dumps(VALID) if repaired and len(calls) == 2 else invalid
+            return httpx.Response(200, json=response(text))
+        http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        client = OpenAICompatibleAgentClient(make_config(LLM_API_KEY="private-api-key"), "rules", client=http)
+        try:
+            if repaired:
+                assert (await client.complete(AgentRequest("r", "device", "private transcript"))).reply == VALID["reply"]
+            else:
+                with pytest.raises(AgentClientError) as caught:
+                    await client.complete(AgentRequest("r", "device", "private transcript"))
+                assert caught.value.code == "agent_invalid_response"
+        finally:
+            await http.aclose()
+        assert len(calls) == 2
+        assert calls[1]["messages"][-1]["content"] == client._repair_instruction()
+    asyncio.run(scenario())
+    logs = [record.getMessage() for record in caplog.records if "validation failed" in record.getMessage()]
+    assert len(logs) == (1 if repaired else 2)
+    assert "phase=initial" in logs[0]
+    if not repaired:
+        assert "phase=repair" in logs[1]
+    assert '"path":["note","knowledge","<extra>"]' in logs[0]
+    assert '"type":"string_pattern_mismatch"' in logs[0]
+    assert "private" not in caplog.text
+
+
+def test_logs_safe_syntax_location_before_successful_single_repair(caplog):
+    async def scenario():
+        calls = 0
+        async def handler(request):
+            nonlocal calls
+            calls += 1
+            return httpx.Response(200, json=response('{"reply":' if calls == 1 else json.dumps(VALID)))
+        http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        client = OpenAICompatibleAgentClient(make_config(), "rules", client=http)
+        try:
+            result = await client.complete(AgentRequest("r", "device", "private transcript"))
+            assert result.reply == VALID["reply"]
+            assert calls == 2
+        finally:
+            await http.aclose()
+    asyncio.run(scenario())
+    assert '"type":"json_syntax","line":1,"column":10' in caplog.text
+    assert "phase=initial" in caplog.text
+    assert "private" not in caplog.text
+
+
 def test_invalid_repair_and_all_contract_shapes_fail_without_leaking_body():
     async def scenario():
         cases = [
