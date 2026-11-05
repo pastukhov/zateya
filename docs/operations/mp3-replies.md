@@ -34,8 +34,12 @@ acceptance of `ru` does not establish pronunciation quality: the initial same-vo
 Talia samples with `ru` still had the reported accent when the user listened.
 Voice selection and deployment therefore remain subject to listening acceptance.
 
-The measured choice is `elevenlabs/eleven-flash-v2.5` with female Talia voice
-`OZ0L6eISlOejga3XjDFt`; see [measurements](mp3-tts-benchmark.md). Cues currently
+The current deployed choice (2026-11-06) is `elevenlabs/eleven-multilingual-v2`
+with female Marina voice `ymDCYd8puC7gYjxIamPt`, selected by listening to separately
+generated Russian service cues. The language override is empty, matching the
+approved requests. The earlier latency benchmark selected Flash/Talia; its
+pronunciation was subsequently rejected. See [selection history](mp3-tts-benchmark.md)
+and [pronunciation release](russian-service-cues-2026-11-06.md). Cues currently
 require mono 44.1 kHz, 128 kbps MP3, at most six seconds per cue and 600 KB for
 all fourteen. A different model must satisfy this validated profile before
 activation. The device decodes and resamples to its existing 24 kHz output.

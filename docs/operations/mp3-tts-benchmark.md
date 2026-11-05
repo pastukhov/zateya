@@ -41,3 +41,20 @@ Per-request timing, size, profile and SHA-256 are in
 synthetic test text. No credentials or personal note contents are included.
 Provider voice reference:
 https://elevenlabs.io/docs/help-center/product/voices/my-voices/what-are-default-voices
+
+## Pronunciation supersedes the initial selection, 2026-11-06
+
+After production31 cache recovery, the user confirmed audible service cues and
+answers but rejected the English accent, particularly on «Готово». Explicit ru
+language with Talia/Flash was still accented. Marina/Flash/ru removed the accent,
+but the user reported unclear phrases and wrong stress in «Не дождалась ответа».
+At the user's suggestion to change generation mode, Marina with
+`elevenlabs/eleven-multilingual-v2` was tried without the language override.
+The user accepted four individually generated cues: «Готово», «Не дождалась
+ответа», «Готова к записи», «Обрабатываю» (response: «Да, так хорошо»).
+
+This explicitly replaces the earlier Flash/Talia selection while retaining the
+female voice requirement and shared cue/reply profile. The original latency
+numbers above are historical and do not apply to Multilingual v2. See
+[russian-service-cues-2026-11-06.md](russian-service-cues-2026-11-06.md) for the
+release, exact clip preservation, verification and device acceptance status.
