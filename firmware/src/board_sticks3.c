@@ -8,6 +8,7 @@
 #include "board_orientation.h"
 #include "power_status.h"
 #include "screen_brightness.h"
+#include "pmic_setup.h"
 #include "driver/ledc.h"
 #include "screen_font.h"
 #include "voice_config_httpd.h"
@@ -53,8 +54,12 @@ static const gpio_num_t s_sleep_outputs[] = {
 };
 static bool s_audio_ready;
 static bool s_button_ready;
+static bool s_board_inputs_ready;
 static spi_device_handle_t s_lcd;
 static bool s_lcd_ready;
+static bool s_lcd_spi_bus_ready;
+static uint32_t s_pm_retry_at_ms;
+static esp_err_t s_pm_setup_error;
 static bool s_wifi_initialized;
 static bool s_wifi_handlers_registered;
 static _Atomic bool s_wifi_connected;
@@ -262,22 +267,36 @@ i2c_master_bus_handle_t board_sticks3_i2c_bus(void) {
   return s_power_bus;
 }
 
-static void init_m5pm1(void) {
+static bool pm_setup_read(void *context, uint8_t reg, uint8_t *value) {
+  (void)context;
+  s_pm_setup_error = pm_read(reg, value);
+  return s_pm_setup_error == ESP_OK;
+}
+static bool pm_setup_write(void *context, uint8_t reg, uint8_t value) {
+  (void)context;
+  s_pm_setup_error = pm_write(reg, value);
+  return s_pm_setup_error == ESP_OK;
+}
+static void pm_setup_delay(void *context, unsigned ms) {
+  (void)context;
+  TickType_t ticks = pdMS_TO_TICKS(ms);
+  vTaskDelay(ticks ? ticks : 1);
+}
+
+static bool init_m5pm1(void) {
   i2c_master_bus_handle_t bus = board_sticks3_i2c_bus();
-  if (!bus) return;
+  if (!bus) return false;
   if (!s_pm1) {
     i2c_device_config_t dc = {.dev_addr_length = I2C_ADDR_BIT_LEN_7,
       .device_address = 0x6e, .scl_speed_hz = 100000};
-    if (i2c_master_bus_add_device(bus, &dc, &s_pm1) != ESP_OK) return;
+    if (i2c_master_bus_add_device(bus, &dc, &s_pm1) != ESP_OK) return false;
   }
-  esp_err_t err = pm_write(0x09, 0); /* Disable PMIC I2C idle sleep. */
-  if (err == ESP_OK) err = pm_update(0x06, 0x10, 0); /* LED low = off. */
-  if (err == ESP_OK) err = pm_update(0x16, 0xf0, 0); /* GPIO2/3 normal GPIO. */
-  if (err == ESP_OK) err = pm_update(0x13, 0x0c, 0); /* Push-pull. */
-  if (err == ESP_OK) err = pm_update(0x10, 0x0c, 0x0c);
-  if (err == ESP_OK) err = pm_update(0x11, 0x0c, 0x04);
-  if (err == ESP_OK) ESP_LOGI(TAG, "M5PM1 rails enabled; green LED off");
-  else ESP_LOGE(TAG, "M5PM1 setup failed: %s", esp_err_to_name(err));
+  pmic_setup_io_t io = {pm_setup_read, pm_setup_write, pm_setup_delay, NULL};
+  bool ready = pmic_setup_run(&io);
+  if (ready) ESP_LOGI(TAG, "M5PM1 rails enabled; green LED off");
+  else ESP_LOGE(TAG, "M5PM1 setup failed after retries: %s",
+                esp_err_to_name(s_pm_setup_error));
+  return ready;
 }
 
 static void lcd_cmd(uint8_t cmd) {
@@ -290,21 +309,30 @@ static void lcd_data(const uint8_t *data, size_t len) {
   spi_transaction_t t = {.length = len * 8, .tx_buffer = data};
   spi_device_polling_transmit(s_lcd, &t);
 }
-static void lcd_init(void) {
-  if (s_lcd_ready) return;
-  gpio_deep_sleep_hold_dis();
-  for (size_t i = 0; i < sizeof(s_sleep_outputs) / sizeof(s_sleep_outputs[0]); ++i)
-    gpio_hold_dis(s_sleep_outputs[i]);
-  rtc_gpio_deinit(BOARD_KEY1_GPIO);
-  rtc_gpio_deinit(BOARD_KEY2_GPIO);
-  rtc_gpio_deinit(13);
-  gpio_config_t keys = {.pin_bit_mask = (1ULL << BOARD_KEY1_GPIO) |
-    (1ULL << BOARD_KEY2_GPIO), .mode = GPIO_MODE_INPUT,
-    .pull_up_en = GPIO_PULLUP_ENABLE, .intr_type = GPIO_INTR_DISABLE};
-  ESP_ERROR_CHECK(gpio_config(&keys));
-  s_button_ready = true;
-  ESP_LOGI(TAG, "Wake cause: %d", (int)esp_sleep_get_wakeup_cause());
-  init_m5pm1();
+static bool lcd_init(void) {
+  if (s_lcd_ready) return true;
+  if (!s_board_inputs_ready) {
+    gpio_deep_sleep_hold_dis();
+    for (size_t i = 0; i < sizeof(s_sleep_outputs) / sizeof(s_sleep_outputs[0]); ++i)
+      gpio_hold_dis(s_sleep_outputs[i]);
+    rtc_gpio_deinit(BOARD_KEY1_GPIO);
+    rtc_gpio_deinit(BOARD_KEY2_GPIO);
+    rtc_gpio_deinit(13);
+    gpio_config_t keys = {.pin_bit_mask = (1ULL << BOARD_KEY1_GPIO) |
+      (1ULL << BOARD_KEY2_GPIO), .mode = GPIO_MODE_INPUT,
+      .pull_up_en = GPIO_PULLUP_ENABLE, .intr_type = GPIO_INTR_DISABLE};
+    ESP_ERROR_CHECK(gpio_config(&keys));
+    s_button_ready = true;
+    s_board_inputs_ready = true;
+    ESP_LOGI(TAG, "Wake cause: %d", (int)esp_sleep_get_wakeup_cause());
+  }
+  uint32_t now_ms = (uint32_t)(esp_timer_get_time() / 1000ULL);
+  if (s_pm_retry_at_ms && (int32_t)(now_ms - s_pm_retry_at_ms) < 0) return false;
+  if (!init_m5pm1()) {
+    s_pm_retry_at_ms = now_ms + 1000;
+    return false;
+  }
+  s_pm_retry_at_ms = 0;
   gpio_set_direction(BOARD_LCD_DC_GPIO, GPIO_MODE_OUTPUT);
   gpio_set_direction(BOARD_LCD_RST_GPIO, GPIO_MODE_OUTPUT);
   gpio_set_direction(BOARD_LCD_BL_GPIO, GPIO_MODE_OUTPUT);
@@ -313,11 +341,14 @@ static void lcd_init(void) {
   spi_bus_config_t bus = {.mosi_io_num = BOARD_LCD_MOSI_GPIO, .miso_io_num = -1,
                           .sclk_io_num = BOARD_LCD_SCLK_GPIO, .quadwp_io_num = -1,
                           .quadhd_io_num = -1, .max_transfer_sz = 270};
-  spi_bus_initialize(SPI3_HOST, &bus, SPI_DMA_CH_AUTO);
+  if (!s_lcd_spi_bus_ready) {
+    if (spi_bus_initialize(SPI3_HOST, &bus, SPI_DMA_CH_AUTO) != ESP_OK) return false;
+    s_lcd_spi_bus_ready = true;
+  }
   spi_device_interface_config_t dev = {.clock_speed_hz = 40000000, .mode = 0,
                                        .spics_io_num = BOARD_LCD_CS_GPIO,
                                        .queue_size = 1};
-  spi_bus_add_device(SPI3_HOST, &dev, &s_lcd);
+  if (!s_lcd && spi_bus_add_device(SPI3_HOST, &dev, &s_lcd) != ESP_OK) return false;
   lcd_cmd(0x01); vTaskDelay(pdMS_TO_TICKS(120));
   lcd_cmd(0x11); vTaskDelay(pdMS_TO_TICKS(120));
   uint8_t colmod = 0x55; lcd_cmd(0x3A); lcd_data(&colmod, 1);
@@ -339,6 +370,7 @@ static void lcd_init(void) {
   ESP_ERROR_CHECK(ledc_channel_config(&backlight));
   ESP_LOGI(TAG, "Backlight PWM ready: %u%% (restored)", percent);
   s_lcd_ready = true;
+  return true;
 }
 /* Called only by the main loop; never sleep during a voice worker. */
 void board_sticks3_power_tick(bool busy, uint32_t now_ms, uint32_t timeout_ms) {
@@ -482,6 +514,7 @@ void board_sticks3_display_set_device_id(const char *device_id) {
 void board_sticks3_display_update(state_t state, uint32_t now_ms,
                                  screen_processing_phase_t processing_phase,
                                  screen_recording_timer_t recording_timer) {
+  if (!lcd_init()) return;
   board_orientation_start();
   screen_rotation_t rotation=board_orientation_get();
   static screen_rotation_t previous_rotation;
@@ -509,7 +542,6 @@ void board_sticks3_display_update(state_t state, uint32_t now_ms,
   if (!s_screen) s_screen = heap_caps_malloc(SCREEN_W * SCREEN_H * sizeof(*s_screen), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
   if (!s_screen) s_screen = heap_caps_malloc(SCREEN_W * SCREEN_H * sizeof(*s_screen), MALLOC_CAP_8BIT);
   if (!s_screen) return;
-  lcd_init();
   screen_ui_view_t view = screen_ui_view_with_network(state, processing_phase,
       s_wifi_connected, backend_status);
   if(state==STATE_IDLE && wake_status==1)
@@ -600,7 +632,7 @@ bool hw_report_error(const char *what) {
 }
 
 static void ensure_audio(void) {
-  if (s_audio_ready) return;
+  if (s_audio_ready || !s_lcd_ready) return;
   const audio_capture_config_t cap = {
     .sample_rate = 16000, .bits_per_sample = 16, .channel_count = 1,
     .buffer_frame_size = 512, .queue_size = 8
@@ -648,8 +680,9 @@ bool board_sticks3_network_ready(void) {
 bool board_sticks3_usb_powered(void) { return s_usb_powered; }
 
 bool board_sticks3_local_self_test(void) {
+  if (!s_lcd_ready) return false;
   ensure_audio();
-  if (!s_lcd_ready || !s_audio_ready ||
+  if (!s_audio_ready ||
       heap_caps_get_free_size(MALLOC_CAP_8BIT) < 32768 ||
       audio_capture_start() != ESP_OK) return false;
   uint8_t samples[256];
