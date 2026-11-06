@@ -47,5 +47,20 @@ corrected before the successful update check.
 
 USB `/tmp/zateya-home-ota34-install.log` records release34 installed at18494ms,
 new build `Nov 6 2026 22:29:47`, and local self-test confirmation at2405ms.
-Physical voice-answer acceptance is pending. The separate LittleFS mount
+The separate LittleFS mount
 failure remains; no flash cache or settings were erased.
+
+## Physical acceptance
+
+After OTA34 the user reported “вроде вс норм сейчас” following the requested
+voice-answer trial. Server turn `faec4fc3-ec90-46cd-8874-0eb341c29ce0`
+on2026-11-06 at19:40UTC completed processing and synthesis (2.47s); audio GET
+returned200. Live device diagnostics show boot_id1982328223, recording1,
+348928 captured /358528 queued and sent bytes, upload202, and no new failure
+event. Persisted last_error_code9 remains from earlier failures; it is not a
+new event. The timed USB capture ended before this trial, so complete-transfer
+and error-free TLS claims are not inferred from that log. Successful audible
+behavior is user-confirmed for this trial, not a long-running stability test.
+
+LittleFS recovery remains separate and unperformed. No flash cache/settings
+were erased. No further firmware change is needed for this acceptance result.
