@@ -62,4 +62,12 @@ static void geometry(void) {
  TEST_ASSERT_EQUAL(32399,screen_orientation_index(2,0,0));
  TEST_ASSERT_EQUAL(239,screen_orientation_index(3,0,0));
 }
-int main(void) { UNITY_BEGIN();RUN_TEST(settle);RUN_TEST(rejected);RUN_TEST(wrap);RUN_TEST(geometry);RUN_TEST(mounting);return UNITY_END(); }
+static void native_button_edge_becomes_landscape_side(void) {
+ /* Front button is beyond native portrait y=239. The whole adjacent edge
+  * must become logical right at 90 and logical left at 270, regardless of IMU. */
+ for(int x=0;x<135;x++) {
+  TEST_ASSERT_EQUAL(239,screen_orientation_index(SCREEN_ROTATION_90,x,239)%240);
+  TEST_ASSERT_EQUAL(0,screen_orientation_index(SCREEN_ROTATION_270,x,239)%240);
+ }
+}
+int main(void) { UNITY_BEGIN();RUN_TEST(settle);RUN_TEST(rejected);RUN_TEST(wrap);RUN_TEST(geometry);RUN_TEST(mounting);RUN_TEST(native_button_edge_becomes_landscape_side);return UNITY_END(); }

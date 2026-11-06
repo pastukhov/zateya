@@ -536,7 +536,7 @@ void board_sticks3_display_update(state_t state, uint32_t now_ms,
     .wifi=s_wifi_connected,.usb=s_usb_powered,.charging=s_battery_charging,
     .setup=setup && (state==STATE_IDLE || state==STATE_BOOT),
     .hold_mode=app_button_hold_mode(),.wake_status=wake_status,
-    .ssid=s_setup_ssid,.device_id=s_screen_device_id,.timer=recording_timer};
+    .ssid=s_setup_ssid,.device_id=s_screen_device_id,.timer=recording_timer,.rotation=rotation};
   screen_render(s_screen,screen_orientation_width(rotation),screen_orientation_height(rotation),&model);
   previous_rotation=rotation;
   int64_t render_start_us = esp_timer_get_time();

@@ -7,6 +7,7 @@ typedef struct {
  bool wifi, usb, charging, setup, hold_mode; unsigned wake_status;
  const char *ssid, *device_id;
  screen_recording_timer_t timer;
+ screen_rotation_t rotation; /* Zero keeps the legacy column order. */
 } screen_render_model_t;
 bool screen_render(uint16_t *pixels, int width, int height, const screen_render_model_t *model);
 #endif

@@ -123,7 +123,13 @@ bool screen_render(uint16_t *pixels,int width,int height,const screen_render_mod
  canvas_t value={pixels,width,height},*c=&value;
  for(int i=0;i<width*height;i++) pixels[i]=C_BG;
  if(m->setup) return setup(c,m->ssid);
- bool wide=width>height;int main_width=wide?142:135,cx=main_width/2;
+ bool wide=width>height;
+ /* Native portrait has the front button beyond y=239 (MADCTL=0).
+  * index(270) maps that edge to logical x=0; index(90) maps it to x=239.
+  * Translate whole columns, preserving the orientation of glyphs and icons. */
+ bool button_left=wide && m->rotation==SCREEN_ROTATION_270;
+ int main_width=wide?142:135,cx=main_width/2+(button_left?98:0);
+ int indicator_offset=button_left?-143:0;
  bool recording= m->state==STATE_RECORDING;
  screen_ui_view_t idle=screen_ui_view(STATE_IDLE);
  /* The board already selected network/OTA/diagnostic/listening overrides.
@@ -142,9 +148,9 @@ bool screen_render(uint16_t *pixels,int width,int height,const screen_render_mod
  } else if(ready) {
   if(m->wake_status==1)ok &= text(c,"СКАЖИТЕ\nЗАТЕЯ",cx,105,main_width-8,SCREEN_FONT_HINT,C_MUTED);
  } else ok &= text(c,hint,cx,long_hint?43:wide?104:123,main_width-8,SCREEN_FONT_HINT,C_MUTED);
- /* Compact indicators are below portrait state, in the right landscape column. */
- int sx=wide?144:0,sy=wide?0:194;
- screen_rect(c,wide?142:8,wide?5:190,wide?1:119,wide?125:1,C_LINE);
+ /* Landscape indicators follow the physical front button. */
+ int sx=wide?144+indicator_offset:0,sy=wide?0:194;
+ screen_rect(c,wide?(button_left?97:142):8,wide?5:190,wide?1:119,wide?125:1,C_LINE);
  static uint16_t header[135*28];
  memset(header,0,sizeof(header));
  screen_ui_draw_server_icon(header,135,28,18,screen_ui_backend_color(m->backend_status));
@@ -156,13 +162,13 @@ bool screen_render(uint16_t *pixels,int width,int height,const screen_render_mod
   for(int y=10;y<27;y++) for(int x=9;x<28;x++) if(header[y*135+x]) screen_pixel(c,sx+x-3,y,header[y*135+x]);
   for(int y=10;y<27;y++) for(int x=72;x<135;x++) if(header[y*135+x]) screen_pixel(c,sx+x-45,y+22,header[y*135+x]);
  }
- int wx=wide?215:50,wy=wide?22:218;
+ int wx=wide?215+indicator_offset:50,wy=wide?22:218;
  for(int y=-12;y<=-3;y++) for(int x=-12;x<=12;x++) {int r=x*x+y*y;if(y<=-(x<0?-x:x)&&((r>=100&&r<=144)||(r>=25&&r<=49))) screen_pixel(c,wx+x,wy+y,m->wifi?0x07E0:C_MUTED);}
  screen_circle(c,wx,wy-1,1,m->wifi?0x07E0:C_MUTED);
  const char *mode=wide ? ready ? (m->hold_mode?"ДЕРЖИТЕ\nКНОПКУ":"КНОПКА:\nСТАРТ / СТОП") :
    (m->hold_mode?"КНОПКА:\nУДЕРЖАНИЕ":"КНОПКА:\nНАЖАТИЕ") :
    m->wake_status?"ГОЛОС + КНОПКА":m->hold_mode?"УДЕРЖАНИЕ":"НАЖАТИЕ";
- ok &= text(c,mode,wide?192:67,wide?64:223,wide?90:127,SCREEN_FONT_SMALL,C_MUTED);
- if(wide) ok &= text(c,m->device_id && *m->device_id?m->device_id:"ЗАТЕЯ",192,104,90,SCREEN_FONT_SMALL,C_MUTED);
+ ok &= text(c,mode,wide?192+indicator_offset:67,wide?64:223,wide?90:127,SCREEN_FONT_SMALL,C_MUTED);
+ if(wide) ok &= text(c,m->device_id && *m->device_id?m->device_id:"ЗАТЕЯ",192+indicator_offset,104,90,SCREEN_FONT_SMALL,C_MUTED);
  return ok;
 }

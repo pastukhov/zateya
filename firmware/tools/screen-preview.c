@@ -7,7 +7,7 @@ int main(int argc,char **argv) {
  if(argc!=2)return 2;
  const char *names[]={"recording","error","setup","ota","idle","idle-hold","idle-wake","idle-wake-hold"};
  for(int r=0;r<4;r++) for(int state=0;state<8;state++) {
-  screen_render_model_t m={.state=state==0?STATE_RECORDING:state==1?STATE_ERROR:STATE_IDLE,.wifi=true,.usb=true,.battery_percent=83,.backend_status=200,.device_id="ID 70041ddc4aac",.ssid="Zateya-4AAC"};
+  screen_render_model_t m={.state=state==0?STATE_RECORDING:state==1?STATE_ERROR:STATE_IDLE,.wifi=true,.usb=true,.battery_percent=83,.backend_status=200,.device_id="ID 70041ddc4aac",.ssid="Zateya-4AAC",.rotation=r};
   m.view=screen_ui_view(m.state);m.timer=screen_ui_recording_timer(0,93000,120);
   if(state==1)m.view.hint="ОШИБКА ПОДКЛЮЧЕНИЯ\nНАЖМИТЕ ДЛЯ СБРОСА";
   if(state==2)m.setup=true;

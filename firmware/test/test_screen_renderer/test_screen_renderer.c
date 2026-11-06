@@ -8,6 +8,66 @@ void setUp(void) {}
 void tearDown(void) {}
 static uint16_t guarded[32402];
 static uint16_t expected[32400];
+static void button_left_guidance_is_readable(void) {
+ for(int hold=0;hold<2;hold++) {
+  screen_render_model_t m={.view=screen_ui_view(STATE_IDLE),.state=STATE_IDLE,
+   .hold_mode=hold,.rotation=SCREEN_ROTATION_270};
+  TEST_ASSERT_TRUE(screen_render(guarded+1,240,135,&m));
+  for(int i=0;i<32400;i++)expected[i]=0x0083;
+  TEST_ASSERT_TRUE(screen_font_draw_centered(expected,240,135,49,64,SCREEN_FONT_SMALL,hold?"ДЕРЖИТЕ":"КНОПКА:",0x74B3));
+  TEST_ASSERT_TRUE(screen_font_draw_centered(expected,240,135,49,79,SCREEN_FONT_SMALL,hold?"КНОПКУ":"СТАРТ / СТОП",0x74B3));
+  for(int y=63;y<98;y++)for(int x=0;x<97;x++)
+   TEST_ASSERT_EQUAL_HEX16(expected[y*240+x],guarded[1+y*240+x]);
+ }
+}
+static void landscape_columns_move_without_reflection(void) {
+ const screen_ui_view_t overrides[]={
+  {"ОБНОВЛЯЮ","ПРОШИВКА 73%\nНЕ ВЫКЛЮЧАЙТЕ",0x07e0,SCREEN_ICON_THINKING},
+  {"ОТЧЁТ","ОТПРАВЛЯЮ\nДИАГНОСТИКУ",0xF5A8,SCREEN_ICON_THINKING},
+  {"СЕРВЕР","НЕТ СВЯЗИ",0xF5A8,SCREEN_ICON_THINKING},
+  {"СЛУШАЮ","ГОВОРИТЕ",0x07e0,SCREEN_ICON_THINKING},
+  {"ПРОВЕРЯЮ","ПОСЛЕ ОБНОВЛЕНИЯ",0xF5A8,SCREEN_ICON_THINKING},
+ };
+ for(int scene=0;scene<17;scene++) {
+  screen_render_model_t m={.state=scene<6?scene:STATE_IDLE,.phase=12,
+   .wifi=true,.usb=true,.charging=true,.battery_percent=83,.backend_status=200,
+   .device_id="ID 70041ddc4aac",.hold_mode=scene&1};
+  m.view=screen_ui_view(m.state);
+  m.timer=screen_ui_recording_timer(0,scene==STATE_RECORDING?119000:93000,120);
+  if(scene==6 || scene==7) {m.wake_status=1;m.view.hint="СКАЖИТЕ ЗАТЕЯ\nИЛИ КНОПКА";}
+  if(scene>=8 && scene<13)m.view=overrides[scene-8];
+  if(scene>=13) {
+   m.state=STATE_RECORDING;m.view=screen_ui_view(m.state);
+   m.timer=screen_ui_recording_timer(0,scene==13?0:scene==14?111000:116000,120);
+   m.phase=scene==16?9:0; /* Both blink colors of the final warning. */
+  }
+  TEST_ASSERT_TRUE(screen_render(expected,240,135,&m)); /* Legacy zero model. */
+  m.rotation=SCREEN_ROTATION_90;
+  TEST_ASSERT_TRUE(screen_render(guarded+1,240,135,&m));
+  TEST_ASSERT_EQUAL_MEMORY(expected,guarded+1,sizeof(expected));
+  guarded[0]=0xdead;guarded[32401]=0xbeef;
+  m.rotation=SCREEN_ROTATION_270;
+  TEST_ASSERT_TRUE(screen_render(guarded+1,240,135,&m));
+  TEST_ASSERT_EQUAL_HEX16(0xdead,guarded[0]);TEST_ASSERT_EQUAL_HEX16(0xbeef,guarded[32401]);
+  for(int y=0;y<135;y++) {
+   /* Intact state [0,141] moves right; intact indicators [143,239] move left. */
+   TEST_ASSERT_EQUAL_MEMORY(expected+y*240,guarded+1+y*240+98,142*sizeof(uint16_t));
+   TEST_ASSERT_EQUAL_MEMORY(expected+y*240+143,guarded+1+y*240,97*sizeof(uint16_t));
+   TEST_ASSERT_EQUAL_HEX16(expected[y*240+142],guarded[1+y*240+97]);
+  }
+ }
+}
+static void rotation_preserves_portrait_and_setup(void) {
+ for(int r=0;r<4;r++)for(int setup=0;setup<2;setup++) {
+  screen_render_model_t m={.state=STATE_IDLE,.view=screen_ui_view(STATE_IDLE),
+   .setup=setup,.ssid="Zateya-4AAC",.device_id="ID 70041ddc4aac"};
+  int w=screen_orientation_width(r),h=screen_orientation_height(r);
+  TEST_ASSERT_TRUE(screen_render(expected,w,h,&m));
+  m.rotation=r;
+  TEST_ASSERT_TRUE(screen_render(guarded+1,w,h,&m));
+  if(setup || !(r&1))TEST_ASSERT_EQUAL_MEMORY(expected,guarded+1,sizeof(expected));
+ }
+}
 static void ready_landscape(bool hold,unsigned wake) {
  screen_render_model_t m={.view=screen_ui_view(STATE_IDLE),.state=STATE_IDLE,.wifi=true,.usb=true,.battery_percent=83,.backend_status=200,.device_id="ID 70041ddc4aac",.hold_mode=hold,.wake_status=wake};
  if(wake)m.view.hint="СКАЖИТЕ ЗАТЕЯ\nИЛИ КНОПКА"; /* Actual board input. */
@@ -88,4 +148,4 @@ static void all_copy(void) {
   }
  }
 }
-int main(void) {UNITY_BEGIN();RUN_TEST(ready_toggle_has_icon_and_explicit_action);RUN_TEST(ready_hold_has_icon_and_explicit_action);RUN_TEST(ready_wake_has_icon_and_invocation);RUN_TEST(selected_idle_overrides_are_preserved);RUN_TEST(bounds_and_layouts);RUN_TEST(long_message_and_setup);RUN_TEST(all_copy);return UNITY_END();}
+int main(void) {UNITY_BEGIN();RUN_TEST(button_left_guidance_is_readable);RUN_TEST(landscape_columns_move_without_reflection);RUN_TEST(rotation_preserves_portrait_and_setup);RUN_TEST(ready_toggle_has_icon_and_explicit_action);RUN_TEST(ready_hold_has_icon_and_explicit_action);RUN_TEST(ready_wake_has_icon_and_invocation);RUN_TEST(selected_idle_overrides_are_preserved);RUN_TEST(bounds_and_layouts);RUN_TEST(long_message_and_setup);RUN_TEST(all_copy);return UNITY_END();}
