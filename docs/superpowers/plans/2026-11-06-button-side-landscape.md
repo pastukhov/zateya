@@ -28,9 +28,9 @@ Files: `firmware/include/screen_renderer.h`, `firmware/src/screen_renderer.c`, `
 
 - [x] Independently inspect diff and production previews for both sides, ready toggle/hold/wake, timer, error/OTA and setup.
 - [x] Run full native suite and target release build; compare portrait and QR frames to pre-change baseline and verify all physical inverse transforms.
-- [ ] Commit/push only task files. Check current stable sequence and existing signing key; build/freeze and publish the next signed release using existing procedure. Preserve device NVS/cue cache and server runtime.
-- [ ] Verify external signature/image/hash and no-update behavior. Confirm installation only if fresh device diagnostics/logs prove it; obtain physical layout feedback after delivery.
-- [ ] Update handoff/operations with evidence and remaining physical-verification boundary; commit/push documentation.
+- [x] Commit/push only task files. Check current stable sequence and existing signing key; build/freeze and publish the next signed release using existing procedure. Preserve device NVS/cue cache and server runtime.
+- [x] Verify external signature/image/hash and no-update behavior. Confirm installation only if fresh device diagnostics/logs prove it; obtain physical layout feedback after delivery.
+- [x] Update handoff/operations with evidence and remaining physical-verification boundary; commit/push documentation.
 
 ## Verification before release
 
@@ -44,3 +44,7 @@ found no actionable issues. Physical button-side acceptance remains pending.
 Panel evidence: MADCTL=0 and native portrait front button beyond y239;
 90 maps that edge to logical x239,270 to x0. Official hardware image:
 https://m5stack-doc.oss-cn-shenzhen.aliyuncs.com/1207/IMU-StickS3.jpg
+
+Release33 published and externally verified; new build boot observed in device
+diagnostics (boot127471008, backend6118ms). Physical layout feedback remains
+pending; no USB/self-test log available. See operations/screen-orientation.md.

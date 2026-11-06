@@ -102,3 +102,32 @@ No user recording after this UI-only update has been claimed. User confirmed the
 on the left the physical button is left of the screen while its hint remains
 on the right. Swapping column positions for that orientation was proposed but
 not implemented before handoff. See [current handoff](recorder-handoff-2026-11-06-vector.md).
+
+
+## Button-side landscape correction, OTA33 (2026-11-06)
+
+Source `b19f4ff177b75ed6dd14a3fb9c0bd5d8e3855d65` passes rotation from board
+and preview into the renderer. At270 (physical front button left), the intact
+state column moves right and indicators/button guidance move left. At90 the
+original layout remains. Text/icons are translated, not reflected. Portrait,
+setup QR, sensor and audio behavior are unchanged.
+
+![Button-side landscape layouts](button-side-landscape-2026-11-06.png)
+
+Parent independently passed160 native tests and a clean StickS3 build, verified
+222 tracked snapshot files, rollback, PSRAM, two SNTP slots and OTA partitions.
+All32 inverse transforms passed;50/64 baseline frames match byte-for-byte,
+with only14 non-setup270-degree frames changed. Astra reviewed source and
+previews without actionable findings.
+
+Signed OTA33 is published. Image1692320 bytes, SHA256
+`9d7b7b45f90d9ad274423d39123b5c272c81affb6eb43b9c4a87bf66285b98e0`.
+External HTTPS verified envelope signature, full image size/hash, current33→204,
+unauthenticated→401. Existing signing key retained; backend was not restarted.
+
+After publication a new device diagnostic arrived at epoch1793984641:
+boot_id127471008, revision `Nov 6 2026 10:05:09` (this clean build), uptime28812ms,
+backendHTTP200, backend_ready_ms6118. This is evidence that the new firmware
+booted and reached the server, not merely publication. No USB installation or
+local-self-test log was available on Vector; physical button-side acceptance
+in both landscape positions remains pending. No audio quality claim is made.
