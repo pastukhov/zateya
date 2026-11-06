@@ -22,14 +22,30 @@
 
 Files: `firmware/sdkconfig.defaults`, an appropriate existing configuration check if present, and operation notes. Generated `sdkconfig.sticks3` is not a substitute for defaults used by release builds.
 
-- [ ] Inspect ESP-IDF AES configuration and confirm disabling `CONFIG_MBEDTLS_HARDWARE_AES` selects software AES without disabling AES/GCM/TLS.
-- [ ] Add the minimal target default and explain the observed internal DMA allocation failure. Do not patch vendor sources or shrink TLS record limits.
-- [ ] Run native firmware tests and target build; inspect generated config to prove hardware AES is off, software AES/GCM and external TLS allocations remain enabled.
-- [ ] Parent reviews changes and independently runs relevant tests/build. Commit/push only task files after passing checks.
+- [x] Inspect ESP-IDF AES configuration and confirm disabling `CONFIG_MBEDTLS_HARDWARE_AES` selects software AES without disabling AES/GCM/TLS.
+- [x] Add the minimal target default and explain the observed internal DMA allocation failure. Do not patch vendor sources or shrink TLS record limits.
+- [x] Run native firmware tests and target build; inspect generated config to prove hardware AES is off, software AES/GCM and external TLS allocations remain enabled.
+- [x] Parent reviews changes and independently runs relevant tests/build. Commit/push only task files after passing checks.
 
 ## Task2: Release and physical verification
 
-- [ ] Build next signed OTA through existing release script, verify signature/hash/size and publish using established procedure, preserving rollback.
-- [ ] Confirm installation on device7ce8b1e4b780 by revision/sequence and USB journal.
+- [x] Build next signed OTA through existing release script, verify signature/hash/size and publish using established procedure, preserving rollback.
+- [x] Confirm installation on device7ce8b1e4b780 by revision/sequence and USB journal.
 - [ ] User makes a voice trial; verify completed audio transfer, absence of AES allocation/TLS errors, and audible response. Do not call publication hardware success.
 - [ ] Document remaining LittleFS problem separately; its recovery needs inspection of this device's actual flash before any destructive proposal.
+
+## Verification checkpoint
+
+Sol implemented the configuration change; parent independently reviewed it,
+passed160/160 native tests and the StickS3 build. Commit `f60621a` is pushed.
+A separate clean225-file snapshot produced signed OTA34,1697568 bytes, SHA256
+`a1df444f756437fa373a76f4141640353e64afffba3910e4da22ee3b13a1e8ef`.
+Generated release configuration confirms software AES/GCM, external TLS memory,
+CA bundle, rollback and two SNTP servers. External HTTPS signature/hash/full-image
+verification passed; current34 returns204. Stable-pointer read permission was
+corrected before the successful update check.
+
+USB `/tmp/zateya-home-ota34-install.log` records release34 installed at18494ms,
+new build `Nov 6 2026 22:29:47`, and local self-test confirmation at2405ms.
+Physical voice-answer acceptance is pending. The separate LittleFS mount
+failure remains; no flash cache or settings were erased.
