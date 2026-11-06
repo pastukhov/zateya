@@ -12,7 +12,7 @@
 - [x] Add native regression tests using a small injectable setup helper if necessary: first transfer failure then success, persistent failure, failure mid-sequence and successful retry, unrelated bits preserved. Keep board glue minimal.
 - [x] Parent independently runs native tests and target build, reviews diff; commit/push task changes.
 - [x] Build next signed OTA from clean committed source; verify configuration/signature/hash and externally served image, publish readable stable pointer atomically. Confirm actual installation/self-test and USB logs show rails enabled/audio initialized.
-- [ ] User checks visible screen and front button, then one voice trial; record physical result separately from compilation and OTA publication. If power remains unavailable, do not falsely mark image self-test successful.
+- [x] User checks visible screen and front button, then one voice trial; record physical result separately from compilation and OTA publication. If power remains unavailable, do not falsely mark image self-test successful.
 
 ## Primary reference and observed limits
 
@@ -42,5 +42,8 @@ then release35 installation at29403ms and reboot. New35 reports M5PM1 rails
 enabled1645ms, backlight60% at2025ms, ES8311 ready2375ms, local image confirmed
 2505ms. Device boot_id2598667485; new build Nov6 23:06:00 (diagnostic timestamp
 23:05:59). No repeated ES8311 initialization failure in this new boot.
-Physical screen/button/voice acceptance requested and still pending.
+Physical acceptance confirmed by the user on2026-11-07 (Europe/Moscow):
+“Экран появился, кнопка работает”, followed by “да” to the OTA35 screen,
+button, short recording and voice-answer check. This confirms the reported
+scenario on this device; repeated cold-start endurance was not tested.
 No configuration, NVS, partition table or cue-store data was erased.
